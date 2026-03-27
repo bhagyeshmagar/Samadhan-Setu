@@ -1,0 +1,259 @@
+@import "tailwindcss";
+
+/* ===== CSS Variables for Theme Support ===== */
+:root {
+  /* Light Mode Colors - Clean Slate */
+  --background: #f8fafc;
+  /* Slate 50 */
+  --background-secondary: #ffffff;
+  --background-tertiary: #f1f5f9;
+  /* Slate 100 */
+
+  --foreground: #0f172a;
+  /* Slate 900 */
+  --foreground-secondary: #334155;
+  /* Slate 700 */
+  --foreground-muted: #64748b;
+  /* Slate 500 */
+
+  /* Card & Surface */
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  /* Slate 200 */
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --card-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+
+  /* Input & Form */
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  /* Slate 300 */
+  --input-focus: #3b82f6;
+  /* Blue 500 */
+
+  /* Brand Colors */
+  --primary: #2563eb;
+  /* Blue 600 */
+  --primary-hover: #1d4ed8;
+  /* Blue 700 */
+  --primary-light: #eff6ff;
+  /* Blue 50 */
+
+  --accent: #f97316;
+  /* Orange 500 */
+  --accent-hover: #ea580c;
+  /* Orange 600 */
+
+  /* Navigation */
+  --nav-bg: #ffffff;
+  --nav-text: #0f172a;
+  --nav-border: #e2e8f0;
+
+  /* Footer */
+  --footer-bg: #f8fafc;
+  --footer-text: #64748b;
+
+  /* Gradients */
+  --gradient-hero: linear-gradient(to right, #2563eb, #1d4ed8);
+}
+
+.dark {
+  /* Dark Mode Colors - Deep Slate */
+  --background: #020617;
+  /* Slate 950 */
+  --background-secondary: #0f172a;
+  /* Slate 900 */
+  --background-tertiary: #1e293b;
+  /* Slate 800 */
+
+  --foreground: #f8fafc;
+  /* Slate 50 */
+  --foreground-secondary: #cbd5e1;
+  /* Slate 300 */
+  --foreground-muted: #94a3b8;
+  /* Slate 400 */
+
+  /* Card & Surface */
+  --card-bg: #0f172a;
+  /* Slate 900 */
+  --card-border: #1e293b;
+  /* Slate 800 */
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --card-shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+
+  /* Input & Form */
+  --input-bg: #0f172a;
+  --input-border: #334155;
+  /* Slate 700 */
+  --input-focus: #60a5fa;
+  /* Blue 400 */
+
+  /* Brand Colors - adjusted for dark mode */
+  --primary: #3b82f6;
+  /* Blue 500 */
+  --primary-hover: #60a5fa;
+  /* Blue 400 */
+  --primary-light: #172554;
+  /* Blue 950 */
+
+  --accent: #fb923c;
+  /* Orange 400 */
+  --accent-hover: #f97316;
+  /* Orange 500 */
+
+  /* Navigation */
+  --nav-bg: #020617;
+  /* Slate 950 */
+  --nav-text: #e2e8f0;
+  --nav-border: #1e293b;
+
+  /* Footer */
+  --footer-bg: #020617;
+  --footer-text: #94a3b8;
+
+  /* Gradients */
+  --gradient-hero: linear-gradient(to right, #0f172a, #1e3a8a);
+}
+
+/* ===== Global Theme Styles ===== */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ===== Utility Classes ===== */
+
+/* Base Backgrounds */
+.bg-theme {
+  background-color: var(--background);
+}
+
+.bg-theme-secondary {
+  background-color: var(--background-secondary);
+}
+
+.bg-theme-tertiary {
+  background-color: var(--background-tertiary);
+}
+
+/* Typography */
+.text-theme {
+  color: var(--foreground);
+}
+
+.text-theme-secondary {
+  color: var(--foreground-secondary);
+}
+
+.text-theme-muted {
+  color: var(--foreground-muted);
+}
+
+/* Cards & Surfaces */
+.card-theme {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.card-theme:hover {
+  border-color: var(--primary);
+}
+
+.card-theme-elevated {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow-lg);
+}
+
+/* Inputs */
+.input-theme {
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--foreground);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-theme:focus {
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  outline: none;
+}
+
+.input-theme::placeholder {
+  color: var(--foreground-muted);
+}
+
+/* Buttons */
+.btn-primary {
+  background-color: var(--primary);
+  color: white;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-accent {
+  background-color: var(--accent);
+  color: white;
+  transition: all 0.2s ease;
+}
+
+.btn-accent:hover {
+  background-color: var(--accent-hover);
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.2);
+}
+
+/* Navigation */
+.nav-theme {
+  background-color: var(--nav-bg);
+  border-bottom: 1px solid var(--nav-border);
+  color: var(--nav-text);
+  backdrop-filter: blur(8px);
+  /* Glassmorphism if supported */
+}
+
+/* Footer */
+.footer-theme {
+  background-color: var(--footer-bg);
+  color: var(--footer-text);
+  border-top: 1px solid var(--card-border);
+}
+
+/* Helper Utilities */
+.border-theme {
+  border-color: var(--card-border);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 5px;
+  border: 2px solid var(--background);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground-muted);
+}
