@@ -4,14 +4,14 @@ Analytics Router
 API endpoints for AI-powered analytics including heatmaps and clustering.
 Provides visibility into issue patterns for proactive governance.
 """
-from typing import List, Optional
+from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from datetime import datetime, timedelta
 
 from ..database import get_db
 from ..auth import get_current_user
-from ..models import User, UserRole
+from ..models import User, UserRole, Complaint, Department
 from ..services.heatmap_generator import (
     generate_category_heatmap,
     generate_locality_heatmap,
@@ -72,7 +72,7 @@ class RecurringIssueResponse(BaseModel):
     unique_issues: int
     recurring_patterns: int
     severity: str
-    sample_complaints: List[int]
+    sample_complaints: List[str]  # Changed to str since Firestore IDs are strings
 
 
 # ========== Endpoints ==========
@@ -82,12 +82,8 @@ async def get_category_heatmap(
     category: Optional[str] = None,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get heatmap data aggregated by complaint category.
-    Shows which categories have the most issues.
-    """
     result = generate_category_heatmap(db, category, days)
     return CategoryHeatmapResponse(**result)
 
@@ -97,12 +93,8 @@ async def get_locality_heatmap(
     category: Optional[str] = None,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get heatmap data aggregated by ward/locality.
-    Shows which areas have the most issues (optionally filtered by category).
-    """
     result = generate_locality_heatmap(db, category, days)
     return LocalityHeatmapResponse(**result)
 
@@ -111,12 +103,8 @@ async def get_locality_heatmap(
 async def get_matrix_heatmap(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get matrix heatmap: categories vs localities.
-    Useful for identifying which categories are problematic in which areas.
-    """
     return generate_category_by_locality_heatmap(db, days)
 
 
@@ -126,12 +114,8 @@ async def get_trend_heatmap(
     days: int = Query(30, ge=1, le=365),
     group_by: str = Query("day", regex="^(day|week)$"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get time-series trend data for complaints.
-    Shows how issue volumes change over time.
-    """
     return generate_time_trend_heatmap(db, category, days, group_by)
 
 
@@ -140,12 +124,8 @@ async def get_problem_areas(
     limit: int = Query(10, ge=1, le=50),
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get the top problem areas (ward + category combinations).
-    Useful for prioritizing resource allocation.
-    """
     return get_top_problem_areas(db, limit, days)
 
 
@@ -156,12 +136,8 @@ async def get_complaint_clusters(
     days: int = Query(30, ge=1, le=365),
     min_size: int = Query(2, ge=2, le=20),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get clustered complaints grouped by semantic similarity.
-    Helps identify duplicate or related complaints.
-    """
     result = get_clustered_complaints(db, category, ward, days, min_size)
     return ClusterResponse(**result)
 
@@ -171,12 +147,8 @@ async def get_recurring_issues(
     days: int = Query(30, ge=1, le=365),
     threshold: int = Query(3, ge=2, le=20),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Identify recurring issues in specific areas.
-    Useful for detecting systemic problems that need policy intervention.
-    """
     return identify_recurring_issues(db, days, threshold)
 
 
@@ -184,11 +156,8 @@ async def get_recurring_issues(
 async def get_analytics_summary(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get a combined analytics summary for dashboard display.
-    """
     category_heatmap = generate_category_heatmap(db, None, days)
     locality_heatmap = generate_locality_heatmap(db, None, days)
     top_areas = get_top_problem_areas(db, 5, days)
@@ -207,47 +176,47 @@ async def get_analytics_summary(
 
 @router.get("/map-data")
 async def get_map_data(
-    department_id: Optional[int] = None,
+    department_id: Optional[str] = None,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get complaint data with coordinates for map visualization.
-    - Officers: automatically filtered to their department
-    - Admin: can filter by department or see all
-    """
-    from datetime import datetime, timedelta
-    from ..models import Complaint, Department
-    
     cutoff = datetime.utcnow() - timedelta(days=days)
     
-    query = db.query(Complaint).filter(
-        Complaint.created_at >= cutoff,
-        Complaint.latitude.isnot(None),
-        Complaint.longitude.isnot(None)
-    )
+    query = db.collection('complaints').where('created_at', '>=', cutoff)
+    docs = query.get()
     
+    all_complaints = []
+    for doc in docs:
+        c = Complaint.from_firestore(doc)
+        if c.latitude is not None and c.longitude is not None:
+            all_complaints.append(c)
+            
     # Filter by department
+    filtered_complaints = []
     dept_name = None
-    if current_user.role == UserRole.OFFICER:
-        # Officers see only their department
-        query = query.filter(Complaint.department_id == current_user.department_id)
-        dept = db.query(Department).filter(Department.id == current_user.department_id).first()
-        dept_name = dept.name if dept else None
-    elif department_id:
-        # Admin filtering by specific department
-        query = query.filter(Complaint.department_id == department_id)
-        dept = db.query(Department).filter(Department.id == department_id).first()
-        dept_name = dept.name if dept else None
     
-    complaints = query.order_by(Complaint.created_at.desc()).all()
+    if current_user.role == UserRole.OFFICER:
+        filtered_complaints = [c for c in all_complaints if c.department_id == current_user.department_id]
+        if current_user.department_id:
+            dept_doc = db.collection('departments').document(current_user.department_id).get()
+            if dept_doc.exists:
+                dept_name = dept_doc.to_dict().get('name')
+    elif department_id:
+        filtered_complaints = [c for c in all_complaints if c.department_id == department_id]
+        dept_doc = db.collection('departments').document(department_id).get()
+        if dept_doc.exists:
+            dept_name = dept_doc.to_dict().get('name')
+    else:
+        filtered_complaints = all_complaints
+        
+    filtered_complaints.sort(key=lambda x: x.created_at, reverse=True)
     
     # Get all departments for the filter dropdown (admin only)
     departments = []
     if current_user.role == UserRole.ADMIN:
-        depts = db.query(Department).all()
-        departments = [{"id": d.id, "name": d.name} for d in depts]
+        dept_docs = db.collection('departments').get()
+        departments = [{"id": d.id, "name": d.to_dict().get('name')} for d in dept_docs]
     
     return {
         "complaints": [
@@ -262,10 +231,10 @@ async def get_map_data(
                 "location": c.location,
                 "created_at": c.created_at.isoformat()
             }
-            for c in complaints
+            for c in filtered_complaints
         ],
         "department_filter": dept_name,
         "departments": departments,
-        "total": len(complaints),
+        "total": len(filtered_complaints),
         "period_days": days
     }

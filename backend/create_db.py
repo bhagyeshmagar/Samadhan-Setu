@@ -1,75 +1,37 @@
 """
-Script to create the PostgreSQL database for Samadhan Setu
+Script to verify Firestore database connection for Samadhan Setu.
+Firestore is schemaless, so this script just ensures the credentials
+are valid and the client can connect to the project.
 """
-import psycopg2
-from psycopg2 import sql
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Get database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:PgPass123@localhost:5432/samadhan_setu")
+# Add parent directory to path so we can import app modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Parse the connection string
-# Format: postgresql://user:password@host:port/dbname
-parts = DATABASE_URL.replace("postgresql://", "").split("@")
-user_pass = parts[0].split(":")
-user = user_pass[0]
-password = user_pass[1] if len(user_pass) > 1 else ""
-
-host_port_db = parts[1].split("/")
-host_port = host_port_db[0].split(":")
-host = host_port[0]
-port = host_port[1] if len(host_port) > 1 else "5432"
-dbname = host_port_db[1]
-
-print(f"Attempting to connect to PostgreSQL...")
-print(f"Host: {host}")
-print(f"Port: {port}")
-print(f"User: {user}")
-print(f"Database to create: {dbname}")
+from app.database import get_db
 
 try:
-    # Connect to PostgreSQL server (to the default 'postgres' database)
-    conn = psycopg2.connect(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        database="postgres"
-    )
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    print("Initializing Firebase Admin SDK...")
+    # get_db returns the client directly
+    db = get_db()
     
-    cursor = conn.cursor()
+    # Perform a simple read test
+    print("Testing connection to Firestore...")
+    collections = db.collections()
+    collection_names = [coll.id for coll in collections]
     
-    # Check if database exists
-    cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
-    exists = cursor.fetchone()
-    
-    if exists:
-        print(f"✓ Database '{dbname}' already exists!")
-    else:
-        # Create database
-        cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(dbname)))
-        print(f"✓ Database '{dbname}' created successfully!")
-    
-    cursor.close()
-    conn.close()
-    print("\n✓ Database setup complete!")
-    
-except psycopg2.OperationalError as e:
-    print(f"\n✗ Connection failed: {e}")
-    print("\nPossible issues:")
-    print("1. PostgreSQL server is not running")
-    print("2. Incorrect password in .env file")
-    print("3. PostgreSQL is not configured to accept password authentication")
-    print("\nTo fix:")
-    print("- Check if PostgreSQL service is running")
-    print("- Verify the password in your .env file")
-    print("- Check pg_hba.conf for authentication settings")
-    exit(1)
+    print("\n✓ Successfully connected to Firestore!")
+    print(f"✓ Found {len(collection_names)} existing collections.")
+    if collection_names:
+        print("  - " + "\n  - ".join(collection_names))
+        
+    print("\n✓ Database setup complete! No schema creation required for Firestore.")
+
 except Exception as e:
-    print(f"\n✗ Error: {e}")
+    print(f"\n✗ Error connecting to Firestore: {e}")
+    print("Please ensure your 'firebase-credentials.json' is valid and placed in the 'backend' folder.")
     exit(1)

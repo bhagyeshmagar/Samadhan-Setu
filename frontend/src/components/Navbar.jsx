@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { Menu, X, Home, Globe, ChevronDown } from 'lucide-react';
+import { Menu, X, User, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import ThemeToggle from './ThemeToggle';
 
@@ -18,173 +18,137 @@ export default function Navbar() {
     };
 
     return (
-        <header className="w-full shadow-md z-50">
-            {/* Top Strip */}
-            <div className="bg-theme-tertiary text-xs py-1 px-4 border-b border-theme flex justify-between items-center text-theme-muted">
-                <div className="flex gap-4">
-                    <span>Samadhan Setu Portal</span>
-                </div>
-                <div className="flex gap-4 items-center">
-                    {/* <span className="cursor-pointer hover:text-[var(--primary)] hidden sm:inline">Skip to Main Content</span>
-                        <span className="text-theme-muted hidden sm:inline">|</span>
-                        <button className="hover:text-theme font-bold">A+</button>
-                        <button className="hover:text-theme">A</button>
-                        <button className="hover:text-theme text-xs">A-</button> */}
-                    {/* <span className="text-theme-muted">|</span> */}
-                    <ThemeToggle />
-                    <span className="text-theme-muted hidden sm:inline">|</span>
-                    <button className="flex items-center gap-1 hover:text-[var(--primary)] hidden sm:flex">
-                        <Globe size={12} /> English <ChevronDown size={10} />
-                    </button>
-                </div>
-            </div>
-
-            {/* Main Header */}
-            <div className="bg-theme-secondary px-4 py-3 md:px-8 flex justify-between items-center border-b border-theme">
-                <Link href="/" className="flex items-center gap-4 cursor-pointer">
-                    {/* Logo */}
-                    <div className="w-10 h-10 bg-gradient-to-b from-blue-600 to-blue-800 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-md">
+        <header className="glass-navbar flex items-center justify-between px-6 py-3 transition-all duration-300">
+            {/* Logo area */}
+            <div className="flex items-center gap-6">
+                <Link href="/" className="flex items-center gap-3 cursor-pointer group">
+                    <div className="w-8 h-8 bg-black dark:bg-white rounded-lg flex items-center justify-center text-white dark:text-black font-bold text-sm shadow-sm transition-transform group-hover:scale-105">
                         SS
                     </div>
-
                     <div>
-                        <h1 className="text-xl md:text-2xl font-bold text-[var(--primary)] tracking-tight">
-                            Samadhan Setu
+                        <h1 className="text-lg font-bold text-theme tracking-tight leading-none">
+                            Samadhan
                         </h1>
-                        <p className="text-xs md:text-sm text-[var(--accent)] font-semibold tracking-wide">
-                            AI-Powered Grievance Platform
-                        </p>
                     </div>
                 </Link>
 
-                {/* Mobile Menu Button */}
-                <button
-                    className="md:hidden p-2 text-theme"
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                >
-                    {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-                </button>
-            </div>
-
-            {/* Navigation Bar */}
-            <nav className="nav-theme px-4 md:px-8 py-0 shadow-lg overflow-x-auto">
-                <ul className="hidden md:flex items-center gap-1 min-w-max">
-                    <li>
-                        <Link href="/" className="px-4 py-3 hover:bg-[var(--nav-text)] hover:text-[var(--nav-bg)] cursor-pointer text-sm font-medium flex items-center gap-2 border-b-4 border-transparent hover:border-[var(--accent)] transition-all">
-                            <Home size={16} /> Home
-                        </Link>
-                    </li>
+                {/* Desktop Nav Links */}
+                <nav className="hidden md:flex items-center gap-1 ml-4 border-l border-theme pl-6">
+                    <Link href="/" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                        Overview
+                    </Link>
 
                     {user?.role === 'citizen' && (
                         <>
-                            <li>
-                                <Link href="/citizen/lodge" className="px-4 py-3 hover:bg-[var(--nav-hover)] cursor-pointer text-sm font-medium border-b-4 border-transparent hover:border-[var(--accent)] transition-all block">
-                                    Lodge Grievance
-                                </Link>
-                            </li>
-                            <li>
-                                <Link href="/citizen/track" className="px-4 py-3 hover:bg-[var(--nav-hover)] cursor-pointer text-sm font-medium border-b-4 border-transparent hover:border-[var(--accent)] transition-all block">
-                                    My Status
-                                </Link>
-                            </li>
-                            <li>
-                                <Link href="/citizen/community" className="px-4 py-3 hover:bg-[var(--nav-hover)] cursor-pointer text-sm font-medium border-b-4 border-transparent hover:border-[var(--accent)] transition-all block">
-                                    Community Feed
-                                </Link>
-                            </li>
+                            <Link href="/citizen/lodge" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                                Lodge Issue
+                            </Link>
+                            <Link href="/citizen/track" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                                Track
+                            </Link>
+                            <Link href="/citizen/community" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                                Community
+                            </Link>
                         </>
                     )}
 
                     {user?.role === 'officer' && (
                         <>
-                            <li>
-                                <Link href="/department" className="px-4 py-3 hover:bg-[var(--nav-hover)] cursor-pointer text-sm font-medium border-b-4 border-transparent hover:border-[var(--accent)] transition-all block">
-                                    Department Dashboard
-                                </Link>
-                            </li>
-                            <li>
-                                <Link href="/department/map" className="px-4 py-3 hover:bg-[var(--nav-hover)] cursor-pointer text-sm font-medium border-b-4 border-transparent hover:border-[var(--accent)] transition-all block">
-                                    Issue Map
-                                </Link>
-                            </li>
+                            <Link href="/department" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                                Dashboard
+                            </Link>
+                            <Link href="/department/map" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                                Analytics
+                            </Link>
                         </>
                     )}
 
                     {user?.role === 'admin' && (
                         <>
-                            <li>
-                                <Link href="/admin" className="px-4 py-3 hover:bg-[var(--nav-hover)] cursor-pointer text-sm font-medium border-b-4 border-transparent hover:border-[var(--accent)] transition-all block">
-                                    Admin Dashboard
-                                </Link>
-                            </li>
-                            <li>
-                                <Link href="/admin/map" className="px-4 py-3 hover:bg-[var(--nav-hover)] cursor-pointer text-sm font-medium border-b-4 border-transparent hover:border-[var(--accent)] transition-all block">
-                                    District Map
-                                </Link>
-                            </li>
+                            <Link href="/admin" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                                Oversight
+                            </Link>
+                            <Link href="/admin/map" className="px-3 py-1.5 text-sm font-medium text-theme-muted hover:text-theme rounded-md hover:bg-theme-tertiary transition-colors">
+                                Districts
+                            </Link>
                         </>
                     )}
+                </nav>
+            </div>
 
-                    <div className="flex-grow"></div>
-
+            {/* Actions area */}
+            <div className="flex items-center gap-3">
+                <ThemeToggle />
+                
+                <div className="hidden md:flex items-center gap-3">
                     {user ? (
-                        <li className="px-4 py-3 bg-[var(--background-tertiary)] flex items-center gap-3">
-                            <div className="flex flex-col text-right leading-tight">
-                                <span className="text-xs text-theme-muted">Welcome,</span>
-                                <span className="font-semibold text-sm text-theme">{user.name}</span>
-                            </div>
+                        <div className="flex items-center gap-3 pl-3 border-l border-theme object-contain">
+                            <span className="text-xs font-semibold px-2 py-1 rounded bg-theme-tertiary text-theme-secondary flex items-center gap-1">
+                                <User size={12} /> {user.name}
+                            </span>
                             <button
                                 onClick={handleLogout}
-                                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs ml-2 transition shadow-sm font-medium"
+                                className="text-theme-muted hover:text-red-500 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20"
+                                title="Sign out"
                             >
-                                Logout
+                                <LogOut size={16} />
                             </button>
-                        </li>
+                        </div>
                     ) : (
-                        <li>
-                            <Link
-                                href="/login"
-                                className="px-6 py-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] cursor-pointer font-bold text-sm tracking-wide border-b-4 border-orange-800 block transition"
-                            >
-                                LOGIN / REGISTER
-                            </Link>
-                        </li>
+                        <Link
+                            href="/login"
+                            className="btn-primary text-xs px-4 py-2 rounded-full cursor-pointer transition select-none"
+                        >
+                            Sign In
+                        </Link>
                     )}
-                </ul>
+                </div>
 
-                {/* Mobile Menu */}
-                {mobileMenuOpen && (
-                    <ul className="md:hidden flex flex-col py-2">
-                        <li>
-                            <Link href="/" className="px-4 py-3 hover:bg-[var(--nav-hover)] block" onClick={() => setMobileMenuOpen(false)}>
-                                Home
-                            </Link>
-                        </li>
-                        {user?.role === 'citizen' && (
-                            <>
-                                <li><Link href="/citizen/lodge" className="px-4 py-3 hover:bg-[var(--nav-hover)] block" onClick={() => setMobileMenuOpen(false)}>Lodge Grievance</Link></li>
-                                <li><Link href="/citizen/track" className="px-4 py-3 hover:bg-[var(--nav-hover)] block" onClick={() => setMobileMenuOpen(false)}>My Status</Link></li>
-                                <li><Link href="/citizen/community" className="px-4 py-3 hover:bg-[var(--nav-hover)] block" onClick={() => setMobileMenuOpen(false)}>Community Feed</Link></li>
-                            </>
-                        )}
-                        {user?.role === 'officer' && (
-                            <li><Link href="/department" className="px-4 py-3 hover:bg-[var(--nav-hover)] block" onClick={() => setMobileMenuOpen(false)}>Dashboard</Link></li>
-                        )}
-                        {user?.role === 'admin' && (
-                            <li><Link href="/admin" className="px-4 py-3 hover:bg-[var(--nav-hover)] block" onClick={() => setMobileMenuOpen(false)}>Admin</Link></li>
-                        )}
-                        {user ? (
-                            <li>
-                                <button onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="px-4 py-3 text-red-300 hover:bg-[var(--nav-hover)] w-full text-left">
-                                    Logout ({user.name})
-                                </button>
-                            </li>
-                        ) : (
-                            <li><Link href="/login" className="px-4 py-3 bg-[var(--accent)] block" onClick={() => setMobileMenuOpen(false)}>Login / Register</Link></li>
-                        )}
-                    </ul>
-                )}
-            </nav>
+                {/* Mobile Menu Button */}
+                <button
+                    className="md:hidden p-1.5 rounded-md text-theme-secondary hover:bg-theme-tertiary"
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                >
+                    {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+                </button>
+            </div>
+
+            {/* Mobile Nav Dropdown */}
+            {mobileMenuOpen && (
+                <div className="absolute top-full left-0 right-0 mt-2 p-2 bg-theme-secondary border border-theme shadow-xl rounded-xl md:hidden overflow-hidden flex flex-col gap-1 z-50 animate-in slide-in-from-top-2">
+                    <Link href="/" className="px-4 py-3 text-sm font-medium text-theme-secondary hover:text-theme hover:bg-theme-tertiary rounded-lg" onClick={() => setMobileMenuOpen(false)}>
+                        Overview
+                    </Link>
+                    
+                    {user?.role === 'citizen' && (
+                        <>
+                            <Link href="/citizen/lodge" className="px-4 py-3 text-sm font-medium text-theme-secondary hover:text-theme hover:bg-theme-tertiary rounded-lg" onClick={() => setMobileMenuOpen(false)}>Lodge Issue</Link>
+                            <Link href="/citizen/track" className="px-4 py-3 text-sm font-medium text-theme-secondary hover:text-theme hover:bg-theme-tertiary rounded-lg" onClick={() => setMobileMenuOpen(false)}>Track Status</Link>
+                            <Link href="/citizen/community" className="px-4 py-3 text-sm font-medium text-theme-secondary hover:text-theme hover:bg-theme-tertiary rounded-lg" onClick={() => setMobileMenuOpen(false)}>Community</Link>
+                        </>
+                    )}
+                    
+                    {user?.role === 'officer' && (
+                        <Link href="/department" className="px-4 py-3 text-sm font-medium text-theme-secondary hover:text-theme hover:bg-theme-tertiary rounded-lg" onClick={() => setMobileMenuOpen(false)}>Department Dashboard</Link>
+                    )}
+                    
+                    {user?.role === 'admin' && (
+                        <Link href="/admin" className="px-4 py-3 text-sm font-medium text-theme-secondary hover:text-theme hover:bg-theme-tertiary rounded-lg" onClick={() => setMobileMenuOpen(false)}>Admin Dashboard</Link>
+                    )}
+                    
+                    <div className="my-1 border-t border-theme"></div>
+                    
+                    {user ? (
+                        <button onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="px-4 py-3 text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 rounded-lg text-left flex items-center gap-2">
+                            <LogOut size={16} /> Sign out {user.name}
+                        </button>
+                    ) : (
+                        <Link href="/login" className="px-4 py-3 text-sm font-medium bg-theme text-theme rounded-lg text-center border border-theme" onClick={() => setMobileMenuOpen(false)}>
+                            Sign In
+                        </Link>
+                    )}
+                </div>
+            )}
         </header>
     );
 }

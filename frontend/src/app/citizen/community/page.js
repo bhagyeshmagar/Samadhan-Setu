@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { complaintsAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
-import { MapPin, ThumbsUp, AlertTriangle, Loader2, RefreshCw, Users } from 'lucide-react';
+import { MapPin, ThumbsUp, AlertTriangle, Loader2, RefreshCw, Activity } from 'lucide-react';
 
 export default function CommunityFeed() {
     const { user } = useAuth();
@@ -53,7 +53,6 @@ export default function CommunityFeed() {
         setUpvoting(id);
         try {
             await complaintsAPI.upvote(id);
-            // Update local state
             setComplaints(prev => prev.map(c =>
                 c.id === id ? { ...c, upvotes: (c.upvotes || 0) + 1 } : c
             ));
@@ -68,163 +67,143 @@ export default function CommunityFeed() {
     };
 
     return (
-        <div className="max-w-5xl mx-auto my-8 px-4">
+        <div className="max-w-5xl mx-auto my-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Header */}
-            <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
                 <div>
-                    <h2 className="text-2xl font-bold text-theme flex items-center gap-2">
-                        <Users className="text-[var(--primary)]" /> Community Feed
-                    </h2>
-                    <p className="text-sm text-theme-muted">Public grievances from citizens. Upvote to boost priority!</p>
+                    <h2 className="text-3xl font-bold tracking-tight text-theme mb-2">Community Radar</h2>
+                    <p className="text-sm text-theme-muted">Public anomalies reported by local residents. Upvote to elevate priority.</p>
                 </div>
                 <button
                     onClick={fetchComplaints}
                     disabled={loading}
-                    className="flex items-center gap-2 px-3 py-2 bg-theme-tertiary hover:bg-theme-secondary border border-theme rounded-lg text-sm transition text-theme-secondary"
+                    className="flex items-center gap-2 px-4 py-2 bg-theme-secondary border border-theme rounded-lg text-xs font-semibold tracking-wider uppercase text-theme hover:bg-theme-tertiary transition-colors"
                 >
-                    <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                    Refresh
+                    <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                    Sync
                 </button>
             </div>
 
             {/* Filters */}
-            <div className="flex gap-2 flex-wrap mb-6 bg-theme-tertiary p-3 rounded-lg">
+            <div className="flex flex-wrap gap-4 items-center mb-8 p-2 rounded-xl border border-theme bg-theme-tertiary/50 backdrop-blur-sm">
                 <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="px-3 py-2 text-sm input-theme rounded-lg shadow-sm focus:ring-2 focus:ring-[var(--input-focus)] outline-none"
+                    className="px-4 py-2 text-xs font-semibold tracking-wider text-theme bg-transparent border-r border-theme outline-none cursor-pointer hover:bg-theme/50 rounded-l-lg transition-colors appearance-none"
+                    style={{ minWidth: '160px' }}
                 >
                     {categories.map(cat => (
-                        <option key={cat} value={cat === 'All' ? '' : cat}>{cat}</option>
+                        <option key={cat} value={cat === 'All' ? '' : cat}>{cat} Issues</option>
                     ))}
                 </select>
-                <div className="flex gap-1">
-                    <button
-                        onClick={() => setSortBy('recent')}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg transition ${sortBy === 'recent' ? 'btn-primary' : 'bg-theme-card border border-theme text-theme-secondary hover:bg-theme-secondary'
+                
+                <div className="flex gap-1 pl-2">
+                    {['recent', 'upvotes', 'priority'].map((sortType) => (
+                        <button
+                            key={sortType}
+                            onClick={() => setSortBy(sortType)}
+                            className={`px-4 py-1.5 text-xs font-semibold tracking-wider uppercase rounded-lg transition-all ${
+                                sortBy === sortType 
+                                    ? 'bg-theme text-theme shadow-sm border border-theme' 
+                                    : 'text-theme-muted hover:text-theme hover:bg-theme-secondary/50 border border-transparent'
                             }`}
-                    >
-                        Recent
-                    </button>
-                    <button
-                        onClick={() => setSortBy('upvotes')}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg transition ${sortBy === 'upvotes' ? 'btn-primary' : 'bg-theme-card border border-theme text-theme-secondary hover:bg-theme-secondary'
-                            }`}
-                    >
-                        Top Voted
-                    </button>
-                    <button
-                        onClick={() => setSortBy('priority')}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg transition ${sortBy === 'priority' ? 'btn-primary' : 'bg-theme-card border border-theme text-theme-secondary hover:bg-theme-secondary'
-                            }`}
-                    >
-                        High Priority
-                    </button>
+                        >
+                            {sortType === 'recent' ? 'Latest' : sortType === 'upvotes' ? 'Top Voted' : 'Critical'}
+                        </button>
+                    ))}
                 </div>
             </div>
 
             {/* Error */}
             {error && (
-                <div className="text-[var(--error)] bg-[var(--error-bg)] p-4 rounded-lg mb-4 flex items-center justify-between">
+                <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm mb-6 flex items-center justify-between">
                     <span>{error}</span>
-                    <button onClick={fetchComplaints} className="text-sm underline">Retry</button>
+                    <button onClick={fetchComplaints} className="text-xs uppercase tracking-wider font-bold underline">Retry</button>
                 </div>
             )}
 
             {/* Loading */}
-            {loading && (
-                <div className="flex justify-center items-center py-20">
-                    <Loader2 className="animate-spin text-[var(--primary)]" size={40} />
+            {loading ? (
+                <div className="flex justify-center flex-col gap-4 items-center py-32 opacity-50">
+                    <Loader2 className="animate-spin text-theme" size={32} />
+                    <span className="text-[10px] tracking-widest uppercase font-bold text-theme">Indexing Area Data...</span>
                 </div>
-            )}
+            ) : (
+                <>
+                    {/* Complaints Grid */}
+                    {complaints.length > 0 ? (
+                        <div className="flex flex-col gap-4">
+                            {complaints.map((complaint) => (
+                                <div key={complaint.id} className="glass-panel p-6 group transition-all duration-300">
+                                    <div className="flex flex-col sm:flex-row gap-6">
+                                        
+                                        {/* Voting block */}
+                                        <div className="flex sm:flex-col items-center gap-3 sm:gap-1 sm:w-16 flex-shrink-0 border-b sm:border-b-0 sm:border-r border-theme pb-4 sm:pb-0 sm:pr-4">
+                                            <button
+                                                onClick={() => handleUpvote(complaint.id)}
+                                                disabled={upvoting === complaint.id}
+                                                className={`p-3 rounded-xl border transition-all ${
+                                                    upvoting === complaint.id
+                                                        ? 'bg-theme text-theme border-theme shadow-inner'
+                                                        : 'bg-theme-secondary border-theme text-theme-muted group-hover:border-theme hover:text-theme hover:bg-theme-tertiary'
+                                                }`}
+                                            >
+                                                {upvoting === complaint.id ? <Loader2 className="animate-spin" size={18} /> : <ThumbsUp size={18} />}
+                                            </button>
+                                            <div className="flex flex-col items-center">
+                                                <span className="font-bold text-lg text-theme leading-none">{complaint.upvotes || 0}</span>
+                                                <span className="text-[9px] uppercase tracking-widest text-theme-muted font-bold">Votes</span>
+                                            </div>
+                                        </div>
 
-            {/* Complaints Grid */}
-            {!loading && complaints.length > 0 && (
-                <div className="grid md:grid-cols-2 gap-6">
-                    {complaints.map((complaint) => (
-                        <div key={complaint.id} className="card-theme card-hover-effect p-5 rounded-lg">
-                            <div className="flex gap-4">
-                                {/* Vote Section */}
-                                <div className="flex flex-col items-center justify-start pt-1 gap-1 min-w-[3.5rem]">
-                                    <button
-                                        onClick={() => handleUpvote(complaint.id)}
-                                        disabled={upvoting === complaint.id}
-                                        className={`p-2.5 rounded-full transition ${upvoting === complaint.id
-                                            ? 'bg-orange-100 dark:bg-orange-900/30 text-[var(--accent)]'
-                                            : 'hover:bg-orange-50 dark:hover:bg-orange-900/20 text-theme-muted hover:text-[var(--accent)]'
-                                            }`}
-                                    >
-                                        {upvoting === complaint.id ? (
-                                            <Loader2 className="animate-spin" size={20} />
-                                        ) : (
-                                            <ThumbsUp size={20} />
-                                        )}
-                                    </button>
-                                    <span className="font-bold text-lg text-theme">{complaint.upvotes || 0}</span>
-                                    <span className="text-[10px] text-theme-muted">votes</span>
-                                </div>
-
-                                {/* Content */}
-                                <div className="flex-grow min-w-0">
-                                    <div className="flex justify-between items-start mb-2 gap-2">
-                                        <span className="text-xs font-bold text-[var(--primary)] uppercase bg-[var(--primary-light)] px-2 py-0.5 rounded truncate">
-                                            {complaint.category || 'General'}
-                                        </span>
-                                        <span className="text-xs text-theme-muted whitespace-nowrap">
-                                            {new Date(complaint.created_at).toLocaleDateString()}
-                                        </span>
-                                    </div>
-                                    <p className="font-medium text-theme mb-2 line-clamp-3">
-                                        {complaint.description}
-                                    </p>
-                                    <div className="text-sm text-theme-muted mb-3 flex items-center gap-1">
-                                        <MapPin size={14} className="flex-shrink-0" />
-                                        <span className="truncate">{complaint.location}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between border-t border-theme pt-2 mt-2">
-                                        <Badge status={complaint.status} />
-                                        {complaint.priority === 'HIGH' && (
-                                            <span className="flex items-center gap-1 text-xs font-bold text-[var(--error)]">
-                                                <AlertTriangle size={12} /> High Urgency
-                                            </span>
-                                        )}
+                                        {/* Content block */}
+                                        <div className="flex-grow min-w-0">
+                                            <div className="flex flex-wrap justify-between items-start gap-4 mb-3">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-1 rounded bg-theme-tertiary border border-theme text-theme">
+                                                        {complaint.category || 'General'}
+                                                    </span>
+                                                    {complaint.priority === 'HIGH' && (
+                                                        <span className="flex items-center gap-1 text-[10px] font-bold tracking-widest uppercase text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded border border-red-200 dark:border-red-900/30">
+                                                            <AlertTriangle size={10} /> Critical
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-3 text-xs text-theme-muted">
+                                                    <span>{new Date(complaint.created_at).toLocaleDateString()}</span>
+                                                    <Badge status={complaint.status} />
+                                                </div>
+                                            </div>
+                                            
+                                            <p className="font-medium text-theme text-base mb-4 leading-relaxed pr-8">
+                                                {complaint.description}
+                                            </p>
+                                            
+                                            <div className="flex items-center gap-2 text-xs font-semibold text-theme-muted bg-theme-tertiary/50 w-fit px-3 py-1.5 rounded-lg border border-theme/50">
+                                                <MapPin size={12} className="opacity-60" />
+                                                <span className="truncate max-w-sm">{complaint.location}</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            ))}
                         </div>
-                    ))}
-                </div>
-            )}
-
-            {/* Empty State */}
-            {!loading && complaints.length === 0 && !error && (
-                <div className="text-center py-16 card-theme rounded-lg">
-                    <Users size={48} className="mx-auto text-theme-muted mb-4" />
-                    <h3 className="text-lg font-semibold text-theme-secondary mb-2">No Public Grievances Yet</h3>
-                    <p className="text-theme-muted mb-4">Be the first to submit a public grievance!</p>
-                    {user ? (
-                        <button
-                            onClick={() => router.push('/citizen/lodge')}
-                            className="px-6 py-2 btn-primary rounded-lg transition"
-                        >
-                            Lodge Grievance
-                        </button>
                     ) : (
-                        <button
-                            onClick={() => router.push('/login')}
-                            className="px-6 py-2 btn-primary rounded-lg transition"
-                        >
-                            Login to Submit
-                        </button>
+                        /* Empty State */
+                        <div className="glass-panel text-center py-24 flex flex-col items-center border-dashed">
+                            <Activity size={48} className="text-theme-muted opacity-30 mb-6" />
+                            <h3 className="text-xl font-bold tracking-tight text-theme mb-2">Sector Clear</h3>
+                            <p className="text-theme-muted mb-8 text-sm">No public civic anomalies recorded in this sector matching the filters.</p>
+                            
+                            <button
+                                onClick={() => router.push(user ? '/citizen/lodge' : '/login')}
+                                className="btn-primary px-8 py-3 rounded-xl font-semibold tracking-wide text-sm"
+                            >
+                                {user ? 'Report New Anomaly' : 'Authenticate to Report'}
+                            </button>
+                        </div>
                     )}
-                </div>
-            )}
-
-            {/* Stats */}
-            {!loading && complaints.length > 0 && (
-                <div className="mt-6 text-center text-sm text-theme-muted">
-                    Showing {complaints.length} public grievance{complaints.length !== 1 ? 's' : ''}
-                </div>
+                </>
             )}
         </div>
     );

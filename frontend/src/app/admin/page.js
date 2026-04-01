@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { adminAPI } from '@/lib/api';
 import { useAIServices } from '@/hooks/useAIServices';
-import { BarChart3, AlertTriangle, Users, CheckCircle, Loader2, Sparkles } from 'lucide-react';
+import { BarChart3, AlertTriangle, Users, CheckCircle, Loader2, Sparkles, Activity } from 'lucide-react';
 
 export default function AdminDashboard() {
     const { user, loading: authLoading } = useAuth();
@@ -53,8 +53,8 @@ export default function AdminDashboard() {
 
     if (authLoading || loading) {
         return (
-            <div className="flex justify-center items-center min-h-[60vh]">
-                <Loader2 className="animate-spin text-[var(--primary)]" size={40} />
+            <div className="flex justify-center items-center h-[60vh]">
+                <Loader2 className="animate-spin text-theme opacity-50" size={32} />
             </div>
         );
     }
@@ -66,62 +66,80 @@ export default function AdminDashboard() {
     ];
 
     return (
-        <div className="max-w-6xl mx-auto my-8 px-4">
-            <h2 className="text-2xl font-bold text-theme mb-6">Administration Overview</h2>
+        <div className="max-w-6xl mx-auto my-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-6 border-b border-theme pb-6">
+                <div>
+                    <h2 className="text-4xl font-bold tracking-tight text-theme mb-2">Oversight Command</h2>
+                    <p className="text-sm font-light text-theme-muted">Global civic system metrics and AI pattern recognition.</p>
+                </div>
+                <div className="px-3 py-1 bg-theme-secondary/80 backdrop-blur-sm border border-theme rounded-full flex items-center gap-2 text-[10px] tracking-widest uppercase font-bold text-theme">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span> Systems Nominal
+                </div>
+            </div>
 
             {error && (
-                <div className="text-[var(--error)] bg-[var(--error-bg)] p-3 rounded mb-4">{error}</div>
+                <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm mb-6 flex items-center justify-between">
+                    <span>{error}</span>
+                    <button onClick={fetchData} className="text-xs uppercase tracking-wider font-bold underline">Retry</button>
+                </div>
             )}
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div className="card-theme p-6 rounded-lg border-l-4 border-[var(--primary)]">
-                    <div className="text-theme-muted text-sm font-semibold uppercase">Total Grievances</div>
-                    <div className="text-3xl font-bold text-theme mt-2">{summary?.total_complaints || 0}</div>
+            {/* Top Level Telemetry */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="glass-panel p-6 flex flex-col justify-between h-32">
+                    <div className="text-[10px] text-theme-muted font-bold tracking-widest uppercase break-words leading-tight">Total Volume</div>
+                    <div className="text-4xl md:text-5xl font-bold text-theme tracking-tighter">{summary?.total_complaints || 0}</div>
                 </div>
-                <div className="card-theme p-6 rounded-lg border-l-4 border-[var(--error)]">
-                    <div className="text-theme-muted text-sm font-semibold uppercase">Pending Action</div>
-                    <div className="text-3xl font-bold text-[var(--error)] mt-2">{summary?.pending_action || 0}</div>
+                <div className="glass-panel p-6 flex flex-col justify-between h-32 border-l-2 border-l-red-500">
+                    <div className="text-[10px] text-red-500 font-bold tracking-widest uppercase break-words leading-tight">Action Pending</div>
+                    <div className="text-4xl md:text-5xl font-bold text-theme tracking-tighter">{summary?.pending_action || 0}</div>
                 </div>
-                <div className="card-theme p-6 rounded-lg border-l-4 border-[var(--success)]">
-                    <div className="text-theme-muted text-sm font-semibold uppercase">Resolved</div>
-                    <div className="text-3xl font-bold text-[var(--success)] mt-2">{summary?.resolved || 0}</div>
+                <div className="glass-panel p-6 flex flex-col justify-between h-32 border-l-2 border-l-green-500">
+                    <div className="text-[10px] text-green-500 font-bold tracking-widest uppercase break-words leading-tight">Resolved Issues</div>
+                    <div className="text-4xl md:text-5xl font-bold text-theme tracking-tighter">{summary?.resolved || 0}</div>
                 </div>
-                <div className="card-theme p-6 rounded-lg border-l-4 border-[var(--accent)]">
-                    <div className="text-theme-muted text-sm font-semibold uppercase">Resolution Rate</div>
-                    <div className="text-3xl font-bold text-[var(--accent)] mt-2">
-                        {summary?.resolution_rate || 0}%
+                <div className="glass-panel p-6 flex flex-col justify-between h-32 relative overflow-hidden">
+                    <div className="text-[10px] text-theme-muted font-bold tracking-widest uppercase break-words leading-tight">Efficacy Rate</div>
+                    <div className="text-4xl md:text-5xl font-bold text-theme tracking-tighter">
+                        {summary?.resolution_rate || 0}<span className="text-2xl text-theme-muted">%</span>
                     </div>
                 </div>
             </div>
 
-            {/* AI Insights Section */}
-            <div className="mb-8">
-                <h3 className="font-bold text-theme mb-4 flex items-center gap-2">
-                    <Sparkles size={20} className="text-[var(--primary)]" /> AI-Generated Insights
-                </h3>
+            {/* AI Insights Engine - Massive Redesign */}
+            <div className="glass-panel p-8 mb-8 border-dashed">
+                <div className="flex items-center gap-3 mb-8">
+                    <div className="w-10 h-10 rounded-full bg-theme-tertiary border border-theme flex items-center justify-center">
+                        <Sparkles size={16} className="text-theme opacity-80" />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold tracking-tight text-theme">Neural Insights</h3>
+                        <p className="text-[10px] tracking-widest uppercase font-bold text-theme-muted">Pattern Recognition Engine</p>
+                    </div>
+                </div>
+
                 {insightsLoading ? (
-                    <div className="p-4 bg-theme-card border border-theme rounded-lg flex items-center justify-center gap-2 text-theme-muted">
-                        <Loader2 className="animate-spin" size={16} /> Analyzing patterns...
+                    <div className="flex items-center gap-4 py-8 px-4 border border-theme border-dashed rounded-xl opacity-50">
+                        <Loader2 className="animate-spin text-theme" size={20} /> 
+                        <span className="text-xs font-bold tracking-widest uppercase text-theme">Synthesizing data streams...</span>
                     </div>
                 ) : insights && insights.length > 0 ? (
-                    <div className="grid md:grid-cols-2 gap-4">
+                    <div className="grid md:grid-cols-2 gap-6">
                         {insights.map((insight, idx) => (
-                            <div key={idx} className="p-4 bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/10 dark:to-blue-900/10 rounded-lg border border-purple-200 dark:border-purple-800 shadow-sm">
-                                <h4 className="font-semibold text-theme mb-2 flex items-center gap-2">
-                                    <AlertTriangle size={16} className="text-purple-500" />
+                            <div key={idx} className="p-6 bg-theme-secondary/50 border border-theme rounded-xl hover:border-theme-muted transition-colors group">
+                                <h4 className="text-sm font-bold text-theme mb-3 tracking-tight group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors">
                                     {insight.insight_name}
                                 </h4>
-                                <div className="text-sm text-theme-secondary mb-3">
-                                    Identified {insight.support_count} similar complaints in {insight.locations.join(', ')}.
-                                </div>
+                                <p className="text-xs text-theme-secondary mb-4 leading-relaxed font-light">
+                                    Identified <strong className="text-theme font-semibold">{insight.support_count} parallel anomalies</strong> across {insight.locations.join(', ')}.
+                                </p>
                                 <div className="flex flex-wrap gap-2">
-                                    <span className="text-xs bg-white dark:bg-gray-800 px-2 py-1 rounded border border-theme shadow-sm">
-                                        Category: {insight.category}
+                                    <span className="text-[9px] font-bold uppercase tracking-widest bg-theme-tertiary px-2 py-1 rounded border border-theme text-theme">
+                                        CLASS: {insight.category}
                                     </span>
                                     {insight.top_keywords?.map((kw, k) => (
-                                        <span key={k} className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-1 rounded">
-                                            #{kw}
+                                        <span key={k} className="text-[9px] font-bold uppercase tracking-widest bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 px-2 py-1 rounded">
+                                            {kw}
                                         </span>
                                     ))}
                                 </div>
@@ -129,31 +147,33 @@ export default function AdminDashboard() {
                         ))}
                     </div>
                 ) : (
-                    <div className="p-6 bg-theme-card border border-theme rounded-lg text-center text-theme-muted italic">
-                        No significant recurring patterns detected yet.
+                    <div className="py-8 px-4 border border-theme border-dashed rounded-xl text-center flex flex-col items-center">
+                        <Activity size={24} className="text-theme-muted opacity-30 mb-3" />
+                        <span className="text-xs font-bold tracking-widest uppercase text-theme-muted">No significant anomalies detected</span>
                     </div>
                 )}
             </div>
 
-            <div className="grid md:grid-cols-2 gap-8">
-                {/* Category Breakdown */}
-                <div className="card-theme p-6 rounded-lg">
-                    <h3 className="font-bold text-theme mb-4 flex items-center gap-2">
-                        <BarChart3 size={20} className="text-[var(--primary)]" /> Category Breakdown
-                    </h3>
-                    <div className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-8 mb-8">
+                {/* Categorical Distribution */}
+                <div className="glass-panel p-8">
+                    <h3 className="text-[10px] tracking-widest uppercase font-bold text-theme-muted mb-6">Distribution Matrix</h3>
+                    <div className="space-y-5">
                         {stats?.by_category && Object.entries(stats.by_category).map(([category, count]) => {
                             const total = stats.total || 1;
-                            const pct = (count / total) * 100;
+                            const pct = Math.round((count / total) * 100);
                             return (
-                                <div key={category}>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-theme-secondary">{category}</span>
-                                        <span className="font-bold text-theme">{count}</span>
+                                <div key={category} className="group">
+                                    <div className="flex justify-between items-end mb-2">
+                                        <span className="text-xs font-semibold text-theme">{category}</span>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-xs text-theme-muted">{count} units</span>
+                                            <span className="text-[10px] font-bold text-theme tracking-widest">{pct}%</span>
+                                        </div>
                                     </div>
-                                    <div className="w-full bg-theme-tertiary rounded-full h-2">
+                                    <div className="w-full bg-theme-tertiary h-1.5 rounded-full overflow-hidden">
                                         <div
-                                            className="bg-[var(--primary)] h-2 rounded-full transition-all"
+                                            className="bg-theme h-full rounded-full group-hover:bg-blue-500 transition-colors duration-300"
                                             style={{ width: `${pct}%` }}
                                         ></div>
                                     </div>
@@ -163,61 +183,65 @@ export default function AdminDashboard() {
                     </div>
                 </div>
 
-                {/* High Priority Zones */}
-                <div className="card-theme p-6 rounded-lg">
-                    <h3 className="font-bold text-theme mb-4 flex items-center gap-2">
-                        <AlertTriangle size={20} className="text-[var(--error)]" /> High Priority Zones
-                    </h3>
-                    <div className="space-y-3">
-                        {highPriorityZones.map((zone, i) => (
-                            <div key={i} className="flex items-center justify-between p-3 bg-[var(--error-bg)] rounded border border-[var(--error)]/20">
-                                <span className="text-sm font-medium text-theme">{zone}</span>
-                                <span className="text-xs font-bold text-[var(--error)] bg-theme-card px-2 py-1 rounded border border-[var(--error)]/30">
-                                    Critical
-                                </span>
+                <div className="flex flex-col gap-8">
+                    {/* Urgency Vectors */}
+                    <div className="glass-panel p-8">
+                        <h3 className="text-[10px] tracking-widest uppercase font-bold text-theme-muted mb-6">Urgency Vectors</h3>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="p-4 bg-theme-secondary border border-theme rounded-xl flex flex-col items-center justify-center group hover:border-red-500 transition-colors">
+                                <div className="text-2xl font-bold text-theme tracking-tighter mb-1 group-hover:text-red-500 transition-colors">
+                                    {stats?.by_priority?.High || 0}
+                                </div>
+                                <div className="text-[9px] font-bold tracking-widest text-theme-muted uppercase">CRITICAL</div>
                             </div>
-                        ))}
+                            <div className="p-4 bg-theme-secondary border border-theme rounded-xl flex flex-col items-center justify-center group hover:border-amber-500 transition-colors">
+                                <div className="text-2xl font-bold text-theme tracking-tighter mb-1 group-hover:text-amber-500 transition-colors">
+                                    {stats?.by_priority?.Medium || 0}
+                                </div>
+                                <div className="text-[9px] font-bold tracking-widest text-theme-muted uppercase">ELEVATED</div>
+                            </div>
+                            <div className="p-4 bg-theme-secondary border border-theme rounded-xl flex flex-col items-center justify-center group hover:border-blue-500 transition-colors">
+                                <div className="text-2xl font-bold text-theme tracking-tighter mb-1 group-hover:text-blue-500 transition-colors">
+                                    {stats?.by_priority?.Low || 0}
+                                </div>
+                                <div className="text-[9px] font-bold tracking-widest text-theme-muted uppercase">NOMINAL</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Threat Zones */}
+                    <div className="glass-panel p-8 flex-grow">
+                        <h3 className="text-[10px] tracking-widest uppercase font-bold text-theme-muted mb-6">High Priority Sectors</h3>
+                        <div className="space-y-3">
+                            {highPriorityZones.map((zone, i) => (
+                                <div key={i} className="flex items-center justify-between py-3 border-b border-theme border-dashed last:border-0 last:pb-0">
+                                    <span className="text-xs font-semibold text-theme">{zone}</span>
+                                    <span className="text-[9px] tracking-widest font-bold text-red-500 uppercase flex items-center gap-1">
+                                        <AlertTriangle size={10} /> Active
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* Priority Distribution */}
-            <div className="mt-8 card-theme p-6 rounded-lg">
-                <h3 className="font-bold text-theme mb-4">Priority Distribution</h3>
-                <div className="grid grid-cols-3 gap-4">
-                    <div className="text-center p-4 bg-[var(--error-bg)] rounded-lg">
-                        <div className="text-2xl font-bold text-[var(--error)]">
-                            {stats?.by_priority?.High || 0}
-                        </div>
-                        <div className="text-sm text-theme-secondary">High Priority</div>
-                    </div>
-                    <div className="text-center p-4 bg-[var(--warning-bg)] rounded-lg">
-                        <div className="text-2xl font-bold text-[var(--warning)]">
-                            {stats?.by_priority?.Medium || 0}
-                        </div>
-                        <div className="text-sm text-theme-secondary">Medium Priority</div>
-                    </div>
-                    <div className="text-center p-4 bg-[var(--primary-light)] rounded-lg">
-                        <div className="text-2xl font-bold text-[var(--primary)]">
-                            {stats?.by_priority?.Low || 0}
-                        </div>
-                        <div className="text-sm text-theme-secondary">Low Priority</div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Departments List */}
-            <div className="mt-8 card-theme p-6 rounded-lg">
-                <h3 className="font-bold text-theme mb-4 flex items-center gap-2">
-                    <Users size={20} className="text-[var(--primary)]" /> Departments
-                </h3>
+            {/* Department Entities */}
+            <div className="glass-panel p-8">
+                <h3 className="text-[10px] tracking-widest uppercase font-bold text-theme-muted mb-6">Active Operational Nodes (Departments)</h3>
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {departments.map((dept) => (
-                        <div key={dept.id} className="p-4 border border-theme rounded-lg hover:shadow-md transition card-hover-effect bg-theme-card">
-                            <div className="font-semibold text-theme">{dept.name}</div>
-                            <div className="text-xs text-theme-muted mt-1">{dept.code}</div>
-                            {dept.contact_email && (
-                                <div className="text-xs text-[var(--primary)] mt-2">{dept.contact_email}</div>
+                        <div key={dept.id} className="p-5 bg-theme-secondary border border-theme rounded-xl flex flex-col justify-between hover:border-theme-muted transition-colors group">
+                            <div>
+                                <div className="text-[9px] font-bold tracking-widest text-theme-muted uppercase mb-1">NODE: {dept.code}</div>
+                                <div className="text-sm font-bold text-theme tracking-tight mb-4">{dept.name}</div>
+                            </div>
+                            {dept.contact_email ? (
+                                <div className="text-xs text-theme-secondary font-mono bg-theme-tertiary px-2 py-1 rounded w-fit border border-theme">
+                                    {dept.contact_email}
+                                </div>
+                            ) : (
+                                <div className="text-xs text-theme-muted italic">Comm-link offline</div>
                             )}
                         </div>
                     ))}

@@ -11,16 +11,16 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     role: Optional[UserRole] = UserRole.CITIZEN
-    department_id: Optional[int] = None
+    department_id: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
 class UserResponse(UserBase):
-    id: int
+    id: str
     role: UserRole
-    department_id: Optional[int] = None
+    department_id: Optional[str] = None
     created_at: datetime
     
     class Config:
@@ -36,4 +36,4 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 class TokenData(BaseModel):
-    user_id: Optional[int] = None
+    user_id: Optional[str] = None

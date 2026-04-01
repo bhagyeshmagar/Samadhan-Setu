@@ -2,10 +2,10 @@
 Authentication Router for Samadhan Setu
 Handles user registration, login, and profile management
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..auth import (
@@ -21,13 +21,13 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
 @router.post("/register", response_model=UserWithToken, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+async def register(user_data: UserCreate, db: Any = Depends(get_db)):
     """
     Register a new user
     """
     # Check if email already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
-    if existing_user:
+    existing_users = db.collection('users').where('email', '==', user_data.email).limit(1).get()
+    if existing_users:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -44,9 +44,10 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         department_id=user_data.department_id
     )
     
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    # Add to Firestore
+    doc_ref = db.collection('users').document()
+    new_user.id = doc_ref.id
+    doc_ref.set(new_user.to_firestore())
     
     # Create access token
     access_token = create_access_token(
@@ -62,11 +63,20 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=UserWithToken)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Any = Depends(get_db)):
     """
     Login with email and password (OAuth2 compatible)
     """
-    user = db.query(User).filter(User.email == form_data.username).first()
+    users = db.collection('users').where('email', '==', form_data.username).limit(1).get()
+    
+    if not users:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    user = User.from_firestore(users[0])
     
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
@@ -88,11 +98,19 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
 
 
 @router.post("/login/json", response_model=UserWithToken)
-async def login_json(login_data: UserLogin, db: Session = Depends(get_db)):
+async def login_json(login_data: UserLogin, db: Any = Depends(get_db)):
     """
     Login with JSON body (for frontend convenience)
     """
-    user = db.query(User).filter(User.email == login_data.email).first()
+    users = db.collection('users').where('email', '==', login_data.email).limit(1).get()
+    
+    if not users:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+        
+    user = User.from_firestore(users[0])
     
     if not user or not verify_password(login_data.password, user.password_hash):
         raise HTTPException(
@@ -125,17 +143,22 @@ async def update_profile(
     name: str = None,
     phone: str = None,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Update current user's profile
     """
+    updates = {}
     if name:
         current_user.name = name
+        updates["name"] = name
     if phone:
         current_user.phone = phone
-    
-    db.commit()
-    db.refresh(current_user)
+        updates["phone"] = phone
+        
+    if updates:
+        updates["updated_at"] = datetime.utcnow()
+        current_user.updated_at = updates["updated_at"]
+        db.collection('users').document(current_user.id).update(updates)
     
     return UserResponse.model_validate(current_user)

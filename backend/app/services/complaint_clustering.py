@@ -12,7 +12,7 @@ This module leverages the existing AI-services/similarity infrastructure.
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from collections import defaultdict
-from sqlalchemy.orm import Session
+from google.cloud.firestore import Query as FirestoreQuery
 
 from ..models import Complaint
 
@@ -27,39 +27,21 @@ def cluster_complaints_by_text(
 ) -> List[Dict[str, Any]]:
     """
     Cluster complaints by semantic similarity using text comparison.
-    
-    This is a simple rule-based fallback when SBERT is not available.
-    For production, this should use the actual similarity service.
-    
-    Args:
-        complaints: List of Complaint objects
-        similarity_fn: Optional similarity function (from AI-services)
-        
-    Returns:
-        List of clusters with complaint IDs
     """
     if not complaints:
         return []
     
-    # Simple keyword-based clustering as fallback
     clusters = []
     clustered_ids = set()
     
-    # Keywords for basic similarity
-    keywords_cache = {}
-    
     def extract_keywords(text: str) -> set:
-        """Extract significant keywords from text."""
         if not text:
             return set()
-        # Simple tokenization and filtering
         words = text.lower().split()
-        # Filter short words and common stopwords
         stopwords = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or'}
         return {w for w in words if len(w) > 3 and w not in stopwords}
     
     def keyword_similarity(text1: str, text2: str) -> float:
-        """Calculate Jaccard similarity of keywords."""
         kw1 = extract_keywords(text1)
         kw2 = extract_keywords(text2)
         if not kw1 or not kw2:
@@ -68,19 +50,16 @@ def cluster_complaints_by_text(
         union = len(kw1 | kw2)
         return intersection / union if union > 0 else 0.0
     
-    # Use provided similarity function or fallback
     sim_fn = similarity_fn or keyword_similarity
     
-    # Cluster complaints
     for complaint in complaints:
         if complaint.id in clustered_ids:
             continue
         
-        # Start new cluster
         cluster = {
             "cluster_id": len(clusters) + 1,
             "representative_id": complaint.id,
-            "representative_text": complaint.description[:200],
+            "representative_text": complaint.description[:200] if complaint.description else "",
             "category": complaint.category,
             "ward": complaint.ward,
             "member_ids": [complaint.id],
@@ -88,17 +67,14 @@ def cluster_complaints_by_text(
         }
         clustered_ids.add(complaint.id)
         
-        # Find similar complaints
         for other in complaints:
             if other.id in clustered_ids:
                 continue
             
-            # Check category match first (optimization)
             if other.category != complaint.category:
                 continue
             
-            # Calculate similarity
-            similarity = sim_fn(complaint.description, other.description)
+            similarity = sim_fn(complaint.description or "", other.description or "")
             
             if similarity >= SIMILARITY_THRESHOLD:
                 cluster["member_ids"].append(other.id)
@@ -107,14 +83,13 @@ def cluster_complaints_by_text(
         
         clusters.append(cluster)
     
-    # Sort by cluster size (largest first)
     clusters.sort(key=lambda x: x["count"], reverse=True)
     
     return clusters
 
 
 def get_clustered_complaints(
-    db: Session,
+    db: Any,
     category: Optional[str] = None,
     ward: Optional[str] = None,
     days: int = 30,
@@ -122,35 +97,21 @@ def get_clustered_complaints(
 ) -> Dict[str, Any]:
     """
     Get clustered complaints for analysis.
-    
-    Args:
-        db: Database session
-        category: Optional category filter
-        ward: Optional ward filter
-        days: Number of days to look back
-        min_cluster_size: Minimum members for a cluster to be included
-        
-    Returns:
-        Dict with clustering results
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    query = db.query(Complaint).filter(
-        Complaint.created_at >= cutoff_date
-    )
-    
+    query = db.collection('complaints').where('created_at', '>=', cutoff_date)
     if category:
-        query = query.filter(Complaint.category == category)
-    
+        query = query.where('category', '==', category)
     if ward:
-        query = query.filter(Complaint.ward == ward)
+        query = query.where('ward', '==', ward)
+        
+    docs = query.get()
+    complaints = [Complaint.from_firestore(doc) for doc in docs]
+    complaints.sort(key=lambda x: x.created_at, reverse=True)
     
-    complaints = query.order_by(Complaint.created_at.desc()).all()
-    
-    # Cluster complaints
     clusters = cluster_complaints_by_text(complaints)
     
-    # Filter by minimum size
     significant_clusters = [c for c in clusters if c["count"] >= min_cluster_size]
     
     return {
@@ -166,41 +127,32 @@ def get_clustered_complaints(
 
 
 def identify_recurring_issues(
-    db: Session,
+    db: Any,
     days: int = 30,
     recurrence_threshold: int = 3
 ) -> List[Dict[str, Any]]:
     """
     Identify issues that keep recurring in the same area.
-    
-    Args:
-        db: Database session
-        days: Number of days to look back
-        recurrence_threshold: Minimum occurrences to be considered recurring
-        
-    Returns:
-        List of recurring issue patterns
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    complaints = db.query(Complaint).filter(
-        Complaint.created_at >= cutoff_date,
-        Complaint.ward.isnot(None)
-    ).all()
-    
-    # Group by ward + category
+    docs = db.collection('complaints').where('created_at', '>=', cutoff_date).get()
+    complaints = []
+    for doc in docs:
+        c = Complaint.from_firestore(doc)
+        if c.ward is not None:
+            complaints.append(c)
+            
     ward_category_groups = defaultdict(list)
     
     for complaint in complaints:
         key = (complaint.ward, complaint.category)
         ward_category_groups[key].append(complaint)
     
-    # Find recurring patterns
     recurring = []
     
     for (ward, category), group_complaints in ward_category_groups.items():
         if len(group_complaints) >= recurrence_threshold:
-            # Cluster within this group
             clusters = cluster_complaints_by_text(group_complaints)
             significant = [c for c in clusters if c["count"] >= 2]
             
@@ -214,47 +166,39 @@ def identify_recurring_issues(
                 "sample_complaints": [c.id for c in group_complaints[:5]]
             })
     
-    # Sort by count
     recurring.sort(key=lambda x: x["total_count"], reverse=True)
     
     return recurring
 
 
 def get_duplicate_candidates(
-    db: Session,
+    db: Any,
     complaint: Complaint,
     max_results: int = 5
 ) -> List[Dict[str, Any]]:
     """
     Find potential duplicates of a given complaint.
-    Used for real-time duplicate detection during submission.
-    
-    Args:
-        db: Database session
-        complaint: The complaint to check
-        max_results: Maximum number of potential duplicates to return
-        
-    Returns:
-        List of potential duplicate complaints
     """
-    # Look for recent complaints in the same ward/category
     cutoff_date = datetime.utcnow() - timedelta(days=7)
     
-    query = db.query(Complaint).filter(
-        Complaint.id != complaint.id,
-        Complaint.created_at >= cutoff_date,
-        Complaint.category == complaint.category
-    )
-    
+    query = db.collection('complaints').where('category', '==', complaint.category).where('created_at', '>=', cutoff_date)
     if complaint.ward:
-        query = query.filter(Complaint.ward == complaint.ward)
+        query = query.where('ward', '==', complaint.ward)
+        
+    docs = query.get()
     
-    recent_complaints = query.limit(50).all()
+    recent_complaints = []
+    for doc in docs:
+        c = Complaint.from_firestore(doc)
+        if c.id != complaint.id:
+            recent_complaints.append(c)
+            
+    recent_complaints.sort(key=lambda x: x.created_at, reverse=True)
+    recent_complaints = recent_complaints[:50]
     
-    # Calculate similarities
     def keyword_similarity(text1: str, text2: str) -> float:
-        words1 = set(text1.lower().split())
-        words2 = set(text2.lower().split())
+        words1 = set((text1 or "").lower().split())
+        words2 = set((text2 or "").lower().split())
         if not words1 or not words2:
             return 0.0
         return len(words1 & words2) / len(words1 | words2)
@@ -262,16 +206,15 @@ def get_duplicate_candidates(
     candidates = []
     for other in recent_complaints:
         similarity = keyword_similarity(complaint.description, other.description)
-        if similarity >= 0.5:  # Lower threshold for candidates
+        if similarity >= 0.5:
             candidates.append({
                 "complaint_id": other.id,
-                "description_preview": other.description[:100],
+                "description_preview": (other.description or "")[:100],
                 "similarity_score": round(similarity, 2),
-                "created_at": other.created_at.isoformat(),
-                "status": other.status.value
+                "created_at": other.created_at.isoformat() if other.created_at else None,
+                "status": other.status.value if other.status else None
             })
-    
-    # Sort by similarity
+            
     candidates.sort(key=lambda x: x["similarity_score"], reverse=True)
     
     return candidates[:max_results]

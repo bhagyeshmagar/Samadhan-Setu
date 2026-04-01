@@ -57,7 +57,7 @@ Create a `.env` file in the `backend` directory:
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/samadhan_setu` | ✅ Yes |
+| `FIREBASE_CREDENTIALS_PATH` | Path to Firebase credentials JSON | `firebase-credentials.json` | ✅ Yes |
 | `SECRET_KEY` | JWT secret key (change in production!) | `samadhan-setu-secret-key-change-in-production` | ✅ Yes |
 | `SBERT_MODEL_NAME` | Sentence transformer model | `sentence-transformers/all-MiniLM-L6-v2` | ❌ No |
 | `SIMILARITY_THRESHOLD` | Duplicate detection threshold (0-1) | `0.75` | ❌ No |
@@ -104,7 +104,7 @@ Samadhan Setu is an intelligent grievance redressal platform that uses AI to aut
 ├── backend/                 # FastAPI Python Backend
 │   ├── app/
 │   │   ├── services/       # AI Services (Auto-Assignment, Heatmap, Clustering)
-│   │   ├── models/         # SQLAlchemy Models (+ Teams, TaskAssignments)
+│   │   ├── models/         # Firestore Pydantic Models (+ Teams, TaskAssignments)
 │   │   ├── routers/        # API Routes (+ Assignments, Analytics)
 │   │   ├── schemas/        # Pydantic Schemas
 │   │   └── main.py         # FastAPI Application
@@ -125,36 +125,17 @@ Samadhan Setu is an intelligent grievance redressal platform that uses AI to aut
 - **Python** 3.9 or higher
 - **Node.js** 18 or higher
 - **npm** (comes with Node.js)
-- **PostgreSQL** 14 or higher
+- **Google Cloud Firebase** Project (Firestore)
 - **Disk Space**: ~3GB (for AI models and dependencies)
 - **RAM**: 4GB minimum, 8GB recommended (for AI model inference)
 
-### 1. Setup PostgreSQL Database
+### 1. Setup Firebase Firestore Database
 
-**Option A: Using psql (Command Line)**
-```bash
-# Start PostgreSQL service (Windows)
-net start postgresql-x64-14
-
-# Create database
-psql -U postgres
-CREATE DATABASE samadhan_setu;
-\q
-```
-
-**Option B: Using pgAdmin (GUI)**
-1. Open pgAdmin and connect to your PostgreSQL server
-2. Right-click "Databases" → Create → Database
-3. Name it `samadhan_setu`
-
-**Configure Database Connection:**
-```bash
-# Windows
-set DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/samadhan_setu
-
-# Linux/Mac
-export DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/samadhan_setu
-```
+1. Go to your [Firebase Console](https://console.firebase.google.com/) and create a project.
+2. Enable **Firestore Database** in test or production mode.
+3. Go to Project Settings > Service Accounts.
+4. Click **Generate new private key** and save the JSON file.
+5. Rename the downloaded file to `firebase-credentials.json` and place it inside the `backend/` directory of this project.
 
 ### 2. Clone & Setup Backend
 
@@ -175,10 +156,10 @@ pip install -r requirements.txt
 copy .env.example .env  # Windows
 # cp .env.example .env  # Linux/Mac
 
-# Edit .env file with your database credentials
-# DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/samadhan_setu
+# Edit .env file 
+# Keep FIREBASE_CREDENTIALS_PATH=firebase-credentials.json and place the file in the same directory.
 
-# Initialize database schema
+# Verify Firebase Connection
 python create_db.py
 
 # Seed demo data (optional but recommended for testing)
@@ -329,8 +310,8 @@ Samadhan Setu uses a **transparent, transparent scoring formula** (not a black b
 |-------|------------|
 | Frontend | Next.js 16.1, React 19, Tailwind CSS 4, Lucide Icons |
 | Maps | Leaflet, React-Leaflet |
-| Backend | FastAPI, SQLAlchemy, Pydantic |
-| Database | PostgreSQL 14+ |
+| Backend | FastAPI, Pydantic, Firebase Admin SDK |
+| Database | Google Cloud Firestore (NoSQL) |
 | Auth | JWT with Argon2 hashing |
 | AI (Classification) | **DistilBERT** (Hugging Face Transformers) |
 | AI (Similarity) | **SBERT** (Sentence Transformers) |
@@ -356,8 +337,8 @@ Samadhan Setu uses a **transparent, transparent scoring formula** (not a black b
 Create a `.env` file in the `backend` directory with production values:
 
 ```bash
-# Production Database (use hosted PostgreSQL)
-DATABASE_URL=postgresql://user:password@your-db-host:5432/samadhan_setu
+# Firebase Database setup
+FIREBASE_CREDENTIALS_PATH=firebase-credentials.json
 
 # Generate a strong secret key (use: openssl rand -hex 32)
 SECRET_KEY=your-super-secure-secret-key-here-change-this
@@ -371,20 +352,19 @@ CLASSIFICATION_CONFIDENCE_THRESHOLD=0.60
 **2. Database Setup**
 
 ```bash
-# Run migrations on production database
+# Verify Firebase Connection
 python create_db.py
 
-# Optional: Seed initial data
+# Optional: Seed initial data across Collections
 python seed_data.py
 ```
 
 **3. Backend Deployment**
 
 **Recommended Platforms:**
-- **Railway** (Easy deployment with PostgreSQL addon)
+- **Railway** (Easy deployment)
 - **Render** (Free tier available)
-- **Heroku** (Classic choice)
-- **AWS EC2** (Full control)
+- **Google Cloud Run** (Native GCP)
 
 **Example: Deploy to Railway**
 ```bash
@@ -395,8 +375,9 @@ npm install -g @railway/cli
 railway login
 railway init
 
-# Add PostgreSQL addon in Railway dashboard
-# Set environment variables in Railway dashboard
+# Add custom environment variables for `FIREBASE_CREDENTIALS_PATH` 
+# You can copy the contents of your json into a base64 encoded env var
+# and decode it in your app if needed, or upload the file.
 
 # Deploy
 railway up
@@ -433,7 +414,6 @@ vercel
 **6. Performance Optimization**
 
 - Cache AI model predictions for common queries
-- Use connection pooling for PostgreSQL
 - Enable Next.js image optimization
 - Consider CDN for static assets
 - Monitor API response times
@@ -442,27 +422,13 @@ vercel
 
 ### Database Connection Issues
 
-**Problem: `psycopg2.OperationalError: could not connect to server`**
+**Problem: Missing Firebase Credentials**
 
 **Solutions:**
 ```bash
-# 1. Check if PostgreSQL is running (Windows)
-net start postgresql-x64-14
-
-# 2. Verify DATABASE_URL format
-# Correct: postgresql://username:password@localhost:5432/dbname
-# Common mistake: Missing password or wrong port
-
-# 3. Test connection
-python test_db_connection.py
-```
-
-**Problem: `relation "users" does not exist`**
-
-**Solution:**
-```bash
-# Initialize database schema
-python create_db.py
+# Verify FIREBASE_CREDENTIALS_PATH format
+# Default expects firebase-credentials.json in the backend/ root.
+# Make sure the file was correctly downloaded from GCP.
 ```
 
 ---

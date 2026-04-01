@@ -1,0 +1,4 @@
+1 validation error for ComplaintAIResponse
+confidence
+  Field required [type=missing, input_value=<Complaint #11 - General ...omplaintStatus.PENDING)>, input_type=Complaint]
+    For further information visit https://errors.pydantic.dev/2.5/v/missing

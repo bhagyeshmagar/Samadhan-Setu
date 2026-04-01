@@ -1,31 +1,38 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum as SQLEnum
-from sqlalchemy.orm import relationship
 from datetime import datetime
-import enum
+from pydantic import BaseModel, Field
+from typing import Optional
+from enum import Enum
 
-from ..database import Base
-
-class UserRole(str, enum.Enum):
+class UserRole(str, Enum):
     CITIZEN = "citizen"
     OFFICER = "officer"
     ADMIN = "admin"
 
-class User(Base):
-    __tablename__ = "users"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
-    name = Column(String(255), nullable=False)
-    phone = Column(String(20), nullable=True)
-    role = Column(SQLEnum(UserRole), default=UserRole.CITIZEN, nullable=False)
-    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    department = relationship("Department", back_populates="officers")
-    complaints = relationship("Complaint", back_populates="user", foreign_keys="Complaint.user_id")
-    
-    def __repr__(self):
-        return f"<User {self.email} ({self.role})>"
+class User(BaseModel):
+    id: Optional[str] = None  # Firestore Document ID
+    email: str
+    password_hash: str
+    name: str
+    phone: Optional[str] = None
+    role: UserRole = UserRole.CITIZEN
+    department_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_firestore(cls, doc):
+        """Convert a Firestore DocumentSnapshot to this model"""
+        if not doc.exists:
+            return None
+        data = doc.to_dict()
+        data["id"] = doc.id
+        return cls(**data)
+
+    def to_firestore(self):
+        """Convert to dict for saving to Firestore"""
+        data = self.model_dump(mode='json')
+        data.pop("id", None)  # Don't save ID in the document body
+        return data

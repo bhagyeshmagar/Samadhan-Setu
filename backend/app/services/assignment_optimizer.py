@@ -11,8 +11,6 @@ This module is the AI brain for Feature 1: Auto-Assignment.
 """
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Dict, Any
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
 
 from ..models import (
     Team, TaskAssignment, AssignmentLog, Complaint, 
@@ -46,14 +44,6 @@ def calculate_load_score(
     Load Score = (Active Tasks / Daily Capacity) + Priority Weight + Deadline Pressure
     
     Lower score = better candidate for assignment.
-    
-    Args:
-        team: The team to evaluate
-        priority: Priority of the incoming complaint
-        hours_to_deadline: Hours remaining until SLA deadline
-        
-    Returns:
-        Float score (lower is better)
     """
     # Base load ratio (0 to 1+)
     load_ratio = team.load_ratio if team.daily_capacity > 0 else float('inf')
@@ -62,58 +52,36 @@ def calculate_load_score(
     priority_weight = PRIORITY_WEIGHTS.get(priority, 0.1)
     
     # Deadline pressure (inverse of hours remaining, normalized)
-    # More pressure if deadline is soon
     if hours_to_deadline <= 0:
-        deadline_pressure = 1.0  # Maximum pressure
+        deadline_pressure = 1.0
     elif hours_to_deadline > 72:
-        deadline_pressure = 0.0  # No pressure
+        deadline_pressure = 0.0
     else:
         deadline_pressure = 1.0 - (hours_to_deadline / 72)
     
-    # Combined score
     score = load_ratio + priority_weight + (deadline_pressure * 0.2)
     
     return round(score, 4)
 
 
 def get_sla_deadline(
-    db: Session,
+    db: Any,
     category: str,
     priority: ComplaintPriority
 ) -> Tuple[datetime, int]:
     """
     Get the SLA deadline for a complaint based on category and priority.
-    
-    Returns:
-        Tuple of (deadline datetime, resolution hours)
     """
-    # Try to find a specific rule
-    rule = db.query(SLARule).filter(
-        and_(
-            SLARule.category == category,
-            SLARule.priority == priority
-        )
-    ).first()
+    docs = db.collection('sla_rules').where('category', '==', category).where('priority', '==', priority.value).limit(1).get()
     
-    if not rule:
-        # Try category-only rule
-        rule = db.query(SLARule).filter(
-            and_(
-                SLARule.category == category,
-                SLARule.priority.is_(None)
-            )
-        ).first()
-    
-    if not rule:
-        # Try priority-only rule
-        rule = db.query(SLARule).filter(
-            and_(
-                SLARule.category.is_(None),
-                SLARule.priority == priority
-            )
-        ).first()
-    
-    if rule:
+    if not docs:
+        docs = db.collection('sla_rules').where('category', '==', category).where('priority', '==', None).limit(1).get()
+        
+    if not docs:
+        docs = db.collection('sla_rules').where('category', '==', None).where('priority', '==', priority.value).limit(1).get()
+        
+    if docs:
+        rule = SLARule.from_firestore(docs[0])
         resolution_hours = rule.resolution_hours
     else:
         resolution_hours = DEFAULT_SLA_HOURS.get(priority, 72)
@@ -123,46 +91,35 @@ def get_sla_deadline(
 
 
 def find_optimal_team(
-    db: Session,
+    db: Any,
     complaint: Complaint,
     teams: List[Team]
 ) -> Tuple[Optional[Team], float, str]:
     """
     Find the optimal team for a complaint using AI load scoring.
-    
-    Args:
-        db: Database session
-        complaint: The complaint to assign
-        teams: List of available teams (pre-filtered by department/ward)
-        
-    Returns:
-        Tuple of (optimal team, load score, reason)
     """
     if not teams:
         return None, 0.0, "No teams available for assignment"
     
     deadline, sla_hours = get_sla_deadline(db, complaint.category, complaint.priority)
-    hours_to_deadline = sla_hours  # Full SLA window for new complaints
+    hours_to_deadline = sla_hours
     
-    # Calculate scores for all teams
     team_scores: List[Tuple[Team, float]] = []
     
     for team in teams:
         if not team.is_active:
             continue
             
-        # Check geographic coverage if ward is specified
         if complaint.ward and team.ward_coverage:
             ward_normalized = complaint.ward.lower().strip()
             coverage = [w.lower().strip() for w in team.ward_coverage]
             if ward_normalized not in coverage:
-                continue  # Skip teams that don't cover this ward
+                continue
         
         score = calculate_load_score(team, complaint.priority, hours_to_deadline)
         team_scores.append((team, score))
     
     if not team_scores:
-        # Fallback: no teams match ward coverage, use any team from department
         for team in teams:
             if team.is_active:
                 score = calculate_load_score(team, complaint.priority, hours_to_deadline)
@@ -171,12 +128,9 @@ def find_optimal_team(
     if not team_scores:
         return None, 0.0, "No active teams available"
     
-    # Sort by score (lower is better)
     team_scores.sort(key=lambda x: x[1])
     
     best_team, best_score = team_scores[0]
-    
-    # Generate explainable reason
     reason = _generate_assignment_reason(best_team, best_score, complaint.priority)
     
     return best_team, best_score, reason
@@ -188,7 +142,7 @@ def _generate_assignment_reason(
     priority: ComplaintPriority
 ) -> str:
     """Generate a human-readable explanation for the assignment decision."""
-    load_percent = int(team.load_ratio * 100)
+    load_percent = int((team.load_ratio if team.daily_capacity > 0 else 0) * 100)
     
     if load_percent <= 50:
         load_status = "low workload"
@@ -205,7 +159,7 @@ def _generate_assignment_reason(
 
 
 def create_assignment(
-    db: Session,
+    db: Any,
     complaint: Complaint,
     team: Team,
     score: float,
@@ -213,16 +167,6 @@ def create_assignment(
 ) -> TaskAssignment:
     """
     Create a new task assignment record.
-    
-    Args:
-        db: Database session
-        complaint: The complaint being assigned
-        team: The team to assign to
-        score: The calculated load score
-        reason: Human-readable reason
-        
-    Returns:
-        The created TaskAssignment
     """
     deadline, _ = get_sla_deadline(db, complaint.category, complaint.priority)
     
@@ -236,13 +180,18 @@ def create_assignment(
         is_active=True
     )
     
-    db.add(assignment)
+    # Save assignment
+    assign_ref = db.collection('task_assignments').document()
+    assignment.id = assign_ref.id
+    assign_ref.set(assignment.to_firestore())
     
-    # Update complaint with team assignment
+    # Update complaint
     complaint.assigned_team_id = team.id
+    db.collection('complaints').document(complaint.id).update({'assigned_team_id': team.id})
     
-    # Increment team's active task count
+    # Update team active tasks
     team.active_tasks += 1
+    db.collection('teams').document(team.id).update({'active_tasks': team.active_tasks})
     
     # Create assignment log
     log = AssignmentLog(
@@ -256,38 +205,22 @@ def create_assignment(
         },
         triggered_by="AI"
     )
-    
-    db.add(log)
-    db.commit()
-    db.refresh(assignment)
+    db.collection('assignment_logs').add(log.to_firestore())
     
     return assignment
 
 
 def get_available_teams(
-    db: Session,
-    department_id: int,
+    db: Any,
+    department_id: str,
     ward: Optional[str] = None
 ) -> List[Team]:
     """
     Get all available teams for a department, optionally filtered by ward coverage.
-    
-    Args:
-        db: Database session
-        department_id: The department ID
-        ward: Optional ward filter
-        
-    Returns:
-        List of Team objects
     """
-    query = db.query(Team).filter(
-        Team.department_id == department_id,
-        Team.is_active == True
-    )
+    docs = db.collection('teams').where('department_id', '==', department_id).where('is_active', '==', True).get()
+    teams = [Team.from_firestore(doc) for doc in docs]
     
-    teams = query.all()
-    
-    # If ward is specified, prioritize teams that cover it
     if ward:
         ward_normalized = ward.lower().strip()
         prioritized = []
@@ -309,20 +242,11 @@ def get_available_teams(
 
 
 def assign_complaint(
-    db: Session,
+    db: Any,
     complaint: Complaint
 ) -> Dict[str, Any]:
     """
     Main entry point: Assign a complaint to the optimal team.
-    
-    This is the function to call from the complaint submission flow.
-    
-    Args:
-        db: Database session
-        complaint: The complaint to assign
-        
-    Returns:
-        Dict with assignment details for the API response
     """
     if not complaint.department_id:
         return {
@@ -333,7 +257,6 @@ def assign_complaint(
             "reason": None
         }
     
-    # Get available teams
     teams = get_available_teams(db, complaint.department_id, complaint.ward)
     
     if not teams:
@@ -345,7 +268,6 @@ def assign_complaint(
             "reason": None
         }
     
-    # Find optimal team
     team, score, reason = find_optimal_team(db, complaint, teams)
     
     if not team:
@@ -357,7 +279,6 @@ def assign_complaint(
             "reason": None
         }
     
-    # Create assignment
     assignment = create_assignment(db, complaint, team, score, reason)
     
     return {

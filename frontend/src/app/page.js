@@ -1,108 +1,117 @@
 'use client';
 
 import Link from 'next/link';
-import { FileText, Activity, CheckCircle, Shield, Clock, Users } from 'lucide-react';
+import { ArrowRight, FileText, CheckCircle, Activity, LayoutGrid } from 'lucide-react';
 
 export default function Home() {
-  return (
-    <div className="bg-theme min-h-screen">
-      {/* Hero Section */}
-      <div
-        className="text-white py-16 px-6 text-center relative overflow-hidden"
-        style={{ background: 'var(--gradient-hero)' }}
-      >
-        <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-        <div className="relative z-10 max-w-4xl mx-auto">
-          <h2 className="text-3xl md:text-5xl font-bold mb-4 leading-tight">
-            Empowering Citizens, Enabling Governance
-          </h2>
-          <p className="text-lg md:text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
-            An AI-powered bridge connecting your voice directly to the right government department.
-            Report issues, track progress, and build a better city together.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link
-              href="/login"
-              className="btn-accent font-bold py-3 px-8 rounded shadow-lg transform transition hover:-translate-y-1"
-            >
-              Lodge a Complaint
-            </Link>
-            <Link
-              href="/citizen/community"
-              className="bg-white/10 hover:bg-white/20 border-2 border-white/50 hover:border-white text-white font-bold py-3 px-8 rounded transition backdrop-blur-sm"
-            >
-              View Community Issues
-            </Link>
-          </div>
-        </div>
-      </div>
+    return (
+        <div className="flex flex-col gap-24 py-12 px-2 pb-32">
+            {/* Hero Section */}
+            <section className="relative pt-16 md:pt-32 pb-12 overflow-hidden flex flex-col items-center text-center">
+                {/* Subtle Glow Behind Text */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[60vw] h-[60vw] max-w-[800px] max-h-[800px] rounded-full bg-gradient-radial from-black/5 to-transparent dark:from-white/10 blur-3xl -z-10 pointer-events-none"></div>
 
-      {/* Key Benefits Strip */}
-      <div className="card-theme-elevated -mt-8 mx-4 md:mx-auto max-w-5xl rounded-lg p-6 relative z-20 grid grid-cols-2 md:grid-cols-4 gap-8 text-center border-t-4 border-[var(--success)]">
-        <div className="flex flex-col items-center">
-          <Shield className="text-[var(--primary)] mb-2" size={32} />
-          <div className="text-sm text-theme-secondary font-semibold">Secure & Transparent</div>
-        </div>
-        <div className="flex flex-col items-center">
-          <Activity className="text-[var(--accent)] mb-2" size={32} />
-          <div className="text-sm text-theme-secondary font-semibold">AI-Powered Routing</div>
-        </div>
-        <div className="flex flex-col items-center">
-          <Clock className="text-[var(--success)] mb-2" size={32} />
-          <div className="text-sm text-theme-secondary font-semibold">Real-time Tracking</div>
-        </div>
-        <div className="flex flex-col items-center">
-          <Users className="text-purple-600 dark:text-purple-400 mb-2" size={32} />
-          <div className="text-sm text-theme-secondary font-semibold">Community Driven</div>
-        </div>
-      </div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-theme bg-theme-secondary/80 backdrop-blur-sm text-xs font-semibold tracking-wider uppercase mb-8 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span> System Online
+                </div>
 
-      {/* Features Grid */}
-      <div className="max-w-6xl mx-auto py-16 px-4">
-        <h3 className="text-2xl font-bold text-center text-theme mb-12 relative pb-2">
-          How Samadhan Setu Works
-          <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-16 h-1 bg-[var(--accent)]"></span>
-        </h3>
-        <div className="grid md:grid-cols-3 gap-8">
-          <div className="card-theme card-hover-effect p-6 rounded-lg text-center">
-            <div className="flex justify-center mb-4">
-              <FileText size={40} className="text-[var(--primary)]" />
-            </div>
-            <h4 className="text-xl font-semibold mb-2 text-theme">1. Easy Submission</h4>
-            <p className="text-theme-secondary">Submit grievances in seconds via web. No paperwork needed.</p>
-          </div>
+                <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-bold tracking-tight text-theme mb-6 leading-[1.1] max-w-5xl">
+                    Civic resolution,<br /> <span className="opacity-40">reimagined.</span>
+                </h1>
+                
+                <p className="text-lg md:text-xl text-theme-muted mb-10 max-w-2xl mx-auto font-light leading-relaxed">
+                    An intelligent infrastructure bridging the gap between citizens and administration 
+                    for direct, frictionless grievance resolution.
+                </p>
 
-          <div className="card-theme card-hover-effect p-6 rounded-lg text-center">
-            <div className="flex justify-center mb-4">
-              <Activity size={40} className="text-[var(--accent)]" />
-            </div>
-            <h4 className="text-xl font-semibold mb-2 text-theme">2. AI Processing</h4>
-            <p className="text-theme-secondary">Our AI automatically categorizes your issue and assigns urgency levels.</p>
-          </div>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center items-center w-full max-w-md">
+                    <Link
+                        href="/login"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-theme text-theme border border-primary dark:bg-white dark:text-black dark:border-white font-medium rounded-xl hover:scale-105 active:scale-95 transition-all duration-300 shadow-sm"
+                    >
+                        Initialize Request <ArrowRight size={16} />
+                    </Link>
+                    <Link
+                        href="/citizen/community"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 bg-theme-tertiary text-theme font-medium rounded-xl hover:bg-theme-secondary border border-transparent hover:border-theme transition-all duration-300"
+                    >
+                        View Feed
+                    </Link>
+                </div>
+            </section>
 
-          <div className="card-theme card-hover-effect p-6 rounded-lg text-center">
-            <div className="flex justify-center mb-4">
-              <CheckCircle size={40} className="text-[var(--success)]" />
-            </div>
-            <h4 className="text-xl font-semibold mb-2 text-theme">3. Quick Resolution</h4>
-            <p className="text-theme-secondary">Direct routing to officials ensures faster action and accountability.</p>
-          </div>
+            {/* Architecture / How it works */}
+            <section className="max-w-6xl mx-auto w-full">
+                <div className="mb-12">
+                    <h3 className="text-xs font-bold tracking-widest uppercase text-theme-muted mb-2">Systems Output</h3>
+                    <h2 className="text-3xl font-bold tracking-tight text-theme">How it operates.</h2>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-6">
+                    {/* Card 1 */}
+                    <div className="glass-panel p-8 group">
+                        <div className="w-12 h-12 rounded-full bg-theme-tertiary border border-theme flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                            <FileText size={20} className="text-theme opacity-80" />
+                        </div>
+                        <h4 className="text-xl font-bold text-theme mb-3">01. Ingestion</h4>
+                        <p className="text-sm text-theme-secondary leading-relaxed font-light">
+                            Submit civic anomalies through our frictionless interface. 
+                            Zero paperwork, minimal data entry required.
+                        </p>
+                    </div>
+
+                    {/* Card 2 */}
+                    <div className="glass-panel p-8 group">
+                        <div className="w-12 h-12 rounded-full bg-theme-tertiary border border-theme flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                            <Activity size={20} className="text-theme opacity-80" />
+                        </div>
+                        <h4 className="text-xl font-bold text-theme mb-3">02. AI Processing</h4>
+                        <p className="text-sm text-theme-secondary leading-relaxed font-light">
+                            Neural models automatically classify, deduplicate, and assign 
+                            urgency metrics to your request in milliseconds.
+                        </p>
+                    </div>
+
+                    {/* Card 3 */}
+                    <div className="glass-panel p-8 group">
+                        <div className="w-12 h-12 rounded-full bg-theme-tertiary border border-theme flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                            <CheckCircle size={20} className="text-theme opacity-80" />
+                        </div>
+                        <h4 className="text-xl font-bold text-theme mb-3">03. Resolution</h4>
+                        <p className="text-sm text-theme-secondary leading-relaxed font-light">
+                            Direct programmatic routing to the exact municipal official ensures 
+                            complete accountability and speed.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            {/* Feature Metrics - Minimalist */}
+            <section className="max-w-6xl mx-auto w-full">
+                <div className="card-theme overflow-hidden border border-theme relative">
+                    <div className="absolute top-0 right-0 p-8 opacity-5">
+                        <LayoutGrid size={200} />
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-theme">
+                        <div className="p-8 md:p-12 flex flex-col items-center md:items-start relative z-10">
+                            <span className="text-4xl md:text-5xl font-bold text-theme mb-2 tracking-tighter">98<span className="opacity-50">%</span></span>
+                            <span className="text-xs font-semibold tracking-wider text-theme-muted uppercase">Routing Accuracy</span>
+                        </div>
+                        <div className="p-8 md:p-12 flex flex-col items-center md:items-start relative z-10">
+                            <span className="text-4xl md:text-5xl font-bold text-theme mb-2 tracking-tighter">{'<'}2<span className="opacity-50">s</span></span>
+                            <span className="text-xs font-semibold tracking-wider text-theme-muted uppercase">AI Classification</span>
+                        </div>
+                        <div className="p-8 md:p-12 flex flex-col items-center md:items-start relative z-10">
+                            <span className="text-4xl md:text-5xl font-bold text-theme mb-2 tracking-tighter">0<span className="opacity-50"></span></span>
+                            <span className="text-xs font-semibold tracking-wider text-theme-muted uppercase">Data Loss</span>
+                        </div>
+                        <div className="p-8 md:p-12 flex flex-col items-center md:items-start relative z-10 bg-theme-secondary/50">
+                            <span className="text-4xl md:text-5xl font-bold text-theme mb-2 tracking-tighter text-green-500">Live</span>
+                            <span className="text-xs font-semibold tracking-wider text-theme-muted uppercase">System Status</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </div>
-      </div>
-
-      {/* Call to Action */}
-      <div className="bg-[var(--background-tertiary)] py-12 px-4 border-t border-[var(--card-border)]">
-        <div className="max-w-4xl mx-auto text-center">
-          <h3 className="text-2xl font-bold text-theme mb-4">Ready to Make Your Voice Heard?</h3>
-          <p className="text-theme-secondary mb-6">Join thousands of citizens working together for a better community.</p>
-          <Link
-            href="/login"
-            className="inline-block btn-accent font-bold py-3 px-8 rounded shadow-lg transition"
-          >
-            Get Started Now
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
+    );
 }

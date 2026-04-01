@@ -1,20 +1,28 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum
 from datetime import datetime
-
-from ..database import Base
+from pydantic import BaseModel, Field
+from typing import Optional
 from .complaint import ComplaintPriority
 
-class SLARule(Base):
-    """SLA rules defining resolution timeframes by category and priority"""
-    __tablename__ = "sla_rules"
+class SLARule(BaseModel):
+    id: Optional[str] = None
+    category: Optional[str] = None
+    priority: Optional[ComplaintPriority] = None
+    resolution_hours: int = 72
+    escalation_hours: Optional[int] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
     
-    id = Column(Integer, primary_key=True, index=True)
-    category = Column(String(100), nullable=True)  # Null = applies to all categories
-    priority = Column(SQLEnum(ComplaintPriority), nullable=True)  # Null = applies to all priorities
-    resolution_hours = Column(Integer, nullable=False, default=72)  # Default 3 days
-    escalation_hours = Column(Integer, nullable=True)  # Hours before escalation
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    def __repr__(self):
-        return f"<SLARule {self.category or 'All'}/{self.priority or 'All'}: {self.resolution_hours}h>"
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_firestore(cls, doc):
+        if not doc.exists: return None
+        data = doc.to_dict()
+        data["id"] = doc.id
+        return cls(**data)
+
+    def to_firestore(self):
+        data = self.model_dump(mode='json')
+        data.pop("id", None)
+        return data

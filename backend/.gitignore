@@ -33,8 +33,7 @@ env/
 *.swo
 
 # Environment
-.env
-.env.local
+
 
 # Database
 *.db
@@ -42,3 +41,7 @@ env/
 
 # Logs
 *.log
+
+# Firebase
+firebase-credentials.json
+firebase-admin-sdk.json

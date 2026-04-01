@@ -9,8 +9,6 @@ This module is the AI brain for Feature 2: Issue Heatmaps.
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from collections import defaultdict
-from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from ..models import Complaint, ComplaintStatus
 
@@ -26,12 +24,6 @@ INTENSITY_THRESHOLDS = {
 def get_intensity_level(count: int) -> str:
     """
     Determine the intensity level based on complaint count.
-    
-    Args:
-        count: Number of complaints
-        
-    Returns:
-        Intensity level string ("high", "medium", "low", "none")
     """
     if count >= INTENSITY_THRESHOLDS["high"]:
         return "high"
@@ -54,37 +46,29 @@ def get_intensity_color(level: str) -> str:
 
 
 def generate_category_heatmap(
-    db: Session,
+    db: Any,
     category: Optional[str] = None,
     days: int = 30
 ) -> Dict[str, Any]:
     """
     Generate heatmap data aggregated by category.
-    
-    Args:
-        db: Database session
-        category: Optional specific category filter
-        days: Number of days to look back
-        
-    Returns:
-        Dict with category-wise heatmap data
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    query = db.query(
-        Complaint.category,
-        func.count(Complaint.id).label("count")
-    ).filter(
-        Complaint.created_at >= cutoff_date
-    )
-    
+    query = db.collection('complaints').where('created_at', '>=', cutoff_date)
     if category:
-        query = query.filter(Complaint.category == category)
+        query = query.where('category', '==', category)
+        
+    docs = query.get()
     
-    results = query.group_by(Complaint.category).all()
-    
+    counts = defaultdict(int)
+    for doc in docs:
+        cat = doc.to_dict().get('category')
+        if cat:
+            counts[cat] += 1
+            
     heatmap_data = []
-    for cat, count in results:
+    for cat, count in counts.items():
         level = get_intensity_level(count)
         heatmap_data.append({
             "category": cat,
@@ -93,7 +77,6 @@ def generate_category_heatmap(
             "color": get_intensity_color(level)
         })
     
-    # Sort by count (highest first)
     heatmap_data.sort(key=lambda x: x["count"], reverse=True)
     
     return {
@@ -106,55 +89,61 @@ def generate_category_heatmap(
 
 
 def generate_locality_heatmap(
-    db: Session,
+    db: Any,
     category: Optional[str] = None,
     days: int = 30
 ) -> Dict[str, Any]:
     """
     Generate heatmap data aggregated by ward/locality.
-    
-    Args:
-        db: Database session
-        category: Optional category filter
-        days: Number of days to look back
-        
-    Returns:
-        Dict with locality-wise heatmap data
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    query = db.query(
-        Complaint.ward,
-        func.count(Complaint.id).label("count"),
-        func.avg(Complaint.latitude).label("avg_lat"),
-        func.avg(Complaint.longitude).label("avg_lng")
-    ).filter(
-        Complaint.created_at >= cutoff_date,
-        Complaint.ward.isnot(None)
-    )
-    
+    query = db.collection('complaints').where('created_at', '>=', cutoff_date)
     if category:
-        query = query.filter(Complaint.category == category)
+        query = query.where('category', '==', category)
+        
+    docs = query.get()
     
-    results = query.group_by(Complaint.ward).all()
+    ward_stats = defaultdict(lambda: {"count": 0, "lat_sum": 0.0, "lng_sum": 0.0, "lat_count": 0, "lng_count": 0})
     
-    heatmap_data = []
-    for ward, count, avg_lat, avg_lng in results:
+    for doc in docs:
+        data = doc.to_dict()
+        ward = data.get('ward')
         if not ward:
             continue
+            
+        stats = ward_stats[ward]
+        stats["count"] += 1
+        
+        lat = data.get('latitude')
+        if lat is not None:
+            stats["lat_sum"] += lat
+            stats["lat_count"] += 1
+            
+        lng = data.get('longitude')
+        if lng is not None:
+            stats["lng_sum"] += lng
+            stats["lng_count"] += 1
+            
+    heatmap_data = []
+    for ward, stats in ward_stats.items():
+        count = stats["count"]
         level = get_intensity_level(count)
+        
+        avg_lat = stats["lat_sum"] / stats["lat_count"] if stats["lat_count"] > 0 else None
+        avg_lng = stats["lng_sum"] / stats["lng_count"] if stats["lng_count"] > 0 else None
+        
         heatmap_data.append({
             "ward": ward,
             "count": count,
             "intensity": level,
             "color": get_intensity_color(level),
             "center": {
-                "latitude": float(avg_lat) if avg_lat else None,
-                "longitude": float(avg_lng) if avg_lng else None
+                "latitude": float(avg_lat) if avg_lat is not None else None,
+                "longitude": float(avg_lng) if avg_lng is not None else None
             }
         })
     
-    # Sort by count (highest first)
     heatmap_data.sort(key=lambda x: x["count"], reverse=True)
     
     return {
@@ -168,57 +157,43 @@ def generate_locality_heatmap(
 
 
 def generate_category_by_locality_heatmap(
-    db: Session,
+    db: Any,
     days: int = 30
 ) -> Dict[str, Any]:
     """
     Generate a matrix heatmap: categories vs localities.
-    
-    Args:
-        db: Database session
-        days: Number of days to look back
-        
-    Returns:
-        Dict with matrix heatmap data
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    query = db.query(
-        Complaint.category,
-        Complaint.ward,
-        func.count(Complaint.id).label("count")
-    ).filter(
-        Complaint.created_at >= cutoff_date,
-        Complaint.ward.isnot(None)
-    ).group_by(
-        Complaint.category,
-        Complaint.ward
-    ).all()
+    docs = db.collection('complaints').where('created_at', '>=', cutoff_date).get()
     
-    # Build matrix
     matrix = defaultdict(lambda: defaultdict(int))
     categories = set()
     wards = set()
     
-    for category, ward, count in query:
-        if ward:
-            matrix[category][ward] = count
+    for doc in docs:
+        data = doc.to_dict()
+        category = data.get('category')
+        ward = data.get('ward')
+        
+        if category and ward:
+            matrix[category][ward] += 1
             categories.add(category)
             wards.add(ward)
-    
-    # Convert to list format for API
+            
     matrix_data = []
     for cat in sorted(categories):
         row = {"category": cat, "wards": {}}
         for ward in sorted(wards):
             count = matrix[cat][ward]
+            level = get_intensity_level(count)
             row["wards"][ward] = {
                 "count": count,
-                "intensity": get_intensity_level(count),
-                "color": get_intensity_color(get_intensity_level(count))
+                "intensity": level,
+                "color": get_intensity_color(level)
             }
         matrix_data.append(row)
-    
+        
     return {
         "type": "matrix",
         "period_days": days,
@@ -230,48 +205,35 @@ def generate_category_by_locality_heatmap(
 
 
 def generate_time_trend_heatmap(
-    db: Session,
+    db: Any,
     category: Optional[str] = None,
     days: int = 30,
     group_by: str = "day"  # "day" or "week"
 ) -> Dict[str, Any]:
     """
     Generate time-series trend data for complaints.
-    
-    Args:
-        db: Database session
-        category: Optional category filter
-        days: Number of days to look back
-        group_by: Grouping interval ("day" or "week")
-        
-    Returns:
-        Dict with time-trend data
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    # Get all complaints in range
-    query = db.query(Complaint).filter(
-        Complaint.created_at >= cutoff_date
-    )
-    
+    query = db.collection('complaints').where('created_at', '>=', cutoff_date)
     if category:
-        query = query.filter(Complaint.category == category)
+        query = query.where('category', '==', category)
+        
+    docs = query.get()
     
-    complaints = query.all()
-    
-    # Group by time
     time_groups = defaultdict(int)
     
-    for complaint in complaints:
+    for doc in docs:
+        complaint = Complaint.from_firestore(doc)
+        if not complaint.created_at: continue
+        
         if group_by == "week":
-            # Get ISO week
             key = complaint.created_at.strftime("%Y-W%V")
         else:
             key = complaint.created_at.strftime("%Y-%m-%d")
-        
+            
         time_groups[key] += 1
-    
-    # Sort by date
+        
     sorted_keys = sorted(time_groups.keys())
     trend_data = [
         {
@@ -294,36 +256,34 @@ def generate_time_trend_heatmap(
 
 
 def get_top_problem_areas(
-    db: Session,
+    db: Any,
     limit: int = 10,
     days: int = 30
 ) -> List[Dict[str, Any]]:
     """
     Get the top problem areas (ward + category combinations).
-    
-    Args:
-        db: Database session
-        limit: Number of top areas to return
-        days: Number of days to look back
-        
-    Returns:
-        List of top problem areas
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    results = db.query(
-        Complaint.ward,
-        Complaint.category,
-        func.count(Complaint.id).label("count")
-    ).filter(
-        Complaint.created_at >= cutoff_date,
-        Complaint.ward.isnot(None)
-    ).group_by(
-        Complaint.ward,
-        Complaint.category
-    ).order_by(
-        func.count(Complaint.id).desc()
-    ).limit(limit).all()
+    docs = db.collection('complaints').where('created_at', '>=', cutoff_date).get()
+    
+    counts = defaultdict(int)
+    for doc in docs:
+        data = doc.to_dict()
+        ward = data.get('ward')
+        category = data.get('category')
+        
+        if ward and category:
+            key = (ward, category)
+            counts[key] += 1
+            
+    results = [
+        (ward, category, count)
+        for (ward, category), count in counts.items()
+    ]
+    
+    results.sort(key=lambda x: x[2], reverse=True)
+    top_results = results[:limit]
     
     return [
         {
@@ -334,5 +294,5 @@ def get_top_problem_areas(
             "color": get_intensity_color(get_intensity_level(count)),
             "rank": idx + 1
         }
-        for idx, (ward, category, count) in enumerate(results)
+        for idx, (ward, category, count) in enumerate(top_results)
     ]

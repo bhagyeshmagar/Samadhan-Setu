@@ -20,7 +20,7 @@ class DepartmentUpdate(BaseModel):
     contact_phone: Optional[str] = None
 
 class DepartmentResponse(DepartmentBase):
-    id: int
+    id: str
     keywords: Optional[List[str]] = []
     created_at: datetime
     
@@ -29,14 +29,14 @@ class DepartmentResponse(DepartmentBase):
 
 class CategoryMappingBase(BaseModel):
     category: str
-    department_id: int
+    department_id: str
     priority_boost: Optional[int] = 0
 
 class CategoryMappingCreate(CategoryMappingBase):
     pass
 
 class CategoryMappingResponse(CategoryMappingBase):
-    id: int
+    id: str
     
     class Config:
         from_attributes = True
@@ -51,7 +51,7 @@ class SLARuleCreate(SLARuleBase):
     pass
 
 class SLARuleResponse(SLARuleBase):
-    id: int
+    id: str
     created_at: datetime
     
     class Config:

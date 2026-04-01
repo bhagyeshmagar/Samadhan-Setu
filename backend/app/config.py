@@ -8,10 +8,8 @@ class Settings:
     PROJECT_DESCRIPTION: str = "AI-Powered Grievance Redressal Platform"
     VERSION: str = "1.0.0"
     
-    # Database - PostgreSQL (set DATABASE_URL env var for your connection)
-    # Format: postgresql://user:password@host:port/dbname
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/samadhan_setu")
-    
+    # Firebase Database credentials
+    FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")    
     # JWT Settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", "samadhan-setu-secret-key-change-in-production")
     ALGORITHM: str = "HS256"
@@ -19,5 +17,4 @@ class Settings:
     
     # CORS
     CORS_ORIGINS: list = ["*"]
-
 settings = Settings()

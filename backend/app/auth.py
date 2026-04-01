@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Any
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+from google.cloud.firestore import Client
 
 from .config import settings
 from .database import get_db
@@ -45,7 +45,7 @@ def decode_token(token: str) -> dict:
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)  # FireStore client
 ) -> User:
     """Get the current authenticated user from token"""
     credentials_exception = HTTPException(
@@ -62,13 +62,12 @@ async def get_current_user(
     if user_id_raw is None:
         raise credentials_exception
     
-    # Convert to int (could be string or int depending on how it was encoded)
-    try:
-        user_id = int(user_id_raw)
-    except (ValueError, TypeError):
-        raise credentials_exception
+    user_id = str(user_id_raw)
     
-    user = db.query(User).filter(User.id == user_id).first()
+    # Firestore fetch
+    user_doc = db.collection('users').document(user_id).get()
+    user = User.from_firestore(user_doc)
+    
     if user is None:
         raise credentials_exception
     

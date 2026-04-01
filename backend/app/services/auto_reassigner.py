@@ -8,8 +8,6 @@ This module is the proactive AI component of Feature 1.
 """
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
 
 from ..models import (
     Team, TaskAssignment, AssignmentLog, Complaint,
@@ -29,12 +27,6 @@ SLA_BREACH_RISK_HOURS = 4  # Consider reassignment if <4 hours to deadline
 def check_team_overload(team: Team) -> bool:
     """
     Check if a team is overloaded.
-    
-    Args:
-        team: The team to check
-        
-    Returns:
-        True if team is overloaded
     """
     return team.load_ratio >= OVERLOAD_THRESHOLD
 
@@ -42,12 +34,6 @@ def check_team_overload(team: Team) -> bool:
 def check_sla_breach_risk(assignment: TaskAssignment) -> bool:
     """
     Check if an assignment is at risk of SLA breach.
-    
-    Args:
-        assignment: The task assignment to check
-        
-    Returns:
-        True if SLA breach is imminent
     """
     if not assignment.deadline:
         return False
@@ -56,99 +42,72 @@ def check_sla_breach_risk(assignment: TaskAssignment) -> bool:
     return hours_remaining <= SLA_BREACH_RISK_HOURS
 
 
-def get_at_risk_assignments(db: Session) -> List[TaskAssignment]:
+def get_at_risk_assignments(db: Any) -> List[TaskAssignment]:
     """
-    Get all active assignments that are at risk (SLA breach or overloaded team).
-    
-    Args:
-        db: Database session
-        
-    Returns:
-        List of at-risk TaskAssignments
+    Get all active assignments that are at risk (SLA breach).
     """
-    # Get active assignments with deadlines approaching
     risk_threshold = datetime.utcnow() + timedelta(hours=SLA_BREACH_RISK_HOURS)
     
-    at_risk = db.query(TaskAssignment).filter(
-        TaskAssignment.is_active == True,
-        TaskAssignment.deadline <= risk_threshold
-    ).all()
+    docs = db.collection('task_assignments').where('is_active', '==', True).where('deadline', '<=', risk_threshold).get()
+    at_risk = [TaskAssignment.from_firestore(doc) for doc in docs]
     
     return at_risk
 
 
-def get_overloaded_team_assignments(db: Session) -> List[TaskAssignment]:
+def get_overloaded_team_assignments(db: Any) -> List[TaskAssignment]:
     """
     Get assignments from overloaded teams that could be reassigned.
-    
-    Args:
-        db: Database session
-        
-    Returns:
-        List of TaskAssignments from overloaded teams
     """
-    # Get all overloaded teams
-    overloaded_teams = db.query(Team).filter(
-        Team.is_active == True
-    ).all()
+    team_docs = db.collection('teams').where('is_active', '==', True).get()
+    teams = [Team.from_firestore(doc) for doc in team_docs]
     
-    overloaded_team_ids = [t.id for t in overloaded_teams if check_team_overload(t)]
+    overloaded_team_ids = [t.id for t in teams if check_team_overload(t)]
     
     if not overloaded_team_ids:
         return []
     
-    # Get active assignments from these teams
-    assignments = db.query(TaskAssignment).filter(
-        TaskAssignment.team_id.in_(overloaded_team_ids),
-        TaskAssignment.is_active == True,
-        TaskAssignment.is_reassigned == False  # Avoid double-reassignment
-    ).all()
+    # Firestore does not support 'in' queries with >10 items cleanly natively for unknown sizes without batching
+    # But for a small app, this is fine. We will iterate manually for robust behavior
+    assignments_docs = db.collection('task_assignments').where('is_active', '==', True).where('is_reassigned', '==', False).get()
     
-    return assignments
+    all_assignments = [TaskAssignment.from_firestore(doc) for doc in assignments_docs]
+    overloaded_assignments = [a for a in all_assignments if a.team_id in overloaded_team_ids]
+    
+    return overloaded_assignments
 
 
 def reassign_task(
-    db: Session,
+    db: Any,
     assignment: TaskAssignment,
     reason: str
 ) -> Optional[Dict[str, Any]]:
     """
     Reassign a task to a different team.
-    
-    Args:
-        db: Database session
-        assignment: The assignment to reassign
-        reason: Reason for reassignment
-        
-    Returns:
-        Dict with reassignment details, or None if no alternative found
     """
-    complaint = db.query(Complaint).filter(
-        Complaint.id == assignment.complaint_id
-    ).first()
+    complaint_doc = db.collection('complaints').document(assignment.complaint_id).get()
+    if not complaint_doc.exists:
+        return None
+    complaint = Complaint.from_firestore(complaint_doc)
     
-    if not complaint or complaint.status != ComplaintStatus.PENDING:
-        return None  # Only reassign pending complaints
-    
-    current_team = db.query(Team).filter(Team.id == assignment.team_id).first()
-    
-    if not current_team:
+    if complaint.status != ComplaintStatus.PENDING:
         return None
     
-    # Get alternative teams (exclude current team)
+    current_team_doc = db.collection('teams').document(assignment.team_id).get()
+    if not current_team_doc.exists:
+        return None
+    current_team = Team.from_firestore(current_team_doc)
+    
     all_teams = get_available_teams(db, current_team.department_id, complaint.ward)
     alternative_teams = [t for t in all_teams if t.id != current_team.id]
     
     if not alternative_teams:
-        return None  # No alternatives available
+        return None
     
-    # Find optimal alternative
     new_team, score, new_reason = find_optimal_team(db, complaint, alternative_teams)
     
     if not new_team:
         return None
     
-    # Check if new team is actually better
     current_score = calculate_load_score(
         current_team, 
         complaint.priority,
@@ -156,23 +115,32 @@ def reassign_task(
     )
     
     if score >= current_score:
-        return None  # New team is not better
+        return None
     
     # Perform reassignment
     old_team_id = assignment.team_id
-    assignment.team_id = new_team.id
-    assignment.is_reassigned = True
-    assignment.reassigned_from_team_id = old_team_id
-    assignment.reassignment_reason = reason
-    assignment.reassigned_at = datetime.utcnow()
-    assignment.load_score = score
+    reassigned_at = datetime.utcnow()
+    
+    db.collection('task_assignments').document(assignment.id).update({
+        'team_id': new_team.id,
+        'is_reassigned': True,
+        'reassigned_from_team_id': old_team_id,
+        'reassignment_reason': reason,
+        'reassigned_at': reassigned_at,
+        'load_score': score
+    })
     
     # Update complaint
-    complaint.assigned_team_id = new_team.id
+    db.collection('complaints').document(complaint.id).update({
+        'assigned_team_id': new_team.id
+    })
     
     # Update team task counts
     current_team.active_tasks = max(0, current_team.active_tasks - 1)
+    db.collection('teams').document(current_team.id).update({'active_tasks': current_team.active_tasks})
+    
     new_team.active_tasks += 1
+    db.collection('teams').document(new_team.id).update({'active_tasks': new_team.active_tasks})
     
     # Log the reassignment
     log = AssignmentLog(
@@ -187,8 +155,7 @@ def reassign_task(
         },
         triggered_by="AI"
     )
-    db.add(log)
-    db.commit()
+    db.collection('assignment_logs').add(log.to_firestore())
     
     return {
         "assignment_id": assignment.id,
@@ -200,16 +167,9 @@ def reassign_task(
     }
 
 
-def run_reassignment_check(db: Session) -> Dict[str, Any]:
+def run_reassignment_check(db: Any) -> Dict[str, Any]:
     """
     Run a full reassignment check cycle.
-    This should be called periodically (e.g., every 5 minutes) by a background job.
-    
-    Args:
-        db: Database session
-        
-    Returns:
-        Summary of reassignment actions taken
     """
     results = {
         "checked_at": datetime.utcnow().isoformat(),
@@ -218,7 +178,6 @@ def run_reassignment_check(db: Session) -> Dict[str, Any]:
         "reassignments": []
     }
     
-    # Check SLA-at-risk assignments
     sla_risk_assignments = get_at_risk_assignments(db)
     results["sla_risk_checked"] = len(sla_risk_assignments)
     
@@ -230,16 +189,14 @@ def run_reassignment_check(db: Session) -> Dict[str, Any]:
         )
         if result:
             results["reassignments"].append(result)
-    
-    # Check overloaded team assignments
+            
     overload_assignments = get_overloaded_team_assignments(db)
     results["overload_checked"] = len(overload_assignments)
     
     for assignment in overload_assignments:
-        # Skip if already reassigned in SLA check
         if any(r["assignment_id"] == assignment.id for r in results["reassignments"]):
             continue
-        
+            
         result = reassign_task(
             db,
             assignment,
@@ -247,28 +204,19 @@ def run_reassignment_check(db: Session) -> Dict[str, Any]:
         )
         if result:
             results["reassignments"].append(result)
-    
+            
     return results
 
 
 def notify_department_head(
-    db: Session,
+    db: Any,
     assignment: TaskAssignment,
     action: str,
     details: Dict[str, Any]
 ) -> None:
     """
     Stub for notifying department head of AI actions.
-    In production, this would send an email/notification.
-    
-    Args:
-        db: Database session
-        assignment: The affected assignment
-        action: What happened (e.g., "REASSIGNED")
-        details: Action details
     """
-    # TODO: Implement actual notification (email, push, etc.)
-    # For now, just log the event
     log = AssignmentLog(
         assignment_id=assignment.id,
         event_type="NOTIFICATION_SENT",
@@ -279,5 +227,5 @@ def notify_department_head(
         },
         triggered_by="SYSTEM"
     )
-    db.add(log)
-    db.commit()
+    db.collection('assignment_logs').add(log.to_firestore())
+

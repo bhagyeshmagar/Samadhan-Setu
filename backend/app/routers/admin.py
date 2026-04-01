@@ -2,10 +2,9 @@
 Admin Router for Samadhan Setu
 Handles system administration: stats, departments, mappings, SLA
 """
-from typing import List, Optional
+from typing import List, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from google.cloud.firestore import Query as FirestoreQuery
 
 from ..database import get_db
 from ..auth import get_current_user, require_admin
@@ -26,32 +25,41 @@ router = APIRouter(prefix="/api/admin", tags=["Admin"])
 @router.get("/stats", response_model=ComplaintStats)
 async def get_dashboard_stats(
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Get comprehensive statistics for admin dashboard
     """
-    # Total counts
-    total = db.query(Complaint).count()
-    pending = db.query(Complaint).filter(Complaint.status == ComplaintStatus.PENDING).count()
-    in_progress = db.query(Complaint).filter(Complaint.status == ComplaintStatus.IN_PROGRESS).count()
-    resolved = db.query(Complaint).filter(Complaint.status == ComplaintStatus.RESOLVED).count()
-    rejected = db.query(Complaint).filter(Complaint.status == ComplaintStatus.REJECTED).count()
+    # Note: For scale, we'd use AggregateQuery, but this is simpler for test-scale
+    docs = db.collection('complaints').get()
     
-    # By category
-    category_stats = db.query(
-        Complaint.category,
-        func.count(Complaint.id)
-    ).group_by(Complaint.category).all()
-    by_category = {cat: count for cat, count in category_stats}
+    total = len(docs)
+    pending = 0
+    in_progress = 0
+    resolved = 0
+    rejected = 0
     
-    # By priority
-    priority_stats = db.query(
-        Complaint.priority,
-        func.count(Complaint.id)
-    ).group_by(Complaint.priority).all()
-    by_priority = {str(priority.value): count for priority, count in priority_stats}
+    by_category = {}
+    by_priority = {}
     
+    for doc in docs:
+        data = doc.to_dict()
+        
+        # Status counts
+        status = data.get('status')
+        if status == ComplaintStatus.PENDING.value: pending += 1
+        elif status == ComplaintStatus.IN_PROGRESS.value: in_progress += 1
+        elif status == ComplaintStatus.RESOLVED.value: resolved += 1
+        elif status == ComplaintStatus.REJECTED.value: rejected += 1
+            
+        # Category counts
+        cat = data.get('category', 'Unknown')
+        by_category[cat] = by_category.get(cat, 0) + 1
+        
+        # Priority counts
+        pri = data.get('priority', 'Low')
+        by_priority[pri] = by_priority.get(pri, 0) + 1
+        
     return ComplaintStats(
         total=total,
         pending=pending,
@@ -66,18 +74,26 @@ async def get_dashboard_stats(
 @router.get("/stats/summary")
 async def get_quick_stats(
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Quick summary stats for dashboard cards
     """
-    total = db.query(Complaint).count()
-    pending = db.query(Complaint).filter(
-        Complaint.status.in_([ComplaintStatus.PENDING, ComplaintStatus.IN_PROGRESS])
-    ).count()
-    resolved = db.query(Complaint).filter(Complaint.status == ComplaintStatus.RESOLVED).count()
-    users = db.query(User).filter(User.role == UserRole.CITIZEN).count()
+    complaint_docs = db.collection('complaints').get()
+    user_docs = db.collection('users').where('role', '==', UserRole.CITIZEN.value).get()
     
+    total = len(complaint_docs)
+    pending = 0
+    resolved = 0
+    
+    for doc in complaint_docs:
+        status = doc.to_dict().get('status')
+        if status in [ComplaintStatus.PENDING.value, ComplaintStatus.IN_PROGRESS.value]:
+            pending += 1
+        elif status == ComplaintStatus.RESOLVED.value:
+            resolved += 1
+            
+    users = len(user_docs)
     resolution_rate = round((resolved / total * 100), 1) if total > 0 else 0
     
     return {
@@ -92,19 +108,18 @@ async def get_quick_stats(
 @router.get("/insights/clusters")
 async def get_ai_insights(
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
     """
     Get AI-generated summaries of recurring patterns using clustering.
     Analytical tool for admins (Task #8).
     """
-    # 1. Fetch relevant complaints (e.g., last 100 or all pending)
-    complaints = db.query(Complaint).order_by(Complaint.created_at.desc()).limit(200).all()
+    docs = db.collection('complaints').order_by('created_at', direction=FirestoreQuery.DESCENDING).limit(200).get()
+    complaints = [Complaint.from_firestore(doc) for doc in docs]
     
     if not complaints or len(complaints) < 2:
         return []
     
-    # 2. Prepare data for AI Bridge
     complaint_data = [
         {
             "id": c.id,
@@ -116,7 +131,6 @@ async def get_ai_insights(
         for c in complaints
     ]
     
-    # 3. Call AI Service via Bridge
     insights = ai_bridge.get_complaint_patterns(complaint_data)
     
     return insights
@@ -127,12 +141,10 @@ async def get_ai_insights(
 @router.get("/departments", response_model=List[DepartmentResponse])
 async def get_all_departments(
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get all departments
-    """
-    departments = db.query(Department).all()
+    docs = db.collection('departments').get()
+    departments = [Department.from_firestore(doc) for doc in docs]
     return [DepartmentResponse.model_validate(d) for d in departments]
 
 
@@ -140,13 +152,9 @@ async def get_all_departments(
 async def create_department(
     dept_data: DepartmentCreate,
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Create a new department
-    """
-    # Check if code exists
-    existing = db.query(Department).filter(Department.code == dept_data.code).first()
+    existing = db.collection('departments').where('code', '==', dept_data.code).limit(1).get()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -162,43 +170,41 @@ async def create_department(
         contact_phone=dept_data.contact_phone
     )
     
-    db.add(new_dept)
-    db.commit()
-    db.refresh(new_dept)
+    doc_ref = db.collection('departments').document()
+    new_dept.id = doc_ref.id
+    doc_ref.set(new_dept.to_firestore())
     
     return DepartmentResponse.model_validate(new_dept)
 
 
 @router.put("/departments/{dept_id}", response_model=DepartmentResponse)
 async def update_department(
-    dept_id: int,
+    dept_id: str,
     dept_data: DepartmentUpdate,
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Update a department
-    """
-    dept = db.query(Department).filter(Department.id == dept_id).first()
-    if not dept:
+    doc_ref = db.collection('departments').document(dept_id)
+    doc = doc_ref.get()
+    
+    if not doc.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Department not found"
         )
     
-    if dept_data.name:
-        dept.name = dept_data.name
-    if dept_data.description:
-        dept.description = dept_data.description
-    if dept_data.keywords is not None:
-        dept.keywords = dept_data.keywords
-    if dept_data.contact_email:
-        dept.contact_email = dept_data.contact_email
-    if dept_data.contact_phone:
-        dept.contact_phone = dept_data.contact_phone
+    updates = {}
+    if dept_data.name: updates['name'] = dept_data.name
+    if dept_data.description: updates['description'] = dept_data.description
+    if dept_data.keywords is not None: updates['keywords'] = dept_data.keywords
+    if dept_data.contact_email: updates['contact_email'] = dept_data.contact_email
+    if dept_data.contact_phone: updates['contact_phone'] = dept_data.contact_phone
     
-    db.commit()
-    db.refresh(dept)
+    if updates:
+        doc_ref.update(updates)
+        
+    updated_doc = doc_ref.get()
+    dept = Department.from_firestore(updated_doc)
     
     return DepartmentResponse.model_validate(dept)
 
@@ -208,12 +214,10 @@ async def update_department(
 @router.get("/mappings", response_model=List[CategoryMappingResponse])
 async def get_category_mappings(
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get all category-to-department mappings
-    """
-    mappings = db.query(CategoryMapping).all()
+    docs = db.collection('category_mappings').get()
+    mappings = [CategoryMapping.from_firestore(doc) for doc in docs]
     return [CategoryMappingResponse.model_validate(m) for m in mappings]
 
 
@@ -221,34 +225,29 @@ async def get_category_mappings(
 async def create_category_mapping(
     mapping_data: CategoryMappingCreate,
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Create or update a category-to-department mapping
-    """
-    # Check if mapping exists
-    existing = db.query(CategoryMapping).filter(
-        CategoryMapping.category == mapping_data.category
-    ).first()
+    existing = db.collection('category_mappings').where('category', '==', mapping_data.category).limit(1).get()
     
     if existing:
-        # Update existing
-        existing.department_id = mapping_data.department_id
-        existing.priority_boost = mapping_data.priority_boost
-        db.commit()
-        db.refresh(existing)
-        return CategoryMappingResponse.model_validate(existing)
+        doc_ref = existing[0].reference
+        doc_ref.update({
+            'department_id': mapping_data.department_id,
+            'priority_boost': mapping_data.priority_boost
+        })
+        updated_doc = doc_ref.get()
+        mapping = CategoryMapping.from_firestore(updated_doc)
+        return CategoryMappingResponse.model_validate(mapping)
     
-    # Create new
     new_mapping = CategoryMapping(
         category=mapping_data.category,
         department_id=mapping_data.department_id,
         priority_boost=mapping_data.priority_boost
     )
     
-    db.add(new_mapping)
-    db.commit()
-    db.refresh(new_mapping)
+    doc_ref = db.collection('category_mappings').document()
+    new_mapping.id = doc_ref.id
+    doc_ref.set(new_mapping.to_firestore())
     
     return CategoryMappingResponse.model_validate(new_mapping)
 
@@ -258,12 +257,10 @@ async def create_category_mapping(
 @router.get("/sla", response_model=List[SLARuleResponse])
 async def get_sla_rules(
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get all SLA rules
-    """
-    rules = db.query(SLARule).all()
+    docs = db.collection('sla_rules').get()
+    rules = [SLARule.from_firestore(doc) for doc in docs]
     return [SLARuleResponse.model_validate(r) for r in rules]
 
 
@@ -271,11 +268,8 @@ async def get_sla_rules(
 async def create_sla_rule(
     sla_data: SLARuleCreate,
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Create a new SLA rule
-    """
     new_rule = SLARule(
         category=sla_data.category,
         priority=sla_data.priority,
@@ -283,9 +277,9 @@ async def create_sla_rule(
         escalation_hours=sla_data.escalation_hours
     )
     
-    db.add(new_rule)
-    db.commit()
-    db.refresh(new_rule)
+    doc_ref = db.collection('sla_rules').document()
+    new_rule.id = doc_ref.id
+    doc_ref.set(new_rule.to_firestore())
     
     return SLARuleResponse.model_validate(new_rule)
 
@@ -296,32 +290,27 @@ async def create_sla_rule(
 async def get_all_users(
     role: Optional[UserRole] = None,
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get all users, optionally filtered by role
-    """
-    query = db.query(User)
+    query = db.collection('users')
     if role:
-        query = query.filter(User.role == role)
-    
-    users = query.all()
+        query = query.where('role', '==', role.value)
+        
+    docs = query.get()
+    users = [User.from_firestore(doc) for doc in docs]
     return [UserResponse.model_validate(u) for u in users]
 
 
 @router.get("/officers", response_model=List[UserResponse])
 async def get_officers(
-    department_id: Optional[int] = None,
+    department_id: Optional[str] = None,
     current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Any = Depends(get_db)
 ):
-    """
-    Get all department officers
-    """
-    query = db.query(User).filter(User.role == UserRole.OFFICER)
-    
+    query = db.collection('users').where('role', '==', UserRole.OFFICER.value)
     if department_id:
-        query = query.filter(User.department_id == department_id)
-    
-    officers = query.all()
+        query = query.where('department_id', '==', department_id)
+        
+    docs = query.get()
+    officers = [User.from_firestore(doc) for doc in docs]
     return [UserResponse.model_validate(o) for o in officers]

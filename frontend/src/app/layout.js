@@ -12,14 +12,25 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="font-sans min-h-screen flex flex-col bg-theme text-theme">
+      <body className="font-sans min-h-screen flex flex-col bg-[var(--background)] text-[var(--foreground)] antialiased tracking-tight selection:bg-[var(--foreground)] selection:text-[var(--background)]">
         <ThemeProvider>
           <AuthProvider>
-            <Navbar />
-            <main className="flex-grow">
-              {children}
-            </main>
-            <Footer />
+            <div className="relative flex flex-col min-h-screen">
+              {/* Optional Subtle Background Noise/Mesh for extra polish - very low opacity */}
+              <div aria-hidden="true" className="fixed inset-0 pointer-events-none z-[-1] opacity-30 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] dark:opacity-5 mix-blend-overlay"></div>
+              
+              {/* Sticky Container for floating pill navbar */}
+              <div className="sticky top-0 z-50 pt-4 pb-2 px-4 md:px-8 max-w-[1400px] mx-auto w-full">
+                <Navbar />
+              </div>
+              
+              {/* Main App Content body */}
+              <main className="flex-grow flex flex-col w-full max-w-[1400px] mx-auto pt-6 px-4 md:px-8 pb-16">
+                {children}
+              </main>
+              
+              <Footer />
+            </div>
           </AuthProvider>
         </ThemeProvider>
       </body>

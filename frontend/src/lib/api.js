@@ -1,6 +1,6 @@
 // API client configuration for Samadhan Setu
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 // Get token from localStorage
 const getToken = () => {
@@ -91,7 +91,7 @@ export const complaintsAPI = {
         method: 'POST',
     }),
 
-    submit: (data) => apiRequest('/api/complaints', {
+    submit: (data) => apiRequest('/api/complaints/', {
         method: 'POST',
         body: JSON.stringify(data),
     }),

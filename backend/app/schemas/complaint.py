@@ -19,7 +19,7 @@ class ComplaintUpdate(BaseModel):
     """Schema for updating complaint (admin/officer)"""
     status: Optional[ComplaintStatus] = None
     remarks: Optional[str] = None
-    assigned_officer_id: Optional[int] = None
+    assigned_officer_id: Optional[str] = None
 
 class ComplaintAIResponse(BaseModel):
     """AI classification response"""
@@ -27,10 +27,13 @@ class ComplaintAIResponse(BaseModel):
     priority: ComplaintPriority
     urgency_score: int
     confidence: int
-    department_id: Optional[int] = None
+    department_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 class StatusLogResponse(BaseModel):
-    id: int
+    id: Optional[str] = None
     status: ComplaintStatus
     remarks: Optional[str]
     created_at: datetime
@@ -40,7 +43,7 @@ class StatusLogResponse(BaseModel):
 
 class UserBasicResponse(BaseModel):
     """Basic user info for complaint response"""
-    id: int
+    id: str
     name: str
     email: str
     phone: Optional[str] = None
@@ -49,15 +52,15 @@ class UserBasicResponse(BaseModel):
         from_attributes = True
 
 class ComplaintResponse(ComplaintBase):
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     category: str
     priority: ComplaintPriority
-    urgency_score: int
+    urgency_score: Optional[int] = 0
     ai_confidence: Optional[int] = None
     status: ComplaintStatus
-    department_id: Optional[int]
-    upvotes: int
+    department_id: Optional[str] = None
+    upvotes: Optional[int] = 0
     attachments: Optional[List] = None
     resolution_proof: Optional[List] = None
     resolution_remarks: Optional[str] = None
@@ -67,9 +70,9 @@ class ComplaintResponse(ComplaintBase):
     created_at: datetime
     updated_at: datetime
     resolved_at: Optional[datetime] = None
-    deadline: Optional[datetime] = None  # SLA deadline
+    deadline: Optional[datetime] = None
     status_logs: Optional[List[StatusLogResponse]] = []
-    user: Optional[UserBasicResponse] = None  # Citizen details
+    user: Optional[UserBasicResponse] = None
     
     class Config:
         from_attributes = True

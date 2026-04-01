@@ -27,8 +27,7 @@ BACKEND
 
 DATABASE
 --------
-• PostgreSQL 14+        - Relational database
-• SQLite                - Development/testing fallback
+• Google Cloud Firestore - NoSQL scalable database
 
 AUTHENTICATION & SECURITY
 -------------------------
@@ -165,7 +164,7 @@ GOVERNANCE BENEFITS
 PREREQUISITES:
 - Python 3.9+
 - Node.js 18+
-- PostgreSQL 14+
+- Google Cloud Firebase Project (Firestore enabled)
 - 4GB RAM minimum (8GB recommended)
 - 3GB disk space (for AI models)
 
