@@ -1,18 +1,53 @@
-# Python
+# === OS Files ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Environment Variables ===
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# === Python / Backend ===
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 .venv/
 venv/
 ENV/
+env/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
 
-# OS files
-.DS_Store
-Thumbs.db
+# === Node / Frontend ===
+node_modules/
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+.next/
+out/
+build/
+dist/
 
-# Environment variables
-.env
+# === Project Specific (Critical) ===
+backend/firebase-credentials.json
+backend/samadhan_setu.db
+backend/uploads/
+backend/error.txt
+backend/output.txt
 
-# AI Models / Cache
-.cache/
-huggingface/
+# === IDEs / Editors ===
+.idea/
+.vscode/
+*.swp
+*.swo

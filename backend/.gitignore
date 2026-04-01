@@ -1,8 +1,12 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -20,28 +24,28 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# Virtual Environments
 venv/
 .venv/
-ENV/
 env/
+ENV/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Environment
-
+# Environment Variables
+.env
 
 # Database
-*.db
 *.sqlite3
+*.db
+samadhan_setu.db
 
-# Logs
-*.log
-
-# Firebase
+# Cloud/Service Credentials
 firebase-credentials.json
-firebase-admin-sdk.json
+*.pem
+
+# File Uploads
+uploads/
+
+# Logs and outputs
+output.txt
+error.txt
+*.log
