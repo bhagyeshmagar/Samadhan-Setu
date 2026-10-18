@@ -6,10 +6,17 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 
 from .config import settings
 from .database import init_db
-from .routers import auth_router, citizens_router, departments_router, admin_router, assignments_router, analytics_router
+from .routers import auth_router, citizens_router, departments_router, admin_router, assignments_router, analytics_router, ai_insights_router
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize database on startup"""
+    init_db()
+    yield
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -17,7 +24,8 @@ app = FastAPI(
     description=settings.PROJECT_DESCRIPTION,
     version=settings.VERSION,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -41,12 +49,8 @@ app.include_router(departments_router)
 app.include_router(admin_router)
 app.include_router(assignments_router)
 app.include_router(analytics_router)
+app.include_router(ai_insights_router)
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup"""
-    init_db()
 
 
 @app.get("/")

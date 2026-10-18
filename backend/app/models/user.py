@@ -29,7 +29,10 @@ class User(BaseModel):
             return None
         data = doc.to_dict()
         data["id"] = doc.id
-        return cls(**data)
+        try:
+            return cls(**data)
+        except Exception:
+            return None
 
     def to_firestore(self):
         """Convert to dict for saving to Firestore"""

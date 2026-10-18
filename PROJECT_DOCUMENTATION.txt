@@ -1,203 +1,235 @@
-================================================================================
-                        SAMADHAN SETU - PROJECT DOCUMENTATION
-                    AI-Powered Grievance Redressal Platform
-================================================================================
+===============================================================================
+ SAMADHAN SETU — PROJECT DOCUMENTATION
+ AI-Powered Grievance Redressal Platform for Public Governance
+===============================================================================
 
-Team: Strawhats
+Version: 2.0 (Phase 2 Complete)
+Updated: April 2026
 
+===============================================================================
+ 1. PROJECT OVERVIEW
+===============================================================================
 
-================================================================================
-                              TECHNOLOGY STACK
-================================================================================
+Samadhan Setu is a full-stack AI-assisted grievance redressal system designed
+for municipal and public governance bodies. It processes citizen complaints
+through an intelligent pipeline that classifies, prioritizes, routes, and
+tracks grievances across multiple departments while maintaining a strict
+governance-first philosophy: AI advises, officers decide.
 
-FRONTEND
---------
-• Next.js 16.1          - React framework with App Router
-• React 19              - UI component library
-• Tailwind CSS 4        - Utility-first CSS framework
-• Lucide Icons          - Icon library
-• Leaflet + React-Leaflet - Interactive maps and heatmaps
+The system is built in two phases:
+  Phase 1 — Workflow engine with state machines, task routing, and audit logging
+  Phase 2 — AI intelligence layer with DistilBERT, SBERT, YOLOv8, and fusion
 
-BACKEND
--------
-• FastAPI               - High-performance Python web framework
-• SQLAlchemy            - Object-Relational Mapping (ORM)
-• Pydantic              - Data validation and settings management
-• Uvicorn               - ASGI server for production
+===============================================================================
+ 2. DESIGN PRINCIPLES
+===============================================================================
 
-DATABASE
---------
-• Google Cloud Firestore - NoSQL scalable database
+1. GOVERNANCE-FIRST: AI is advisory. Officers lead every decision.
+2. AUDITABILITY: Every action (human or AI) is logged with full context.
+3. GRACEFUL DEGRADATION: Every AI model has a deterministic fallback.
+4. TRANSPARENCY: Citizens see status timelines. Officers see AI explanations.
+5. BOUNDED CROWD INFLUENCE: Upvotes inform but cannot override officer judgment.
+6. EXPLAINABILITY: Every priority score includes a complete factor breakdown.
+7. MODULAR ARCHITECTURE: Each AI service is independent and replaceable.
 
-AUTHENTICATION & SECURITY
--------------------------
-• JWT (JSON Web Tokens) - Stateless authentication
-• Argon2                - Password hashing algorithm
-• CORS                  - Cross-origin resource sharing
+===============================================================================
+ 3. SYSTEM ARCHITECTURE
+===============================================================================
 
-AI/ML TECHNOLOGIES
-------------------
-• PyTorch 2.0+          - Deep learning framework
-• Hugging Face Transformers - Pre-trained NLP models
-• Sentence-Transformers (SBERT) - Semantic text embeddings
-• DistilBERT            - Zero-shot text classification
-• scikit-learn          - K-Means clustering for insights
-• NumPy                 - Numerical computing
+Frontend: Next.js 14 (React 18)
+  - Citizen Portal: Lodge, Track, Community pages
+  - Officer Dashboard: Task management + AI-ranked queue
+  - Admin Oversight: Telemetry, AI health, override statistics
 
-AI MODELS USED
---------------
-1. sentence-transformers/all-MiniLM-L6-v2
-   - Purpose: Semantic similarity detection
-   - Embedding dimension: 384
-   - Use: Duplicate complaint detection
+Backend: FastAPI (Python 3.11+)
+  - Auth: JWT + Argon2 + RBAC (citizen/officer/admin)
+  - Workflow: Complaint state machine + Task state machine
+  - AI Pipeline: 9-step orchestrator (background tasks)
+  - Routing: Multi-department detection + officer load balancing
+  - Analytics: Heatmaps, clustering, hotspot detection
 
-2. typeform/distilbert-base-uncased-mnli
-   - Purpose: Zero-shot text classification
-   - Use: Automatic category assignment
+Database: Firebase Firestore
+  Collections: users, complaints, tasks, complaint_status_logs,
+               audit_logs, category_mappings, departments,
+               complaint_ai_results, complaint_embeddings,
+               similarity_links, routing_suggestions,
+               image_analysis_results, inference_logs,
+               complaint_clusters
 
-================================================================================
-                              PROJECT OUTCOMES
-================================================================================
+===============================================================================
+ 4. AI INTELLIGENCE LAYER (PHASE 2)
+===============================================================================
 
-PROBLEM SOLVED
---------------
-Samadhan Setu addresses critical challenges in public grievance management:
+4.1 DistilBERT Text Classification
+  - Model: facebook/bart-large-mnli (zero-shot)
+  - Categories: Roads & Transport, Water Supply, Electricity,
+                Sanitation & Waste, Health & Safety, General
+  - Fallback: Keyword-based rule engine with weighted scoring
+  - Output: category, subcategory, confidence (0-100%), source
 
-1. AUTOMATED COMPLAINT CLASSIFICATION
-   - AI automatically categorizes complaints into departments
-   - Hybrid approach: ML + Rule-based fallback for reliability
-   - Categories: Roads & Transport, Water Supply, Electricity, 
-                 Sanitation, Public Safety, Healthcare, Education, etc.
-   - Accuracy: 85%+ with confidence thresholds
+4.2 SBERT Semantic Similarity
+  - Model: all-MiniLM-L6-v2 (384-dim embeddings)
+  - Caching: In-memory + disk (.npy files) + Firestore metadata
+  - Threshold: 0.75 for similarity, 0.90 for likely duplicate
+  - Advisory links: Officers must approve/reject merges
+  - Fallback: Jaccard keyword similarity
 
-2. INTELLIGENT PRIORITY ASSESSMENT
-   - Automatic urgency detection using NLP
-   - Severity scoring based on context and keywords
-   - Formula: Priority = 0.4×Urgency + 0.4×Severity + 0.2×CrowdImpact
-   - SLA deadlines: High (24h), Medium (72h), Low (7 days)
+4.3 YOLOv8 Image Validation
+  - Model: YOLOv8n (nano, CPU-friendly)
+  - Detection: COCO classes with category-relevance mapping
+  - Output: object count, detected classes, relevance score,
+            visual severity (1-3), quality flag
+  - Fallback: Skipped gracefully (image analysis unavailable)
 
-3. DUPLICATE DETECTION
-   - SBERT-based semantic similarity matching
-   - Prevents redundant complaints (75% similarity threshold)
-   - Saves officer time and resources
-   - Example: "Water leaking" ≈ "Burst pipe" detected as similar
+4.4 Multi-Modal Severity Fusion
+  - Combines text severity (0-10 → 1-3) with image severity (1-3)
+  - Adaptive weighting based on text length and image relevance
+  - Short text (<20 chars): 35% text / 65% image
+  - Moderate text: 50/50
+  - Detailed text (>50 chars): 65% text / 35% image
+  - Low image relevance (<0.3) halves image weight
 
-4. PROOF-OF-RESOLUTION SYSTEM
-   - Officers upload verification images
-   - Citizens can rate resolutions
-   - Creates accountability trail
+4.5 Priority Engine
+  Formula:
+    Score = 0.30×Urgency + 0.30×Severity + 0.15×CrowdImpact
+          + 0.10×SLARisk + 0.10×LocationCriticality + 0.05×History
 
-5. AI-POWERED ANALYTICS
-   - Heatmaps showing issue density by location
-   - Recurring issue detection via clustering
-   - Department performance metrics
-   - Trend analysis over time
+  Priority Bands:
+    Critical (≥2.5) → 12h SLA
+    High     (≥2.0) → 24h SLA
+    Medium   (≥1.5) → 72h SLA
+    Low      (<1.5) → 168h SLA
 
-KEY FEATURES DELIVERED
-----------------------
-✅ Citizen Portal
-   - Easy complaint submission with location capture
-   - Real-time status tracking
-   - Community feed with upvoting
+  Crowd Impact: Bounded at 3.0. Upvotes contribute logarithmically
+  (capped at 1.5). Ward density and semantic similarity provide
+  additional bounded contributions. Anti-brigading by design.
 
-✅ Department Dashboard
-   - Priority-sorted complaint queue
-   - Proof upload on resolution
-   - Status update workflow
+4.6 AI-Assisted Routing
+  - Primary department from AI category
+  - Secondary departments from text keyword detection
+  - Suggested officer: least-loaded in primary department
+  - Override support: officer can override with logged reason
+  - Status: pending → accepted / overridden
 
-✅ Admin Analytics
-   - Comprehensive statistics
-   - Department management
-   - AI-generated insights
+4.7 AI Pipeline Orchestrator
+  9-step pipeline running as FastAPI background task:
+    1. Text Intelligence (DistilBERT + urgency/severity)
+    2. SBERT Similarity Detection + auto-linking
+    3. YOLOv8 Image Analysis (if images exist)
+    4. Multi-Modal Severity Fusion
+    5. Context Gathering (ward density, dept backlog, repeats)
+    6. Priority Calculation (6-factor formula)
+    7. AI Routing Suggestion
+    8. Store Results (complaint_ai_results collection)
+    9. Log Inference (inference_logs collection)
 
-✅ AI Integration
-   - Automatic classification on submission
-   - Real-time similarity detection
-   - Smart priority assignment
-   - Workload-balanced team assignment
+  Each step is independent. Partial failures don't crash the pipeline.
 
-IMPACT METRICS
---------------
-• Time to categorize complaint: <1 second (vs manual: 5-10 minutes)
-• Duplicate detection rate: 90%+ accuracy at 75% threshold
-• Classification confidence: 60%+ triggers ML, else rule-based
-• API response time: <500ms for AI operations
-• SLA compliance visibility: Real-time dashboard
+===============================================================================
+ 5. API REFERENCE
+===============================================================================
 
-GOVERNANCE BENEFITS
--------------------
-1. TRANSPARENCY
-   - Citizens can track complaint status in real-time
-   - Public community feed for common issues
-   - Audit trail of all status changes
+Auth:
+  POST /api/auth/register     Register new user
+  POST /api/auth/login        Login (JWT token)
+  GET  /api/auth/me            Current user profile
 
-2. EFFICIENCY
-   - Automated routing reduces manual triage
-   - Priority-based queue ensures critical issues first
-   - Duplicate detection prevents redundant work
+Citizens:
+  POST /api/complaints/               Submit complaint (triggers AI)
+  GET  /api/complaints/my              Citizen's complaints
+  GET  /api/complaints/{id}            Detail + tasks + history
+  POST /api/complaints/{id}/upload     Upload evidence images
+  POST /api/complaints/{id}/upvote     Upvote complaint
 
-3. ACCOUNTABILITY
-   - Resolution proof required for closure
-   - Citizen satisfaction ratings
-   - Officer performance metrics
+Officers:
+  GET   /api/department/tasks                  Department tasks
+  PATCH /api/department/tasks/{id}/status       Update task status
+  GET   /api/department/stats                  Department stats
 
-4. DATA-DRIVEN DECISIONS
-   - Heatmaps reveal problem areas
-   - Clustering identifies systemic issues
-   - Trend analysis for proactive governance
+AI Insights (Phase 2):
+  GET  /api/ai/complaint/{id}/summary              Full AI analysis
+  POST /api/ai/complaint/{id}/rerun                Re-run pipeline
+  GET  /api/ai/complaint/{id}/similar              Similar complaints
+  GET  /api/ai/complaint/{id}/cluster              Cluster membership
+  GET  /api/ai/complaint/{id}/priority-explanation  Priority breakdown
+  GET  /api/ai/complaint/{id}/sla-risk             SLA risk assessment
+  GET  /api/ai/complaint/{id}/image-analysis       YOLO results
+  GET  /api/ai/complaint/{id}/routing              Routing suggestion
+  POST /api/ai/complaint/{id}/routing/override     Officer override
+  GET  /api/ai/officer/queue                       AI-ranked task queue
+  GET  /api/ai/admin/model-health                  Model health metrics
+  GET  /api/ai/admin/hotspots                      Complaint hotspots
+  GET  /api/ai/admin/override-stats                Override statistics
 
-================================================================================
-                              DEMO CREDENTIALS
-================================================================================
+Admin:
+  GET  /api/admin/stats            System statistics
+  GET  /api/admin/departments      List departments
+  POST /api/admin/departments      Create department
 
-| Role            | Email                    | Password |
-|-----------------|--------------------------|----------|
-| Citizen         | citizen@demo.com         | demo123  |
-| Officer (Roads) | officer@roads.gov.in     | demo123  |
-| Officer (Water) | officer@water.gov.in     | demo123  |
-| Admin           | admin@samadhan.gov.in    | demo123  |
+Analytics:
+  GET  /api/analytics/map-data     Map/heatmap data
+  GET  /api/analytics/summary      Summary metrics
 
-================================================================================
-                              HOW TO RUN
-================================================================================
+===============================================================================
+ 6. TESTING
+===============================================================================
 
-PREREQUISITES:
-- Python 3.9+
-- Node.js 18+
-- Google Cloud Firebase Project (Firestore enabled)
-- 4GB RAM minimum (8GB recommended)
-- 3GB disk space (for AI models)
+Phase 1: 36 tests (test_phase1.py)
+  - Complaint state machine transitions (14 tests)
+  - Task state machine transitions (7 tests)
+  - Priority calculator (8 tests)
+  - Task routing (3 tests)
+  - Model serialization (4 tests)
 
-BACKEND:
-  cd backend
-  python -m venv venv
-  .\venv\Scripts\Activate.ps1
-  pip install -r requirements.txt
-  python create_db.py
-  python seed_data.py
-  uvicorn app.main:app --reload --port 8001
+Phase 2: 49 tests (test_phase2.py)
+  - DistilBERT classifier (5 tests)
+  - Text intelligence (4 tests)
+  - Priority engine enhanced (12 tests)
+  - Multi-modal fusion (5 tests)
+  - SBERT engine (6 tests, 3 skip if model unavailable)
+  - YOLO validator (5 tests)
+  - Task routing regression (3 tests)
+  - State machine regression (5 tests)
+  - Model regression (4 tests)
 
-FRONTEND:
-  cd frontend
-  npm install
-  npm run dev
+Total: 85 tests. Run: python -m pytest tests/ -v
 
-ACCESS:
-  Frontend: http://localhost:3000
-  Backend API: http://localhost:8001
-  API Docs: http://localhost:8001/docs
+===============================================================================
+ 7. DEPLOYMENT
+===============================================================================
 
-================================================================================
-                              FUTURE ROADMAP
-================================================================================
+Requirements:
+  - Python 3.11+, Node.js 18+
+  - Firebase Firestore project
+  - 2-3 GB RAM minimum (for AI model loading)
 
-[ ] Mobile app (React Native)
-[ ] Voice complaint submission
-[ ] WhatsApp/SMS notifications
-[ ] Government API integrations
-[ ] Multi-city support
-[ ] Regional language support
+Environment Variables:
+  FIREBASE_CREDENTIALS_PATH    Path to Firebase service account JSON
+  SECRET_KEY                   JWT secret (CHANGE IN PRODUCTION)
+  CLASSIFICATION_MODEL_NAME    Default: facebook/bart-large-mnli
+  SBERT_MODEL_NAME             Default: sentence-transformers/all-MiniLM-L6-v2
+  SIMILARITY_THRESHOLD         Default: 0.75
+  EMBEDDING_BATCH_SIZE         Default: 32
 
-================================================================================
-              Built with ❤️ for ByteQuest 2025 by Team Strawhats
-================================================================================
+Deployment Targets:
+  - Railway, Render, AWS (Free Tier compatible)
+  - CPU-only inference (no GPU required)
+  - AI models download on first startup (~500MB)
+
+===============================================================================
+ 8. FUTURE ROADMAP
+===============================================================================
+
+Phase 3 (Planned):
+  - Advanced analytics dashboards
+  - Appeal system with escalation
+  - Real-time notifications (WebSocket)
+  - Multi-language support
+
+Phase 4 (Planned):
+  - Map-based complaint visualization
+  - PostgreSQL migration for production scale
+  - Custom fine-tuned classification models
+  - Performance optimization and caching
+
+===============================================================================

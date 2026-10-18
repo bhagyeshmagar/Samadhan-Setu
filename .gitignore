@@ -3,15 +3,21 @@
 Thumbs.db
 desktop.ini
 
-# === Environment Variables ===
+# === Environment Variables & Secrets ===
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 *.env
+*.pem
+*.key
+firebase-credentials.json
+*firebase-credentials*.json
+serviceAccountKey.json
+backend/firebase-credentials.json
 
-# === Python / Backend ===
+# === Python / Virtual Environments ===
 __pycache__/
 *.py[cod]
 *$py.class
@@ -24,30 +30,51 @@ env.bak/
 venv.bak/
 pip-log.txt
 pip-delete-this-directory.txt
+.pytest_cache/
 pytest_cache/
 .coverage
 coverage.xml
 htmlcov/
+*.log
+
+# === AI Models, Weights & Embeddings Cache (Large Files / Generated) ===
+embeddings_cache/
+backend/embeddings_cache/
+*.npy
+*.npz
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+*.weights
+yolo*.pt
+runs/
+.cache/
+cache/
 
 # === Node / Frontend ===
 node_modules/
-npm-debug.log
-yarn-error.log
-yarn-debug.log
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 .next/
+frontend/.next/
 out/
 build/
 dist/
 
-# === Project Specific (Critical) ===
-backend/firebase-credentials.json
+# === Local Database & Storage ===
+*.sqlite3
+*.db
 backend/samadhan_setu.db
 backend/uploads/
+uploads/
 backend/error.txt
 backend/output.txt
 
 # === IDEs / Editors ===
 .idea/
-.vscode/
 *.swp
 *.swo

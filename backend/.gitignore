@@ -30,17 +30,32 @@ venv/
 env/
 ENV/
 
-# Environment Variables
+# Environment Variables & Secrets
 .env
+*.pem
+firebase-credentials.json
+*firebase-credentials*.json
+serviceAccountKey.json
 
 # Database
 *.sqlite3
 *.db
 samadhan_setu.db
 
-# Cloud/Service Credentials
-firebase-credentials.json
-*.pem
+# AI Models, Weights & Embeddings Cache
+embeddings_cache/
+*.npy
+*.npz
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+*.weights
+yolo*.pt
+runs/
+.cache/
+cache/
 
 # File Uploads
 uploads/
@@ -49,3 +64,5 @@ uploads/
 output.txt
 error.txt
 *.log
+.pytest_cache/
+pytest_cache/

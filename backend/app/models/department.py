@@ -20,7 +20,10 @@ class Department(BaseModel):
         if not doc.exists: return None
         data = doc.to_dict()
         data["id"] = doc.id
-        return cls(**data)
+        try:
+            return cls(**data)
+        except Exception:
+            return None
 
     def to_firestore(self):
         data = self.model_dump(mode='json')
@@ -42,7 +45,10 @@ class CategoryMapping(BaseModel):
         if not doc.exists: return None
         data = doc.to_dict()
         data["id"] = doc.id
-        return cls(**data)
+        try:
+            return cls(**data)
+        except Exception:
+            return None
 
     def to_firestore(self):
         data = self.model_dump(mode='json')

@@ -4,12 +4,14 @@ from .departments import router as departments_router
 from .admin import router as admin_router
 from .assignments import router as assignments_router
 from .analytics import router as analytics_router
+from .ai_insights import router as ai_insights_router
 
 __all__ = [
     "auth_router",
-    "citizens_router", 
+    "citizens_router",
     "departments_router",
     "admin_router",
     "assignments_router",
-    "analytics_router"
+    "analytics_router",
+    "ai_insights_router",
 ]

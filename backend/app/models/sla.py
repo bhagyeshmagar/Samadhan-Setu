@@ -6,7 +6,7 @@ from .complaint import ComplaintPriority
 class SLARule(BaseModel):
     id: Optional[str] = None
     category: Optional[str] = None
-    priority: Optional[ComplaintPriority] = None
+    priority: Optional[str] = None
     resolution_hours: int = 72
     escalation_hours: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -20,7 +20,10 @@ class SLARule(BaseModel):
         if not doc.exists: return None
         data = doc.to_dict()
         data["id"] = doc.id
-        return cls(**data)
+        try:
+            return cls(**data)
+        except Exception:
+            return None
 
     def to_firestore(self):
         data = self.model_dump(mode='json')

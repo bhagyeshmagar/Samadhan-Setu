@@ -12,7 +12,6 @@ This module leverages the existing AI-services/similarity infrastructure.
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from collections import defaultdict
-from google.cloud.firestore import Query as FirestoreQuery
 
 from ..models import Complaint
 
@@ -52,7 +51,15 @@ def cluster_complaints_by_text(
     
     sim_fn = similarity_fn or keyword_similarity
     
-    for complaint in complaints:
+    # Try using SBERT first if available
+    from ..ai.sbert_engine import sbert_engine
+    sbert_available = sbert_engine.is_available
+    embs = None
+    if sbert_available and not similarity_fn:
+        texts = [c.description or "" for c in complaints]
+        embs = sbert_engine.batch_encode(texts)
+    
+    for i, complaint in enumerate(complaints):
         if complaint.id in clustered_ids:
             continue
         
@@ -67,14 +74,18 @@ def cluster_complaints_by_text(
         }
         clustered_ids.add(complaint.id)
         
-        for other in complaints:
+        for j, other in enumerate(complaints):
             if other.id in clustered_ids:
                 continue
             
             if other.category != complaint.category:
                 continue
             
-            similarity = sim_fn(complaint.description or "", other.description or "")
+            # Use SBERT similarity if embeddings exist, else fallback
+            if embs is not None and i < len(embs) and j < len(embs):
+                similarity = sbert_engine.cosine_similarity(embs[i], embs[j])
+            else:
+                similarity = sim_fn(complaint.description or "", other.description or "")
             
             if similarity >= SIMILARITY_THRESHOLD:
                 cluster["member_ids"].append(other.id)
@@ -202,8 +213,39 @@ def get_duplicate_candidates(
         if not words1 or not words2:
             return 0.0
         return len(words1 & words2) / len(words1 | words2)
-    
+        
     candidates = []
+    
+    # Try using SBERT first if available
+    from ..ai.sbert_engine import sbert_engine
+    if sbert_engine.is_available:
+        new_emb = sbert_engine.encode(complaint.description or "")
+        if new_emb is not None:
+            texts = [c.description or "" for c in recent_complaints]
+            embs = sbert_engine.batch_encode(texts)
+            if embs is not None:
+                matches = sbert_engine.find_similar(
+                    new_embedding=new_emb,
+                    existing_embeddings=embs,
+                    existing_ids=[c.id for c in recent_complaints],
+                    threshold=0.6,
+                    top_k=max_results
+                )
+                
+                # Reconstruct full candidate objects
+                for match in matches:
+                    other = next((c for c in recent_complaints if c.id == match["id"]), None)
+                    if other:
+                        candidates.append({
+                            "complaint_id": other.id,
+                            "description_preview": (other.description or "")[:100],
+                            "similarity_score": match["similarity_score"],
+                            "created_at": other.created_at.isoformat() if hasattr(other.created_at, 'isoformat') else str(other.created_at),
+                            "status": getattr(other.status, 'value', str(other.status)) if other.status else None
+                        })
+                return candidates
+
+    # Fallback to keyword similarity if SBERT fails or is unavailable
     for other in recent_complaints:
         similarity = keyword_similarity(complaint.description, other.description)
         if similarity >= 0.5:
@@ -211,10 +253,9 @@ def get_duplicate_candidates(
                 "complaint_id": other.id,
                 "description_preview": (other.description or "")[:100],
                 "similarity_score": round(similarity, 2),
-                "created_at": other.created_at.isoformat() if other.created_at else None,
-                "status": other.status.value if other.status else None
+                "created_at": other.created_at.isoformat() if hasattr(other.created_at, 'isoformat') else str(other.created_at),
+                "status": getattr(other.status, 'value', str(other.status)) if other.status else None
             })
             
     candidates.sort(key=lambda x: x["similarity_score"], reverse=True)
-    
     return candidates[:max_results]

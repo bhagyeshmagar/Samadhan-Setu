@@ -119,8 +119,8 @@ export default function IssueMap({ complaints = [], colorBy = 'priority', center
             <div ref={mapRef} className="w-full h-full" style={{ minHeight: '500px' }} />
 
             {/* Legend */}
-            <div className="absolute bottom-4 left-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 z-[1000]">
-                <div className="text-xs font-semibold text-gray-600 dark:text-gray-300 mb-2">
+            <div className="absolute bottom-4 left-4 bg-theme-secondary border border-theme rounded-lg shadow-lg p-3 z-[1000]">
+                <div className="text-xs font-semibold text-theme-muted mb-2">
                     {colorBy === 'priority' ? 'Priority' : 'Category'}
                 </div>
                 {colorBy === 'priority' ? (
@@ -128,7 +128,7 @@ export default function IssueMap({ complaints = [], colorBy = 'priority', center
                         {Object.entries(priorityColors).map(([name, color]) => (
                             <div key={name} className="flex items-center gap-2 text-xs">
                                 <div style={{ background: color }} className="w-3 h-3 rounded-full" />
-                                <span className="text-gray-700 dark:text-gray-300">{name}</span>
+                                <span className="text-theme">{name}</span>
                             </div>
                         ))}
                     </div>
@@ -137,7 +137,7 @@ export default function IssueMap({ complaints = [], colorBy = 'priority', center
                         {Object.entries(categoryColors).map(([name, color]) => (
                             <div key={name} className="flex items-center gap-2 text-xs">
                                 <div style={{ background: color }} className="w-3 h-3 rounded-full" />
-                                <span className="text-gray-700 dark:text-gray-300">{name}</span>
+                                <span className="text-theme">{name}</span>
                             </div>
                         ))}
                     </div>
@@ -145,8 +145,8 @@ export default function IssueMap({ complaints = [], colorBy = 'priority', center
             </div>
 
             {/* Stats overlay */}
-            <div className="absolute top-4 right-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg px-4 py-2 z-[1000]">
-                <span className="text-sm font-bold text-gray-800 dark:text-gray-200">
+            <div className="absolute top-4 right-4 bg-theme-secondary border border-theme rounded-lg shadow-lg px-4 py-2 z-[1000]">
+                <span className="text-sm font-bold text-theme">
                     {complaints.length} Issues
                 </span>
             </div>

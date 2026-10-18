@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { complaintsAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
-import { MapPin, ThumbsUp, AlertTriangle, Loader2, RefreshCw, Activity } from 'lucide-react';
+import { 
+    MapPin, ThumbsUp, AlertTriangle, Loader2, RefreshCw, 
+    Activity, MessageSquare, ChevronRight, TrendingUp, CheckCircle, ShieldCheck
+} from 'lucide-react';
 
 export default function CommunityFeed() {
     const { user } = useAuth();
@@ -24,20 +27,20 @@ export default function CommunityFeed() {
 
     useEffect(() => {
         fetchComplaints();
-    }, [sortBy, category]);
+    }, [sortBy,category]);
 
     const fetchComplaints = async () => {
         setLoading(true);
         setError('');
         try {
-            const data = await complaintsAPI.getPublic(
+            const data = await complaintsAPI.getPublicFeed(
                 category === 'All' ? '' : category,
                 sortBy
             );
             setComplaints(data || []);
         } catch (err) {
             console.error('Fetch error:', err);
-            setError(err.message || 'Failed to fetch complaints');
+            setError(err.message || 'Failed to fetch public complaints');
             setComplaints([]);
         } finally {
             setLoading(false);
@@ -46,7 +49,7 @@ export default function CommunityFeed() {
 
     const handleUpvote = async (id) => {
         if (!user) {
-            router.push('/login?redirect=/citizen/community');
+            router.push('/login');
             return;
         }
 
@@ -58,130 +61,225 @@ export default function CommunityFeed() {
             ));
         } catch (err) {
             console.error('Upvote failed:', err);
-            if (err.message.includes('credentials')) {
-                router.push('/login?redirect=/citizen/community');
+            if (err.message?.includes('credentials')) {
+                router.push('/login');
             }
         } finally {
             setUpvoting(null);
         }
     };
 
+    let trendingCategory = 'General';
+    let resolutionRate = 0;
+    if (complaints.length > 0) {
+        const counts = complaints.reduce((acc, c) => {
+            acc[c.category] = (acc[c.category] || 0) + 1;
+            return acc;
+        }, {});
+        trendingCategory = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'General';
+        
+        const resolvedCount = complaints.filter(c => c.status === 'Resolved' || c.status === 'Closed').length;
+        resolutionRate = Math.round((resolvedCount / complaints.length) * 100);
+    }
+
     return (
-        <div className="max-w-5xl mx-auto my-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
+        <div className="max-w-6xl mx-auto py-6">
+            {/* ── Breadcrumb & Header ── */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-theme mb-2">Community Radar</h2>
-                    <p className="text-sm text-theme-muted">Public anomalies reported by local residents. Upvote to elevate priority.</p>
+                    <div className="breadcrumb mb-2">
+                        <span>Home</span>
+                        <ChevronRight size={10} className="breadcrumb-sep" />
+                        <span>Citizen Services</span>
+                        <ChevronRight size={10} className="breadcrumb-sep" />
+                        <span className="breadcrumb-current">Public Grievance Feed</span>
+                    </div>
+                    <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
+                        Public Grievance Feed
+                    </h1>
+                    <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        सामुदायिक शिकायत मंच — Transparent civic issues submitted by residents in your municipal jurisdiction
+                    </p>
                 </div>
                 <button
                     onClick={fetchComplaints}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-theme-secondary border border-theme rounded-lg text-xs font-semibold tracking-wider uppercase text-theme hover:bg-theme-tertiary transition-colors"
+                    className="btn-ghost flex items-center gap-2 text-xs font-semibold"
                 >
                     <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                    Sync
+                    Sync Feed / ताज़ा करें
                 </button>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-wrap gap-4 items-center mb-8 p-2 rounded-xl border border-theme bg-theme-tertiary/50 backdrop-blur-sm">
-                <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="px-4 py-2 text-xs font-semibold tracking-wider text-theme bg-transparent border-r border-theme outline-none cursor-pointer hover:bg-theme/50 rounded-l-lg transition-colors appearance-none"
-                    style={{ minWidth: '160px' }}
-                >
-                    {categories.map(cat => (
-                        <option key={cat} value={cat === 'All' ? '' : cat}>{cat} Issues</option>
-                    ))}
-                </select>
-                
-                <div className="flex gap-1 pl-2">
-                    {['recent', 'upvotes', 'priority'].map((sortType) => (
-                        <button
-                            key={sortType}
-                            onClick={() => setSortBy(sortType)}
-                            className={`px-4 py-1.5 text-xs font-semibold tracking-wider uppercase rounded-lg transition-all ${
-                                sortBy === sortType 
-                                    ? 'bg-theme text-theme shadow-sm border border-theme' 
-                                    : 'text-theme-muted hover:text-theme hover:bg-theme-secondary/50 border border-transparent'
-                            }`}
-                        >
-                            {sortType === 'recent' ? 'Latest' : sortType === 'upvotes' ? 'Top Voted' : 'Critical'}
-                        </button>
-                    ))}
+            {/* ── Top Highlights / Metrics Strip ── */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="metric-card mc-navy">
+                    <div className="metric-number">{complaints.length}</div>
+                    <div className="metric-label">Public Issues Listed</div>
+                    <div className="text-[10px] mt-0.5 text-gray-500" style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}>
+                        कुल सार्वजनिक मुद्दे
+                    </div>
+                </div>
+                <div className="metric-card mc-saffron">
+                    <div className="metric-number text-lg truncate" style={{ color: 'var(--saffron-dark)' }}>
+                        {trendingCategory}
+                    </div>
+                    <div className="metric-label">High-Activity Sector</div>
+                    <div className="text-[10px] mt-0.5 text-gray-500" style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}>
+                        सर्वाधिक सक्रिय श्रेणी
+                    </div>
+                </div>
+                <div className="metric-card mc-green">
+                    <div className="metric-number" style={{ color: 'var(--india-green)' }}>
+                        {resolutionRate}%
+                    </div>
+                    <div className="metric-label">Community Resolution</div>
+                    <div className="text-[10px] mt-0.5 text-gray-500" style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}>
+                        समाधान दर
+                    </div>
+                </div>
+                <div className="metric-card mc-navy flex flex-col justify-center">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--navy)] mb-1">
+                        <ShieldCheck size={16} className="text-green-600" />
+                        <span>Public Accountability</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 leading-tight">
+                        Upvoting helps municipal authorities prioritise ward interventions.
+                    </p>
                 </div>
             </div>
 
-            {/* Error */}
-            {error && (
-                <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm mb-6 flex items-center justify-between">
-                    <span>{error}</span>
-                    <button onClick={fetchComplaints} className="text-xs uppercase tracking-wider font-bold underline">Retry</button>
-                </div>
-            )}
+            {/* ── Layout: Main Feed & Sidebar ── */}
+            <div className="flex flex-col lg:flex-row gap-6">
+                {/* Main Feed Column */}
+                <div className="flex-1 min-w-0">
+                    {/* Filter Bar */}
+                    <div className="gov-card p-3 mb-6 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Category:</span>
+                            <select
+                                value={category}
+                                onChange={(e) => setCategory(e.target.value)}
+                                className="gov-input text-xs py-1.5 px-3 rounded font-medium cursor-pointer"
+                                style={{ minWidth: '160px' }}
+                            >
+                                {categories.map(cat => (
+                                    <option key={cat} value={cat === 'All' ? '' : cat}>{cat}</option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-gray-600 uppercase tracking-wider mr-1">Sort:</span>
+                            {[
+                                { key: 'recent', label: 'Latest / नवीनतम' },
+                                { key: 'upvotes', label: 'Top Voted / शीर्ष मत' },
+                                { key: 'priority', label: 'Critical / अति-गंभीर' }
+                            ].map((sortOption) => (
+                                <button
+                                    key={sortOption.key}
+                                    onClick={() => setSortBy(sortOption.key)}
+                                    className={`px-3 py-1.5 text-xs font-semibold rounded transition-colors ${
+                                        sortBy === sortOption.key
+                                            ? 'bg-[var(--navy)] text-white shadow-sm'
+                                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                                    }`}
+                                >
+                                    {sortOption.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
 
-            {/* Loading */}
-            {loading ? (
-                <div className="flex justify-center flex-col gap-4 items-center py-32 opacity-50">
-                    <Loader2 className="animate-spin text-theme" size={32} />
-                    <span className="text-[10px] tracking-widest uppercase font-bold text-theme">Indexing Area Data...</span>
-                </div>
-            ) : (
-                <>
-                    {/* Complaints Grid */}
-                    {complaints.length > 0 ? (
-                        <div className="flex flex-col gap-4">
+                    {/* Error Notice */}
+                    {error && (
+                        <div className="gov-alert error mb-6">
+                            <AlertTriangle size={16} />
+                            <div className="flex-1 flex justify-between items-center">
+                                <span>{error}</span>
+                                <button onClick={fetchComplaints} className="font-bold underline text-xs">Retry</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Loading State */}
+                    {loading ? (
+                        <div className="gov-card py-20 flex flex-col items-center justify-center gap-3">
+                            <Loader2 className="animate-spin text-[var(--navy)]" size={32} />
+                            <p className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                                Loading Public Grievance Records…
+                            </p>
+                        </div>
+                    ) : complaints.length > 0 ? (
+                        /* Complaints Feed List */
+                        <div className="space-y-4">
                             {complaints.map((complaint) => (
-                                <div key={complaint.id} className="glass-panel p-6 group transition-all duration-300">
-                                    <div className="flex flex-col sm:flex-row gap-6">
+                                <div key={complaint.id} className="gov-card p-5 hover:border-gray-400 transition-colors">
+                                    <div className="flex flex-col sm:flex-row gap-5">
                                         
-                                        {/* Voting block */}
-                                        <div className="flex sm:flex-col items-center gap-3 sm:gap-1 sm:w-16 flex-shrink-0 border-b sm:border-b-0 sm:border-r border-theme pb-4 sm:pb-0 sm:pr-4">
+                                        {/* Upvote Pill Component */}
+                                        <div className="flex sm:flex-col items-center justify-center gap-2 sm:w-20 flex-shrink-0 border-b sm:border-b-0 sm:border-r border-gray-100 pb-3 sm:pb-0 sm:pr-4">
                                             <button
                                                 onClick={() => handleUpvote(complaint.id)}
                                                 disabled={upvoting === complaint.id}
-                                                className={`p-3 rounded-xl border transition-all ${
+                                                title="Upvote this civic grievance"
+                                                className={`p-2.5 rounded-lg border transition-all flex items-center justify-center ${
                                                     upvoting === complaint.id
-                                                        ? 'bg-theme text-theme border-theme shadow-inner'
-                                                        : 'bg-theme-secondary border-theme text-theme-muted group-hover:border-theme hover:text-theme hover:bg-theme-tertiary'
+                                                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
                                                 }`}
                                             >
-                                                {upvoting === complaint.id ? <Loader2 className="animate-spin" size={18} /> : <ThumbsUp size={18} />}
+                                                {upvoting === complaint.id ? (
+                                                    <Loader2 className="animate-spin" size={18} />
+                                                ) : (
+                                                    <ThumbsUp size={18} />
+                                                )}
                                             </button>
-                                            <div className="flex flex-col items-center">
-                                                <span className="font-bold text-lg text-theme leading-none">{complaint.upvotes || 0}</span>
-                                                <span className="text-[9px] uppercase tracking-widest text-theme-muted font-bold">Votes</span>
+                                            <div className="text-center">
+                                                <div className="text-lg font-bold text-gray-900 leading-none">
+                                                    {complaint.upvotes || 0}
+                                                </div>
+                                                <div className="text-[9px] uppercase tracking-wider font-semibold text-gray-400 mt-0.5">
+                                                    Upvotes
+                                                </div>
                                             </div>
                                         </div>
 
-                                        {/* Content block */}
-                                        <div className="flex-grow min-w-0">
-                                            <div className="flex flex-wrap justify-between items-start gap-4 mb-3">
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-1 rounded bg-theme-tertiary border border-theme text-theme">
-                                                        {complaint.category || 'General'}
+                                        {/* Details */}
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="badge badge-normal font-semibold">
+                                                        {complaint.category || 'General Civic'}
                                                     </span>
                                                     {complaint.priority === 'HIGH' && (
-                                                        <span className="flex items-center gap-1 text-[10px] font-bold tracking-widest uppercase text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded border border-red-200 dark:border-red-900/30">
-                                                            <AlertTriangle size={10} /> Critical
+                                                        <span className="badge badge-critical flex items-center gap-1">
+                                                            <AlertTriangle size={12} /> Critical Priority
                                                         </span>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-3 text-xs text-theme-muted">
-                                                    <span>{new Date(complaint.created_at).toLocaleDateString()}</span>
+                                                <div className="flex items-center gap-3 text-xs text-gray-500">
+                                                    <span>{complaint.created_at ? new Date(complaint.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
                                                     <Badge status={complaint.status} />
                                                 </div>
                                             </div>
-                                            
-                                            <p className="font-medium text-theme text-base mb-4 leading-relaxed pr-8">
+
+                                            <h3 className="text-base font-bold text-gray-900 mb-1 leading-snug">
+                                                {complaint.title || complaint.description?.substring(0, 80) || 'Civic Grievance'}
+                                            </h3>
+
+                                            <p className="text-sm text-gray-600 leading-relaxed mb-4">
                                                 {complaint.description}
                                             </p>
-                                            
-                                            <div className="flex items-center gap-2 text-xs font-semibold text-theme-muted bg-theme-tertiary/50 w-fit px-3 py-1.5 rounded-lg border border-theme/50">
-                                                <MapPin size={12} className="opacity-60" />
-                                                <span className="truncate max-w-sm">{complaint.location}</span>
+
+                                            <div className="flex items-center justify-between text-xs text-gray-500 pt-3 border-t border-gray-100">
+                                                <div className="flex items-center gap-1.5 truncate max-w-md">
+                                                    <MapPin size={14} className="text-[var(--navy)] flex-shrink-0" />
+                                                    <span className="truncate">{complaint.location || 'Ward Area / Jurisdiction'}</span>
+                                                </div>
+                                                <span className="font-mono text-[11px] text-gray-400">
+                                                    ID: #{complaint.id?.substring(0, 8)}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -190,21 +288,77 @@ export default function CommunityFeed() {
                         </div>
                     ) : (
                         /* Empty State */
-                        <div className="glass-panel text-center py-24 flex flex-col items-center border-dashed">
-                            <Activity size={48} className="text-theme-muted opacity-30 mb-6" />
-                            <h3 className="text-xl font-bold tracking-tight text-theme mb-2">Sector Clear</h3>
-                            <p className="text-theme-muted mb-8 text-sm">No public civic anomalies recorded in this sector matching the filters.</p>
-                            
+                        <div className="gov-card text-center py-16 px-4">
+                            <div className="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
+                                <MessageSquare size={26} />
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-900 mb-1">No Grievances Found</h3>
+                            <p className="text-xs text-gray-500 max-w-md mx-auto mb-6">
+                                There are currently no public civic grievances matching your selected category and sort filters.
+                            </p>
                             <button
                                 onClick={() => router.push(user ? '/citizen/lodge' : '/login')}
-                                className="btn-primary px-8 py-3 rounded-xl font-semibold tracking-wide text-sm"
+                                className="btn-gov-primary text-xs"
                             >
-                                {user ? 'Report New Anomaly' : 'Authenticate to Report'}
+                                {user ? 'Lodge Grievance / शिकायत दर्ज करें' : 'Sign In to Lodge Grievance'}
                             </button>
                         </div>
                     )}
-                </>
-            )}
+                </div>
+
+                {/* Right Sidebar */}
+                <div className="w-full lg:w-80 flex-shrink-0 space-y-6">
+                    <div className="gov-section">
+                        <div className="gov-section-header">
+                            <span className="gov-section-title flex items-center gap-2">
+                                <Activity size={14} /> Ward Intelligence / वार्ड विवरण
+                            </span>
+                        </div>
+                        <div className="p-4 space-y-4 text-xs">
+                            <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                                <span className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                    High Grievance Category
+                                </span>
+                                <span className="text-sm font-bold text-gray-900">
+                                    {trendingCategory}
+                                </span>
+                            </div>
+
+                            <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                                <span className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                    Community Resolution Rate
+                                </span>
+                                <div className="text-lg font-bold text-green-700 mb-1">
+                                    {resolutionRate}%
+                                </div>
+                                <div className="priority-bar">
+                                    <div 
+                                        className="priority-bar-fill"
+                                        style={{ 
+                                            width: `${resolutionRate}%`, 
+                                            background: resolutionRate >= 70 ? 'var(--india-green)' : 'var(--saffron)' 
+                                        }} 
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded text-blue-900 leading-relaxed">
+                                <span className="font-bold block mb-1">Citizen Advisory / नागरिक सूचना:</span>
+                                Civic grievances with 5+ community upvotes are automatically flagged for accelerated review under the Citizen Charter statutory SLA.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="gov-card p-4 text-xs text-gray-600 space-y-2">
+                        <h4 className="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
+                            Redressal Guarantee
+                        </h4>
+                        <p className="leading-relaxed">
+                            Under Rule 7 of Civic Services Act, every citizen complaint is assigned an officer within 24 hours of registration.
+                        </p>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }

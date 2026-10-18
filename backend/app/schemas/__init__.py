@@ -1,11 +1,12 @@
 from .user import (
-    UserBase, UserCreate, UserLogin, UserResponse, 
+    UserBase, UserCreate, UserLogin, UserResponse,
     UserWithToken, Token, TokenData
 )
 from .complaint import (
-    ComplaintBase, ComplaintCreate, ComplaintUpdate, 
+    ComplaintBase, ComplaintCreate, ComplaintUpdate,
     ComplaintAIResponse, ComplaintResponse, ComplaintListResponse,
-    ComplaintStats, StatusLogResponse
+    ComplaintStats, StatusLogResponse, ComplaintFeedback,
+    TaskResponse, TaskUpdate, AuditLogResponse
 )
 from .department import (
     DepartmentBase, DepartmentCreate, DepartmentUpdate, DepartmentResponse,
@@ -14,12 +15,13 @@ from .department import (
 )
 
 __all__ = [
-    "UserBase", "UserCreate", "UserLogin", "UserResponse", 
+    "UserBase", "UserCreate", "UserLogin", "UserResponse",
     "UserWithToken", "Token", "TokenData",
-    "ComplaintBase", "ComplaintCreate", "ComplaintUpdate", 
+    "ComplaintBase", "ComplaintCreate", "ComplaintUpdate",
     "ComplaintAIResponse", "ComplaintResponse", "ComplaintListResponse",
-    "ComplaintStats", "StatusLogResponse",
+    "ComplaintStats", "StatusLogResponse", "ComplaintFeedback",
+    "TaskResponse", "TaskUpdate", "AuditLogResponse",
     "DepartmentBase", "DepartmentCreate", "DepartmentUpdate", "DepartmentResponse",
     "CategoryMappingBase", "CategoryMappingCreate", "CategoryMappingResponse",
-    "SLARuleBase", "SLARuleCreate", "SLARuleResponse"
+    "SLARuleBase", "SLARuleCreate", "SLARuleResponse",
 ]

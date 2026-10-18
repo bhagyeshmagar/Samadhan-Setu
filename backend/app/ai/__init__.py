@@ -1,26 +1,32 @@
 """
-Samadhan Setu AI Module
-AI-powered complaint classification and prioritization
+Samadhan Setu AI Module (Phase 1 + Phase 2)
 
-This module provides:
+Phase 1:
 - Text preprocessing (cleaning, tokenization)
 - Category classification (rule-based, ML-ready architecture)
-- Priority scoring (urgency detection, severity weighting)
+- Priority scoring (6-factor weighted formula)
+
+Phase 2:
+- DistilBERT zero-shot classification
+- SBERT semantic similarity engine
+- YOLOv8 image evidence validation
+- Multi-modal severity fusion
+- Text intelligence pipeline
+- Enhanced priority with full explainability
 """
 
 from .text_processor import TextProcessor
 from .classifier import (
-    CategoryClassifier, 
-    classifier, 
-    classify_complaint, 
+    CategoryClassifier,
+    classifier,
+    classify_complaint,
     get_classification_details
 )
 from .priority import (
-    PriorityCalculator, 
-    priority_calculator, 
-    calculate_priority, 
+    PriorityCalculator,
+    priority_calculator,
+    calculate_priority,
     get_urgency_score,
-    calculate_hybrid_priority
 )
 
 __all__ = [
@@ -33,30 +39,26 @@ __all__ = [
     "priority_calculator",
     "calculate_priority",
     "get_urgency_score",
-    "calculate_hybrid_priority",
 ]
 
 
 def process_complaint(text: str, upvotes: int = 0) -> dict:
     """
-    Full AI processing pipeline for a complaint
-    
+    Full AI processing pipeline for a complaint.
+
     Args:
         text: Complaint description
-        upvotes: Number of community upvotes (for priority boost)
-        
+        upvotes: Number of community upvotes
+
     Returns:
         Dict with category, priority, confidence, urgency_score
     """
-    # Classify category
     category, confidence = classify_complaint(text)
-    
-    # Calculate priority
-    priority, urgency_score = calculate_priority(text, category, upvotes)
-    
+    result = calculate_priority(text, category, upvotes)
+
     return {
         'category': category,
         'confidence': confidence,
-        'priority': priority,
-        'urgency_score': urgency_score
+        'priority': result['priority'],
+        'urgency_score': result['score'],
     }

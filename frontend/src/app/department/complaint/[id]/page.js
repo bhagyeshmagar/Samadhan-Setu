@@ -8,7 +8,7 @@ import Badge from '@/components/Badge';
 import {
     MapPin, Clock, User, Phone, Mail, FileText, Upload, CheckCircle,
     AlertTriangle, ArrowLeft, Loader2, ImagePlus, X, MessageSquare,
-    Calendar, Activity
+    Calendar, Activity, ChevronRight, ShieldCheck, CheckCircle2
 } from 'lucide-react';
 
 export default function HandleComplaint() {
@@ -58,7 +58,7 @@ export default function HandleComplaint() {
             setComplaint(data);
             setStatus(data.status);
         } catch (err) {
-            setError('Failed to load complaint');
+            setError('Failed to load complaint data');
         } finally {
             setLoading(false);
         }
@@ -90,7 +90,7 @@ export default function HandleComplaint() {
 
     const handleResolve = async () => {
         if (!remarks.trim()) {
-            setError('Please add remarks before resolving');
+            setError('Official resolution remarks are required by administrative policy.');
             return;
         }
 
@@ -98,7 +98,6 @@ export default function HandleComplaint() {
         setError('');
 
         try {
-            // Update status to resolved
             await departmentAPI.updateStatus(complaintId, {
                 status: 'Resolved',
                 remarks: remarks
@@ -109,7 +108,7 @@ export default function HandleComplaint() {
                 router.push('/department');
             }, 2000);
         } catch (err) {
-            setError(err.message || 'Failed to resolve complaint');
+            setError(err.message || 'Failed to update resolution status');
         } finally {
             setSubmitting(false);
         }
@@ -130,54 +129,70 @@ export default function HandleComplaint() {
 
     if (authLoading || loading) {
         return (
-            <div className="flex justify-center items-center min-h-[60vh]">
-                <Loader2 className="animate-spin text-[var(--primary)]" size={40} />
+            <div className="flex justify-center items-center min-h-[60vh] flex-col gap-3">
+                <Loader2 className="animate-spin text-[var(--navy)]" size={36} />
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Retrieving Official Grievance Dossier…
+                </p>
             </div>
         );
     }
 
     if (success) {
         return (
-            <div className="max-w-3xl mx-auto my-8 p-8 card-theme rounded-2xl shadow-lg text-center">
-                <CheckCircle size={80} className="mx-auto text-green-500 mb-4" />
-                <h2 className="text-2xl font-bold text-theme mb-2">Complaint Resolved Successfully!</h2>
-                <p className="text-theme-secondary">The citizen will be notified about the resolution.</p>
-                <p className="text-theme-muted mt-2">Redirecting to dashboard...</p>
+            <div className="max-w-xl mx-auto my-16 p-8 gov-card text-center border-t-4 border-t-green-600">
+                <CheckCircle2 size={64} className="mx-auto text-green-600 mb-4" />
+                <h2 className="text-xl font-bold text-gray-900 mb-1">
+                    Grievance Marked as Resolved
+                </h2>
+                <p className="text-xs text-gray-600 mb-2">
+                    शिकायत निवारण दर्ज — The citizen will receive SMS and digital notification regarding this resolution.
+                </p>
+                <p className="text-[11px] text-gray-400">Redirecting to Department Task Desk…</p>
             </div>
         );
     }
 
     if (!complaint) {
         return (
-            <div className="max-w-3xl mx-auto my-8 p-8 card-theme rounded-2xl shadow-lg text-center">
-                <AlertTriangle size={64} className="mx-auto text-red-500 mb-4" />
-                <h2 className="text-xl font-bold text-theme mb-2">Complaint Not Found</h2>
-                <button onClick={() => router.push('/department')} className="mt-4 px-6 py-2 btn-primary rounded-lg">
-                    Back to Dashboard
+            <div className="max-w-lg mx-auto my-16 p-8 gov-card text-center">
+                <AlertTriangle size={48} className="mx-auto text-red-600 mb-3" />
+                <h2 className="text-lg font-bold text-gray-900 mb-1">Grievance Record Not Found</h2>
+                <p className="text-xs text-gray-500 mb-4">The requested complaint ID does not exist or has been archived.</p>
+                <button onClick={() => router.push('/department')} className="btn-gov-primary text-xs">
+                    Return to Dashboard
                 </button>
             </div>
         );
     }
 
-    const getPriorityColor = (priority) => {
-        const p = String(priority).toLowerCase();
-        if (p === 'high') return 'text-[var(--error)] bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900';
-        if (p === 'medium') return 'text-[var(--accent)] bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-900';
-        return 'text-[var(--primary)] bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900';
-    };
-
     return (
-        <div className="max-w-7xl mx-auto px-4 py-8">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div className="max-w-6xl mx-auto py-6">
+            {/* ── Breadcrumb & Header ── */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
-                    <button
-                        onClick={() => router.push('/department')}
-                        className="flex items-center gap-2 text-theme-muted hover:text-theme mb-2 text-sm transition"
-                    >
-                        <ArrowLeft size={16} /> Back to Dashboard
-                    </button>
-                    <h2 className="text-3xl font-bold text-theme">Handle Complaint #{complaint.id}</h2>
+                    <div className="breadcrumb mb-2">
+                        <span>Home</span>
+                        <ChevronRight size={10} className="breadcrumb-sep" />
+                        <span>Department Services</span>
+                        <ChevronRight size={10} className="breadcrumb-sep" />
+                        <span className="breadcrumb-current">Grievance Action Dossier</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => router.push('/department')}
+                            className="p-1 rounded hover:bg-gray-200 text-gray-600 transition"
+                            title="Back"
+                        >
+                            <ArrowLeft size={18} />
+                        </button>
+                        <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
+                            Grievance Action Dossier #{complaint.id?.substring(0, 8)}
+                        </h1>
+                    </div>
+                    <p className="text-sm mt-0.5 ml-8" style={{ color: 'var(--text-muted)' }}>
+                        शिकायत निवारण कार्यवाही — Official field officer inspection and resolution console
+                    </p>
                 </div>
 
                 {/* SLA Timer */}
@@ -189,16 +204,20 @@ export default function HandleComplaint() {
                     const absDiff = Math.abs(diff);
                     const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
                     const hours = Math.floor((absDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                    const timeText = `${days.toString().padStart(2, '0')} Days : ${hours.toString().padStart(2, '0')} Hrs`;
+                    const timeText = `${days.toString().padStart(2, '0')}d : ${hours.toString().padStart(2, '0')}h`;
 
                     return (
-                        <div className={`flex items-center gap-3 ${isOverdue ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-800'} border px-4 py-3 rounded-xl shadow-sm`}>
-                            <Clock className={`${isOverdue ? 'text-red-600' : 'text-blue-600'} animate-pulse`} size={24} />
+                        <div className={`flex items-center gap-3 px-4 py-2.5 rounded border ${
+                            isOverdue 
+                                ? 'bg-red-50 border-red-300 text-red-900' 
+                                : 'bg-blue-50 border-blue-200 text-blue-900'
+                        }`}>
+                            <Clock className={isOverdue ? 'text-red-600 animate-pulse' : 'text-blue-700'} size={20} />
                             <div>
-                                <p className={`text-xs ${isOverdue ? 'text-red-600' : 'text-blue-600'} font-bold uppercase tracking-wider`}>
-                                    {isOverdue ? 'OVERDUE' : 'SLA Deadline'}
+                                <p className="text-[10px] font-bold uppercase tracking-wider">
+                                    {isOverdue ? 'SLA OVERDUE / समय सीमा समाप्त' : 'Statutory SLA Deadline'}
                                 </p>
-                                <p className={`text-lg font-bold ${isOverdue ? 'text-red-700 dark:text-red-400' : 'text-blue-700 dark:text-blue-400'} font-mono`}>
+                                <p className="text-base font-bold font-mono leading-none mt-0.5">
                                     {isOverdue ? `-${timeText}` : timeText}
                                 </p>
                             </div>
@@ -207,63 +226,73 @@ export default function HandleComplaint() {
                 })()}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Content */}
-                <div className="lg:col-span-2 space-y-8">
-                    {/* Complaint Details */}
-                    <section className="card-theme rounded-2xl shadow-md overflow-hidden">
-                        <div className={`${getPriorityColor(complaint.priority)} px-6 py-4 border-b flex justify-between items-center`}>
-                            <div className="flex items-center gap-3">
-                                <span className="p-2 bg-theme-level-2 rounded-lg shadow-sm">
-                                    <FileText className="text-[var(--primary)]" size={20} />
-                                </span>
-                                <div>
-                                    <h3 className="text-sm font-bold uppercase tracking-wide text-theme">{complaint.category || 'General'}</h3>
-                                    <p className="text-xs opacity-75 text-theme-secondary">Received {new Date(complaint.created_at).toLocaleDateString()}</p>
-                                </div>
-                            </div>
-                            <span className={`bg-theme-level-2 text-xs font-bold px-3 py-1.5 rounded-full border shadow-sm flex items-center gap-1 ${getPriorityColor(complaint.priority)}`}>
-                                <Activity size={12} />
-                                AI Priority: {complaint.priority || 'Medium'}
+                <div className="lg:col-span-2 space-y-6">
+                    {/* Complaint Details Card */}
+                    <div className="gov-section">
+                        <div className="gov-section-header">
+                            <span className="gov-section-title flex items-center gap-2">
+                                <FileText size={14} /> Registered Grievance Particulars
                             </span>
+                            <div className="flex items-center gap-2">
+                                <Badge status={complaint.status} />
+                                {complaint.priority && (
+                                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                        complaint.priority === 'HIGH' ? 'bg-red-100 text-red-800' :
+                                        complaint.priority === 'MEDIUM' ? 'bg-amber-100 text-amber-800' :
+                                        'bg-gray-100 text-gray-700'
+                                    }`}>
+                                        AI Priority: {complaint.priority}
+                                    </span>
+                                )}
+                            </div>
                         </div>
 
-                        <div className="p-6">
-                            <h3 className="text-xl font-bold text-theme mb-3">{complaint.description}</h3>
+                        <div className="p-5 space-y-4">
+                            <div>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">
+                                    Domain / Category
+                                </span>
+                                <div className="text-sm font-bold text-gray-900">
+                                    {complaint.category || 'General Civic'}
+                                </div>
+                            </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                                <div className="flex items-start gap-3 p-3 bg-theme-tertiary rounded-lg border border-theme">
-                                    <MapPin className="text-theme-muted mt-1" size={18} />
-                                    <div>
-                                        <p className="text-xs text-theme-muted uppercase font-bold">Location</p>
-                                        <p className="text-sm font-medium text-theme">{complaint.location}</p>
-                                        {complaint.ward && <p className="text-xs text-theme-muted">Ward: {complaint.ward}</p>}
+                            <div>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">
+                                    Citizen Statement / समस्या विवरण
+                                </span>
+                                <p className="text-sm text-gray-800 leading-relaxed bg-gray-50 p-3.5 rounded border border-gray-200">
+                                    {complaint.description}
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                                <div className="flex items-start gap-2.5 p-3 rounded border border-gray-200 bg-white">
+                                    <MapPin className="text-[var(--navy)] mt-0.5 flex-shrink-0" size={16} />
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-bold uppercase text-gray-500">Location / Ward</p>
+                                        <p className="text-xs font-semibold text-gray-900 truncate">{complaint.location || 'Not Specified'}</p>
+                                        {complaint.ward && <p className="text-[11px] text-gray-500">Ward: {complaint.ward}</p>}
                                     </div>
                                 </div>
-                                <div className="flex items-start gap-3 p-3 bg-theme-tertiary rounded-lg border border-theme">
-                                    <Calendar className="text-theme-muted mt-1" size={18} />
+                                <div className="flex items-start gap-2.5 p-3 rounded border border-gray-200 bg-white">
+                                    <Calendar className="text-[var(--navy)] mt-0.5 flex-shrink-0" size={16} />
                                     <div>
-                                        <p className="text-xs text-theme-muted uppercase font-bold">Submitted</p>
-                                        <p className="text-sm font-medium text-theme">
-                                            {new Date(complaint.created_at).toLocaleString()}
+                                        <p className="text-[10px] font-bold uppercase text-gray-500">Registration Timestamp</p>
+                                        <p className="text-xs font-semibold text-gray-900">
+                                            {complaint.created_at ? new Date(complaint.created_at).toLocaleString('en-IN') : '—'}
                                         </p>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Upvotes indicator */}
-                            <div className="flex items-center gap-4 text-sm text-theme-secondary">
-                                <span className="flex items-center gap-1">
-                                    <span className="font-bold text-[var(--accent)]">{complaint.upvotes || 0}</span> community votes
-                                </span>
-                                <Badge status={complaint.status} />
-                            </div>
-
                             {/* Citizen Submitted Images */}
                             {complaint.attachments && complaint.attachments.length > 0 && (
-                                <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border-2 border-blue-300 dark:border-blue-700">
-                                    <h4 className="text-sm font-bold text-blue-800 dark:text-blue-300 uppercase mb-3 flex items-center gap-2">
-                                        📸 Citizen Submitted Evidence ({complaint.attachments.length} images)
+                                <div className="mt-4 pt-4 border-t border-gray-200">
+                                    <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                        <ImagePlus size={14} className="text-[var(--navy)]" /> Citizen Submitted Photographic Evidence ({complaint.attachments.length})
                                     </h4>
                                     <div className="flex gap-3 flex-wrap">
                                         {complaint.attachments.map((img, idx) => (
@@ -277,8 +306,8 @@ export default function HandleComplaint() {
                                                 <img
                                                     src={getImageUrl(img)}
                                                     alt={`Evidence ${idx + 1}`}
-                                                    className="w-32 h-32 object-cover rounded-lg border-2 border-blue-400 hover:border-blue-600 shadow-md transition hover:scale-105"
-                                                    onError={(e) => { e.target.src = 'https://via.placeholder.com/128?text=Image'; }}
+                                                    className="w-28 h-28 object-cover rounded border border-gray-300 hover:border-[var(--navy)] shadow-sm transition hover:scale-105"
+                                                    onError={(e) => { e.target.src = 'https://via.placeholder.com/128?text=Evidence'; }}
                                                 />
                                             </a>
                                         ))}
@@ -286,54 +315,54 @@ export default function HandleComplaint() {
                                 </div>
                             )}
                         </div>
-                    </section>
+                    </div>
 
-                    {/* Resolution Workspace */}
-                    <section className="card-theme rounded-2xl shadow-lg p-6 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
-
-                        <div className="mb-6 flex items-center gap-2">
-                            <CheckCircle className="text-green-500" size={24} />
-                            <h3 className="text-lg font-bold text-theme">Resolution Workspace</h3>
+                    {/* Officer Resolution Workspace */}
+                    <div className="gov-section border-t-4 border-t-[var(--india-green)]">
+                        <div className="gov-section-header bg-green-50/50">
+                            <span className="gov-section-title flex items-center gap-2 text-green-950 font-bold">
+                                <CheckCircle size={14} className="text-green-700" />
+                                Officer Resolution Workspace / निवारण कार्यवाई
+                            </span>
                         </div>
 
-                        <div className="space-y-6">
+                        <div className="p-5 space-y-4">
                             {/* Officer Remarks */}
                             <div>
-                                <label className="block text-sm font-medium text-theme-secondary mb-2">
-                                    Officer Remarks <span className="text-[var(--error)]">*</span>
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                                    Official Redressal Remarks / कार्यवाई विवरण <span className="text-red-500">*</span>
                                 </label>
                                 <textarea
                                     value={remarks}
                                     onChange={(e) => setRemarks(e.target.value)}
-                                    className="block w-full rounded-xl input-theme shadow-sm focus:border-green-500 focus:ring focus:ring-green-200 resize-none p-4"
-                                    placeholder="Describe the action taken to resolve this complaint..."
+                                    className="gov-input w-full resize-none p-3 text-xs"
+                                    placeholder="Enter detailed report on repairs conducted, materials utilized, and on-site resolution verification..."
                                     rows="4"
                                 />
-                                <div className="mt-2 flex gap-2">
+                                <div className="mt-2 flex gap-2 flex-wrap">
                                     <button
                                         type="button"
-                                        onClick={() => setRemarks('Issue inspected and resolved on site. Work completed successfully.')}
-                                        className="text-xs bg-theme-tertiary border border-theme px-2 py-1 rounded text-theme-secondary hover:bg-theme-level-2 transition"
+                                        onClick={() => setRemarks('Site inspected by field staff and necessary repairs/clearance successfully completed. Normal services restored.')}
+                                        className="text-[11px] bg-gray-100 hover:bg-gray-200 border border-gray-300 px-2.5 py-1 rounded text-gray-700 font-medium transition"
                                     >
-                                        Use Template 1
+                                        Template: Inspection & Completed
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setRemarks('Team dispatched and repair work completed. Follow-up scheduled if needed.')}
-                                        className="text-xs bg-theme-tertiary border border-theme px-2 py-1 rounded text-theme-secondary hover:bg-theme-level-2 transition"
+                                        onClick={() => setRemarks('Maintenance crew dispatched. Defect rectified in compliance with municipal safety standards.')}
+                                        className="text-[11px] bg-gray-100 hover:bg-gray-200 border border-gray-300 px-2.5 py-1 rounded text-gray-700 font-medium transition"
                                     >
-                                        Use Template 2
+                                        Template: Maintenance Rectification
                                     </button>
                                 </div>
                             </div>
 
                             {/* Resolution Proof Upload */}
                             <div>
-                                <label className="block text-sm font-medium text-theme-secondary mb-2">
-                                    Resolution Proof (Upload Images)
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                                    Resolution Proof Photographs (Upload On-Site Photos)
                                 </label>
-                                <div className="border-2 border-dashed border-theme rounded-xl p-6 hover:bg-theme-tertiary transition cursor-pointer">
+                                <div className="border-2 border-dashed border-gray-300 rounded p-5 hover:bg-gray-50 transition cursor-pointer text-center">
                                     <input
                                         type="file"
                                         accept="image/*"
@@ -343,30 +372,31 @@ export default function HandleComplaint() {
                                         id="proof-upload"
                                     />
                                     <label htmlFor="proof-upload" className="cursor-pointer flex flex-col items-center">
-                                        <Upload className="text-theme-muted mb-2" size={40} />
-                                        <span className="text-sm font-medium text-[var(--primary)]">Upload proof images</span>
-                                        <span className="text-xs text-theme-muted mt-1">PNG, JPG up to 10MB each (max 5 files)</span>
+                                        <Upload className="text-gray-400 mb-1.5" size={32} />
+                                        <span className="text-xs font-bold text-[var(--navy)]">Attach On-Site Proof Images</span>
+                                        <span className="text-[10px] text-gray-400 mt-0.5">PNG, JPG up to 10MB each (max 5 files)</span>
                                     </label>
                                 </div>
 
                                 {proofImages.length > 0 && (
-                                    <div className="flex gap-3 mt-4 flex-wrap">
+                                    <div className="flex gap-2.5 mt-3 flex-wrap">
                                         {proofImages.map((img, idx) => (
                                             <div key={idx} className="relative group">
                                                 <img
                                                     src={img.url}
                                                     alt={`Proof ${idx + 1}`}
-                                                    className="w-24 h-24 object-cover rounded-lg border-2 border-green-200 dark:border-green-800 shadow-sm"
+                                                    className="w-20 h-20 object-cover rounded border border-green-300 shadow-sm"
                                                 />
                                                 <button
                                                     type="button"
                                                     onClick={() => removeProof(idx)}
-                                                    className="absolute -top-2 -right-2 bg-[var(--error)] text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
+                                                    className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full p-0.5 shadow hover:bg-red-700 transition"
+                                                    title="Remove image"
                                                 >
-                                                    <X size={14} />
+                                                    <X size={12} />
                                                 </button>
-                                                <span className="absolute bottom-1 left-1 right-1 bg-green-600 text-white text-[10px] text-center rounded truncate px-1">
-                                                    Proof {idx + 1}
+                                                <span className="absolute bottom-0 left-0 right-0 bg-green-700 text-white text-[9px] text-center rounded-b truncate px-1 font-semibold">
+                                                    Proof #{idx + 1}
                                                 </span>
                                             </div>
                                         ))}
@@ -375,116 +405,132 @@ export default function HandleComplaint() {
                             </div>
 
                             {error && (
-                                <div className="text-[var(--error)] text-sm bg-[var(--error-bg)] p-3 rounded-lg flex items-center gap-2">
-                                    <AlertTriangle size={16} />
-                                    {error}
+                                <div className="gov-alert error text-xs">
+                                    <AlertTriangle size={14} />
+                                    <span>{error}</span>
                                 </div>
                             )}
 
                             {/* Action Buttons */}
-                            <div className="pt-4 border-t border-theme flex items-center justify-between">
+                            <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
                                 <button
                                     type="button"
                                     onClick={() => handleStatusUpdate('IN_PROGRESS')}
-                                    className="text-theme-secondary hover:text-theme font-medium text-sm transition"
+                                    className="text-xs font-bold text-gray-600 hover:text-gray-900 underline transition"
                                 >
-                                    Save as In Progress
+                                    Save Progress / प्रगति दर्ज करें
                                 </button>
                                 <button
                                     onClick={handleResolve}
                                     disabled={submitting || !remarks.trim()}
-                                    className="bg-green-500 hover:bg-green-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg shadow-green-500/30 transform transition hover:-translate-y-0.5 flex items-center gap-2"
+                                    className="btn-gov-primary flex items-center gap-2 text-xs py-2 px-6"
+                                    style={{ background: 'var(--india-green)', borderColor: 'var(--india-green)' }}
                                 >
                                     {submitting ? (
-                                        <Loader2 className="animate-spin" size={20} />
+                                        <Loader2 className="animate-spin" size={16} />
                                     ) : (
-                                        <CheckCircle size={20} />
+                                        <CheckCircle size={16} />
                                     )}
-                                    MARK RESOLVED
+                                    <span>Certify Resolved / समाधानित प्रमाणित करें</span>
                                 </button>
                             </div>
                         </div>
-                    </section>
+                    </div>
                 </div>
 
                 {/* Sidebar */}
                 <div className="space-y-6">
-                    {/* Current Status */}
-                    <div className="card-theme rounded-xl p-5">
-                        <h4 className="text-sm font-bold text-theme-muted uppercase tracking-wider mb-4">Current Status</h4>
-                        <div className="flex gap-2 mb-4">
-                            <select
-                                value={status}
-                                onChange={(e) => handleStatusUpdate(e.target.value)}
-                                className="block w-full rounded-lg input-theme shadow-sm focus:border-blue-500 focus:ring focus:ring-blue-200 text-sm"
-                            >
-                                <option value="PENDING">Pending</option>
-                                <option value="IN_PROGRESS">In Progress</option>
-                                <option value="ASSIGNED">Assigned</option>
-                                <option value="RESOLVED">Resolved</option>
-                                <option value="REJECTED">Rejected</option>
-                            </select>
+                    {/* Status Management */}
+                    <div className="gov-section">
+                        <div className="gov-section-header">
+                            <span className="gov-section-title flex items-center gap-1.5">
+                                <Activity size={13} /> Administrative Status
+                            </span>
                         </div>
-                        <div className="bg-theme-tertiary rounded-lg p-3">
-                            <div className="flex justify-between text-xs mb-1">
-                                <span className="text-theme-muted">SLA Compliance</span>
-                                <span className="font-bold text-[var(--primary)]">65%</span>
+                        <div className="p-4 space-y-3">
+                            <div>
+                                <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">
+                                    Current Stage
+                                </label>
+                                <select
+                                    value={status}
+                                    onChange={(e) => handleStatusUpdate(e.target.value)}
+                                    className="gov-input w-full text-xs font-semibold py-1.5"
+                                >
+                                    <option value="Pending">Pending / प्रतीक्षारत</option>
+                                    <option value="Assigned">Assigned / स्वीकृत</option>
+                                    <option value="In Progress">In Progress / प्रगति पर</option>
+                                    <option value="Resolved">Resolved / समाधानित</option>
+                                    <option value="Rejected">Rejected / निरस्त</option>
+                                </select>
                             </div>
-                            <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
-                                <div className="bg-[var(--primary)] h-2 rounded-full" style={{ width: '65%' }}></div>
+
+                            <div className="pt-2">
+                                <div className="flex justify-between text-[11px] mb-1">
+                                    <span className="text-gray-500 font-semibold">SLA Health</span>
+                                    <span className="font-bold text-[var(--navy)]">75%</span>
+                                </div>
+                                <div className="priority-bar">
+                                    <div className="priority-bar-fill" style={{ width: '75%', background: 'var(--india-green)' }} />
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     {/* Citizen Details */}
-                    <div className="card-theme rounded-xl p-5">
-                        <h4 className="text-sm font-bold text-theme-muted uppercase tracking-wider mb-4">Citizen Details</h4>
-                        <div className="flex items-center gap-4 mb-4">
-                            <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center text-orange-600 dark:text-orange-400 font-bold text-lg">
-                                {complaint.user?.name?.charAt(0) || 'C'}
-                            </div>
-                            <div>
-                                <p className="text-base font-bold text-theme">{complaint.user?.name || 'Citizen'}</p>
-                                <p className="text-xs text-theme-muted">Registered User</p>
-                            </div>
+                    <div className="gov-section">
+                        <div className="gov-section-header">
+                            <span className="gov-section-title flex items-center gap-1.5">
+                                <User size={13} /> Citizen Profile / प्रार्थी विवरण
+                            </span>
                         </div>
-                        <div className="space-y-3">
-                            <div className="flex items-center gap-3 text-sm text-theme-secondary">
-                                <Mail className="text-theme-muted" size={16} />
-                                <span>{complaint.user?.email || 'Not provided'}</span>
+                        <div className="p-4 space-y-3 text-xs">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gray-100 border border-gray-300 rounded-full flex items-center justify-center font-bold text-gray-700">
+                                    {complaint.user?.name?.charAt(0) || 'C'}
+                                </div>
+                                <div>
+                                    <p className="font-bold text-gray-900">{complaint.user?.name || 'Citizen'}</p>
+                                    <p className="text-[10px] text-gray-400">Verified Citizen Account</p>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-3 text-sm text-theme-secondary">
-                                <Phone className="text-theme-muted" size={16} />
-                                <span>{complaint.user?.phone || 'Not provided'}</span>
+                            <div className="space-y-1.5 pt-2 border-t border-gray-100 text-gray-600">
+                                <div className="flex items-center gap-2">
+                                    <Mail size={13} className="text-gray-400" />
+                                    <span className="truncate">{complaint.user?.email || 'Not provided'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Phone size={13} className="text-gray-400" />
+                                    <span>{complaint.user?.phone || 'Not provided'}</span>
+                                </div>
                             </div>
-                        </div>
-                        <div className="mt-4 pt-4 border-t border-theme">
-                            <button className="w-full border border-theme text-theme-secondary hover:bg-theme-tertiary font-medium py-2 rounded-lg text-sm transition flex items-center justify-center gap-2">
-                                <MessageSquare size={16} /> Contact Citizen
-                            </button>
                         </div>
                     </div>
 
                     {/* Activity Log */}
-                    <div className="card-theme rounded-xl p-5">
-                        <h4 className="text-sm font-bold text-theme-muted uppercase tracking-wider mb-4">Activity Log</h4>
-                        <div className="space-y-4">
+                    <div className="gov-section">
+                        <div className="gov-section-header">
+                            <span className="gov-section-title flex items-center gap-1.5">
+                                <Clock size={13} /> Official Action Audit Trail
+                            </span>
+                        </div>
+                        <div className="p-4 space-y-3">
                             {complaint.status_logs?.slice(-4).reverse().map((log, idx) => (
-                                <div key={idx} className="flex gap-3">
-                                    <div className="w-3 h-3 mt-1.5 rounded-full bg-[var(--primary)] ring-4 ring-blue-100 dark:ring-blue-900"></div>
+                                <div key={idx} className="flex gap-2.5 text-xs">
+                                    <div className="w-2 h-2 mt-1.5 rounded-full bg-[var(--navy)] flex-shrink-0" />
                                     <div>
-                                        <p className="text-sm font-medium text-theme">
-                                            Status: <Badge status={log.status} size="small" />
+                                        <p className="font-semibold text-gray-900">
+                                            Stage: <Badge status={log.status} size="small" />
                                         </p>
-                                        {log.remarks && <p className="text-xs text-theme-secondary mt-1">{log.remarks}</p>}
-                                        <p className="text-xs text-theme-muted mt-0.5">
-                                            {new Date(log.created_at).toLocaleString()}
+                                        {log.remarks && <p className="text-gray-600 text-[11px] mt-0.5">{log.remarks}</p>}
+                                        <p className="text-[10px] text-gray-400 mt-0.5">
+                                            {new Date(log.created_at).toLocaleString('en-IN')}
                                         </p>
                                     </div>
                                 </div>
                             ))}
                             {(!complaint.status_logs || complaint.status_logs.length === 0) && (
-                                <p className="text-sm text-theme-muted">No activity yet</p>
+                                <p className="text-xs text-gray-400 text-center py-2">No preceding action logged.</p>
                             )}
                         </div>
                     </div>

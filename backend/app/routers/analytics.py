@@ -75,6 +75,29 @@ class RecurringIssueResponse(BaseModel):
     sample_complaints: List[str]  # Changed to str since Firestore IDs are strings
 
 
+class DepartmentPerformanceResponse(BaseModel):
+    department_id: str
+    department_name: str
+    total_complaints: int
+    resolved_complaints: int
+    avg_response_time_hours: float
+    avg_resolution_time_hours: float
+    sla_breach_rate: float
+    avg_citizen_rating: float
+    feedback_count: int
+
+
+class SmartAlertResponse(BaseModel):
+    alert_id: str
+    type: str  # e.g., "SPIKE", "ESCALATION_RISK"
+    severity: str  # "HIGH", "CRITICAL"
+    title: str
+    message: str
+    ward: Optional[str] = None
+    category: Optional[str] = None
+    related_complaint_ids: List[str] = []
+    generated_at: str
+
 # ========== Endpoints ==========
 
 @router.get("/heatmap/category", response_model=CategoryHeatmapResponse)
@@ -97,6 +120,29 @@ async def get_locality_heatmap(
 ):
     result = generate_locality_heatmap(db, category, days)
     return LocalityHeatmapResponse(**result)
+
+
+@router.get("/departments/performance", response_model=List[DepartmentPerformanceResponse])
+async def get_department_performance_metrics(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: Any = Depends(get_db)
+):
+    from ..services.performance_analytics import get_department_performance
+    results = get_department_performance(db, days)
+    return results
+
+
+@router.get("/smart-alerts", response_model=List[SmartAlertResponse])
+async def get_smart_alerts_api(
+    days: int = Query(7, ge=1, le=30),
+    current_user: User = Depends(get_current_user),
+    db: Any = Depends(get_db)
+):
+    """Retrieve anomaly alerts like spikes and escalation risks."""
+    from ..services.smart_alerts import generate_smart_alerts
+    results = generate_smart_alerts(db, days)
+    return results
 
 
 @router.get("/heatmap/matrix")
@@ -188,9 +234,13 @@ async def get_map_data(
     
     all_complaints = []
     for doc in docs:
-        c = Complaint.from_firestore(doc)
-        if c.latitude is not None and c.longitude is not None:
-            all_complaints.append(c)
+        try:
+            c = Complaint.from_firestore(doc)
+            if c and c.latitude is not None and c.longitude is not None:
+                all_complaints.append(c)
+        except Exception as e:
+            # Skip malformed/legacy complaints
+            continue
             
     # Filter by department
     filtered_complaints = []
@@ -225,11 +275,11 @@ async def get_map_data(
                 "lat": c.latitude,
                 "lng": c.longitude,
                 "category": c.category,
-                "priority": c.priority.value if c.priority else "Low",
-                "status": c.status.value if c.status else "Pending",
-                "description": c.description[:100] + "..." if len(c.description) > 100 else c.description,
+                "priority": getattr(c.priority, 'value', c.priority) if c.priority else "Low",
+                "status": getattr(c.status, 'value', c.status) if c.status else "Pending",
+                "description": c.description[:100] + "..." if c.description and len(c.description) > 100 else (c.description or ""),
                 "location": c.location,
-                "created_at": c.created_at.isoformat()
+                "created_at": c.created_at.isoformat() if hasattr(c.created_at, 'isoformat') else str(c.created_at)
             }
             for c in filtered_complaints
         ],
