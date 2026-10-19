@@ -10,8 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from google.cloud.firestore import Query as FirestoreQuery
 
+from fastapi import HTTPException, status
 from ..database import get_db
-from ..auth import get_current_user
+from ..auth import get_current_user, require_role
 from ..models import User, UserRole, Team, TaskAssignment, AssignmentLog, Complaint
 
 router = APIRouter(prefix="/api/assignments", tags=["Assignments"])
@@ -73,19 +74,28 @@ async def get_teams(
     db: Any = Depends(get_db)
 ):
     """
-    Get all teams, optionally filtered by department.
-    Officers see their department's teams, admins see all.
+    Get all teams.
+    - Officers: silently scoped to their own department (department_id param ignored).
+    - Admins: all teams, optionally filtered by department_id.
+    - Citizens: 403.
     """
+    if current_user.role == UserRole.CITIZEN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
+
     query = db.collection('teams')
-    
-    if current_user.role == UserRole.OFFICER and current_user.department_id:
+
+    if current_user.role == UserRole.OFFICER:
+        # Scope strictly to officer's own department — ignore any department_id param
+        if not current_user.department_id:
+            return []
         query = query.where('department_id', '==', current_user.department_id)
     elif department_id:
+        # Admin filtering by department
         query = query.where('department_id', '==', department_id)
-        
+
     docs = query.get()
-    teams = [Team.from_firestore(doc) for doc in docs]
-    
+    teams = [Team.from_firestore(doc) for doc in docs if doc]
+
     return [
         TeamResponse(
             id=t.id,
@@ -98,7 +108,7 @@ async def get_teams(
             ward_coverage=t.ward_coverage,
             is_active=t.is_active
         )
-        for t in teams
+        for t in teams if t
     ]
 
 
@@ -158,13 +168,25 @@ async def get_assignment(
 ):
     """
     Get details of a specific assignment.
+    Officers may only view assignments belonging to their department.
     """
+    if current_user.role == UserRole.CITIZEN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
+
     doc = db.collection('task_assignments').document(assignment_id).get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Assignment not found")
-        
+
     assignment = TaskAssignment.from_firestore(doc)
-    
+
+    # Department scope check for officers
+    if current_user.role == UserRole.OFFICER:
+        team_doc = db.collection('teams').document(assignment.team_id).get()
+        if team_doc.exists:
+            team_dept = team_doc.to_dict().get('department_id')
+            if team_dept != current_user.department_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     team_doc = db.collection('teams').document(assignment.team_id).get()
     team_name = None
     if team_doc.exists:
@@ -197,7 +219,7 @@ async def override_assignment(
     Manually override an AI assignment (Admin/Officer only).
     """
     if current_user.role not in [UserRole.ADMIN, UserRole.OFFICER]:
-        raise HTTPException(status_code=403, detail="Override requires admin or officer role")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Override requires admin or officer role")
         
     assignment_ref = db.collection('task_assignments').document(assignment_id)
     assignment_doc = assignment_ref.get()
@@ -211,7 +233,17 @@ async def override_assignment(
     if not new_team_doc.exists:
         raise HTTPException(status_code=404, detail="New team not found")
     new_team = Team.from_firestore(new_team_doc)
-    
+
+    # Officers can only reassign within their own department
+    if current_user.role == UserRole.OFFICER:
+        old_team_dept = db.collection('teams').document(assignment.team_id).get().to_dict().get('department_id')
+        new_team_dept = new_team_doc.to_dict().get('department_id')
+        if old_team_dept != current_user.department_id or new_team_dept != current_user.department_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Officers can only reassign within their own department"
+            )
+
     old_team_ref = db.collection('teams').document(assignment.team_id)
     old_team_doc = old_team_ref.get()
     old_team = Team.from_firestore(old_team_doc) if old_team_doc.exists else None
