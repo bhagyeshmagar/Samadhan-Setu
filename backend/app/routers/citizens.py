@@ -5,10 +5,12 @@ Phase 2: Triggers AI pipeline as background task on submission.
 """
 from typing import List, Optional, Any
 from datetime import datetime, timedelta
+import io
 import os
 import uuid
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, BackgroundTasks
+from PIL import Image, UnidentifiedImageError
 
 
 from ..database import get_db
@@ -168,6 +170,8 @@ async def upload_complaint_images(
     db: Any = Depends(get_db),
 ):
     """Upload evidence images for a complaint. Only the complaint owner can upload."""
+    from ..config import settings as cfg
+
     doc_ref = db.collection("complaints").document(complaint_id)
     doc = doc_ref.get()
 
@@ -177,48 +181,79 @@ async def upload_complaint_images(
     complaint = Complaint.from_firestore(doc)
 
     if complaint.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the complaint owner can upload images")
-
-    existing = complaint.attachments or []
-    if len(existing) + len(files) > 5:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Maximum 5 images allowed. Currently have {len(existing)}",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the complaint owner can upload images"
         )
 
+    existing = complaint.attachments or []
+    if len(existing) >= cfg.MAX_ATTACHMENTS_PER_COMPLAINT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Maximum {cfg.MAX_ATTACHMENTS_PER_COMPLAINT} attachments allowed.",
+        )
+    remaining_slots = cfg.MAX_ATTACHMENTS_PER_COMPLAINT - len(existing)
+    files = files[:remaining_slots]  # silently cap to remaining slots
+
     uploaded_files = []
+    rejected = []
+
     for file in files:
-        if not file.content_type.startswith("image/"):
+        # 1. MIME type allowlist check
+        if file.content_type not in cfg.ALLOWED_IMAGE_TYPES:
+            rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
             continue
 
+        # 2. Read content + enforce size limit
         content = await file.read()
-        if len(content) > 10 * 1024 * 1024:
+        if len(content) > cfg.MAX_UPLOAD_SIZE_BYTES:
+            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
             continue
-        await file.seek(0)
 
-        ext = os.path.splitext(file.filename)[1] or ".jpg"
-        unique_name = f"{complaint_id}_{uuid.uuid4().hex[:8]}{ext}"
+        # 3. Decode with Pillow — rejects corrupt files, polyglots, and non-images
+        try:
+            img = Image.open(io.BytesIO(content))
+            img.verify()  # raises on corrupt/invalid images
+        except (UnidentifiedImageError, Exception):
+            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
+            continue
+
+        # 4. Sanitized filename — UUID + validated extension (no path traversal)
+        original_ext = os.path.splitext(file.filename or "")[1].lower()
+        safe_ext = original_ext if original_ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
+        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
         file_path = os.path.join(CITIZEN_UPLOAD_DIR, unique_name)
 
         with open(file_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+            f.write(content)
 
         uploaded_files.append(f"/uploads/citizen/{unique_name}")
 
-    updated_attachments = existing + uploaded_files
-    doc_ref.update({"attachments": updated_attachments})
+    if uploaded_files:
+        updated_attachments = existing + uploaded_files
+        doc_ref.update({"attachments": updated_attachments})
 
-    write_audit_log(
-        db,
-        action="file_uploaded",
-        entity_type="complaint",
-        entity_id=complaint_id,
-        actor_id=current_user.id,
-        actor_role=current_user.role.value,
-        details={"files_count": len(uploaded_files), "total_attachments": len(updated_attachments)},
-    )
+        write_audit_log(
+            db,
+            action="file_uploaded",
+            entity_type="complaint",
+            entity_id=complaint_id,
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            details={
+                "files_uploaded": len(uploaded_files),
+                "files_rejected": len(rejected),
+                "total_attachments": len(updated_attachments),
+            },
+        )
+    else:
+        updated_attachments = existing
 
-    return {"message": f"Successfully uploaded {len(uploaded_files)} image(s)", "attachments": updated_attachments}
+    return {
+        "message": f"Uploaded {len(uploaded_files)} image(s).",
+        "attachments": updated_attachments,
+        "rejected": rejected,
+    }
 
 
 @router.get("/preview-ai", response_model=ComplaintAIResponse)
