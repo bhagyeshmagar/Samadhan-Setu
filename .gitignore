@@ -16,6 +16,7 @@ firebase-credentials.json
 *firebase-credentials*.json
 serviceAccountKey.json
 backend/firebase-credentials.json
+*.sql
 
 # === Python / Virtual Environments ===
 __pycache__/

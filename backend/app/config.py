@@ -19,6 +19,19 @@ class Settings:
         "FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json"
     )
 
+    # PostgreSQL Database settings
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://postgres@localhost:5432/samadhan_setu",
+    )
+    SYNC_DATABASE_URL: str = os.getenv(
+        "SYNC_DATABASE_URL",
+        "postgresql+psycopg2://postgres@localhost:5432/samadhan_setu",
+    )
+    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "20"))
+    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    DB_ECHO: bool = os.getenv("DB_ECHO", "false").lower() == "true"
+
     # JWT Settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", _DEFAULT_SECRET)
     ALGORITHM: str = "HS256"
