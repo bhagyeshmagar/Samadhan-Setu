@@ -198,3 +198,81 @@ async def test_vote_uniqueness_constraint(db_session):
     db_session.add(vote2)
     with pytest.raises(IntegrityError):
         await db_session.commit()
+
+@pytest.mark.asyncio
+async def test_repositories_flow(db_session):
+    from app.repositories import UserRepository, DepartmentRepository, ComplaintRepository
+
+    user_repo = UserRepository(db_session)
+    dept_repo = DepartmentRepository(db_session)
+    complaint_repo = ComplaintRepository(db_session)
+
+    # 1. Create Citizen via Repo
+    citizen = await user_repo.create(
+        email=f"repo_citizen_{uuid.uuid4().hex[:6]}@example.com",
+        name="Repo Citizen",
+        password_hash=get_password_hash("pass123"),
+        ward="Ward 12",
+        city="Mumbai",
+    )
+    assert citizen.id is not None
+
+    # 2. Get Department via Category Mapping
+    dept = await dept_repo.get_by_category("Roads & Transport")
+    assert dept is not None
+    assert dept.code == "dept_roads"
+
+    # 3. Resolve SLA Hours
+    sla_hours = await dept_repo.get_sla_hours("Roads & Transport", "high")
+    assert sla_hours == 24
+
+    # 4. Create Complaint via Repo
+    complaint = await complaint_repo.create(
+        citizen_id=citizen.id,
+        title="Pothole reported via Repo test",
+        description="Pothole description for testing repo layer.",
+        category="Roads & Transport",
+        ward="Ward 12",
+        latitude=19.0178,
+        longitude=72.8478,
+        priority=ComplaintPriority.HIGH,
+        priority_score=80.0,
+        department_id=dept.id,
+        sla_hours=sla_hours,
+    )
+    assert complaint.complaint_number.startswith("SS-")
+    assert complaint.status == ComplaintStatus.SUBMITTED
+
+    # 5. Add Geotagged Media via Repo
+    media = await complaint_repo.add_media_proof(
+        complaint_id=complaint.id,
+        media_type=MediaType.PROOF_PHOTO,
+        s3_key="proofs/test_repo_proof.jpg",
+        file_name="test_repo_proof.jpg",
+        file_size_bytes=102400,
+        mime_type="image/jpeg",
+        latitude=19.0178,
+        longitude=72.8478,
+        has_watermark=True,
+        uploaded_by=citizen.id,
+    )
+    assert media.id is not None
+    assert media.has_watermark is True
+
+    # 6. Status transition
+    await complaint_repo.add_status_transition(
+        complaint=complaint,
+        new_status=ComplaintStatus.IN_PROGRESS,
+        changed_by=citizen.id,
+        actor_role="officer",
+        notes="Work initiated by field squad.",
+    )
+    assert complaint.status == ComplaintStatus.IN_PROGRESS
+
+    # 7. Upvote
+    voted = await complaint_repo.upvote(complaint.id, citizen.id)
+    assert voted is True
+    duplicate_vote = await complaint_repo.upvote(complaint.id, citizen.id)
+    assert duplicate_vote is False
+
+    await db_session.commit()
