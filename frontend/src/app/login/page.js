@@ -50,14 +50,14 @@ export default function LoginPage() {
     // Quick demo autofill helper for easy review
     const setDemoCredentials = (demoRole) => {
         if (demoRole === 'citizen') {
-            setEmail('citizen@demo.gov.in');
-            setPassword('citizen123');
+            setEmail('citizen@demo.com');
+            setPassword('demo123');
         } else if (demoRole === 'officer') {
-            setEmail('officer@demo.gov.in');
-            setPassword('officer123');
+            setEmail('officer@roads.gov.in');
+            setPassword('demo123');
         } else if (demoRole === 'admin') {
-            setEmail('admin@demo.gov.in');
-            setPassword('admin123');
+            setEmail('admin@samadhan.gov.in');
+            setPassword('demo123');
         }
     };
 

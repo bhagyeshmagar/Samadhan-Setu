@@ -1,6 +1,6 @@
 # Samadhan Setu
 
-**AI-Powered Grievance Redressal Platform for Public Governance**
+> **AI-Powered Grievance Redressal Platform for Public Governance**
 
 An intelligent, governance-first complaint management system that uses AI to assist — not replace — human decision-making. Officers lead; AI suggests.
 
@@ -23,14 +23,14 @@ Samadhan Setu is a full-stack civic grievance redressal platform that combines a
 └───────────────────────────┬─────────────────────────────────┘
                             │ REST API
 ┌───────────────────────────┴─────────────────────────────────┐
-│                    BACKEND (FastAPI)                          │
+│                    BACKEND (FastAPI)                        │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │ Auth Module  │  │ Workflow     │  │ AI Pipeline        │  │
-│  │ JWT + RBAC   │  │ State Machine│  │ (Background Tasks) │  │
+│  │ Auth Module  │  │ Workflow     │  │ AI Pipeline        │ │
+│  │ JWT + RBAC   │  │ State Machine│  │ (Background Tasks) │ │
 │  └─────────────┘  └──────────────┘  └────────────────────┘  │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │ Task Router  │  │ Audit Logger │  │ Priority Engine    │  │
-│  │ Multi-dept   │  │ Full history │  │ 6-factor formula   │  │
+│  │ Task Router  │  │ Audit Logger │  │ Priority Engine    │ │
+│  │ Multi-dept   │  │ Full history │  │ 6-factor formula   │ │
 │  └─────────────┘  └──────────────┘  └────────────────────┘  │
 │  ┌──────────────────────────────────────────────────────────┐│
 │  │                AI Intelligence Layer                      ││
@@ -87,7 +87,7 @@ Samadhan Setu is a full-stack civic grievance redressal platform that combines a
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+| ------- | ----------- |
 | Frontend | Next.js 14, React 18, Lucide Icons |
 | Backend | FastAPI, Python 3.11+ |
 | Database | Firebase Firestore |
@@ -169,7 +169,7 @@ Samadhan-Setu/
 ### Auth
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| -------- | ---------- | ------------- |
 | POST | `/api/auth/register` | Register new user |
 | POST | `/api/auth/login` | Login (returns JWT) |
 | GET | `/api/auth/me` | Get current user profile |
@@ -177,7 +177,7 @@ Samadhan-Setu/
 ### Citizens
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| -------- | ---------- | ------------- |
 | POST | `/api/complaints/` | Submit complaint (triggers AI pipeline) |
 | GET | `/api/complaints/my` | Get citizen's complaints |
 | GET | `/api/complaints/{id}` | Get complaint detail + tasks + history |
@@ -186,7 +186,7 @@ Samadhan-Setu/
 ### Officers (Department)
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| -------- | ---------- | ------------- |
 | GET | `/api/department/tasks` | Get department tasks |
 | PATCH | `/api/department/tasks/{id}/status` | Update task status |
 | GET | `/api/department/stats` | Department statistics |
@@ -194,7 +194,7 @@ Samadhan-Setu/
 ### AI Insights (Phase 2)
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| -------- | ---------- | ------------- |
 | GET | `/api/ai/complaint/{id}/summary` | Full AI analysis summary |
 | POST | `/api/ai/complaint/{id}/rerun` | Re-run AI pipeline |
 | GET | `/api/ai/complaint/{id}/similar` | Similar complaints + links |
@@ -212,7 +212,7 @@ Samadhan-Setu/
 ### Admin
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| -------- | ---------- | ------------- |
 | GET | `/api/admin/stats` | System-wide statistics |
 | GET | `/api/admin/departments` | List departments |
 | POST | `/api/admin/departments` | Create department |
@@ -289,7 +289,7 @@ Priority Bands:
 Every AI model is designed to degrade gracefully:
 
 | Model | Primary | Fallback |
-|-------|---------|----------|
+| ------- | --------- | ---------- |
 | DistilBERT | Zero-shot classification | Keyword-based rule engine |
 | SBERT | Semantic embeddings | Jaccard keyword similarity |
 | YOLOv8 | Object detection | Skipped (image analysis unavailable) |
