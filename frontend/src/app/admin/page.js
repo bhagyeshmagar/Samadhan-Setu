@@ -207,7 +207,7 @@ export default function AdminDashboard() {
                                         <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                                             {insight.insight_name}
                                         </h4>
-                                        <span className="badge badge-progress flex-shrink-0">{insight.category}</span>
+                                        <span className="badge badge-progress shrink-0">{insight.category}</span>
                                     </div>
                                     <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                                         <strong>{insight.support_count}</strong> parallel anomalies across{' '}

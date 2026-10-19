@@ -5,9 +5,9 @@ API endpoints for AI-powered analytics including heatmaps and clustering.
 Provides visibility into issue patterns for proactive governance.
 """
 from typing import List, Optional, Any
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
 from datetime import datetime, timedelta
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from ..database import get_db
 from ..auth import get_current_user
@@ -128,8 +128,17 @@ async def get_department_performance_metrics(
     current_user: User = Depends(get_current_user),
     db: Any = Depends(get_db)
 ):
+    """Admin: all departments. Officer: own department only."""
+    if current_user.role == UserRole.CITIZEN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
+
     from ..services.performance_analytics import get_department_performance
     results = get_department_performance(db, days)
+
+    # Officers see only their own department
+    if current_user.role == UserRole.OFFICER and current_user.department_id:
+        results = [r for r in results if r.get("department_id") == current_user.department_id]
+
     return results
 
 
@@ -139,10 +148,12 @@ async def get_smart_alerts_api(
     current_user: User = Depends(get_current_user),
     db: Any = Depends(get_db)
 ):
-    """Retrieve anomaly alerts like spikes and escalation risks."""
+    """Retrieve anomaly alerts. Officers and admins only."""
+    if current_user.role == UserRole.CITIZEN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
+
     from ..services.smart_alerts import generate_smart_alerts
-    results = generate_smart_alerts(db, days)
-    return results
+    return generate_smart_alerts(db, days)
 
 
 @router.get("/heatmap/matrix")
@@ -195,6 +206,9 @@ async def get_recurring_issues(
     current_user: User = Depends(get_current_user),
     db: Any = Depends(get_db)
 ):
+    """Officers and admins only."""
+    if current_user.role == UserRole.CITIZEN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
     return identify_recurring_issues(db, days, threshold)
 
 
@@ -204,11 +218,15 @@ async def get_analytics_summary(
     current_user: User = Depends(get_current_user),
     db: Any = Depends(get_db)
 ):
+    """Officers and admins only."""
+    if current_user.role == UserRole.CITIZEN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
+
     category_heatmap = generate_category_heatmap(db, None, days)
     locality_heatmap = generate_locality_heatmap(db, None, days)
     top_areas = get_top_problem_areas(db, 5, days)
     recurring = identify_recurring_issues(db, days, 3)
-    
+
     return {
         "period_days": days,
         "total_complaints": category_heatmap["total_complaints"],

@@ -115,7 +115,7 @@ export default function TrackGrievance() {
                 <div>
                     <div className="breadcrumb mb-2">
                         <a href="/">Home</a>
-                        <ChevronDown size={10} className="breadcrumb-sep rotate-[-90deg]" />
+                        <ChevronDown size={10} className="breadcrumb-sep -rotate-90" />
                         <span className="breadcrumb-current">My Grievances</span>
                     </div>
                     <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>My Grievances</h1>
@@ -199,7 +199,7 @@ export default function TrackGrievance() {
                                                 <span className="flex items-center gap-1.5"><Clock size={12} style={{ color: 'var(--navy)' }} /> {new Date(complaint.created_at).toLocaleDateString('en-IN')}</span>
                                             </div>
                                         </div>
-                                        <div className="p-1.5 rounded-lg flex-shrink-0"
+                                        <div className="p-1.5 rounded-lg shrink-0"
                                             style={{ background: 'var(--navy-light)', color: 'var(--navy)' }}>
                                             {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                                         </div>

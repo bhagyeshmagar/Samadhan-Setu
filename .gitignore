@@ -78,3 +78,10 @@ backend/output.txt
 .idea/
 *.swp
 *.swo
+
+# === Local Planning & Design Docs (not for version control) ===
+samadhan_master_plan.md
+samadhan_mobile_plan.md
+samadhan_pg_schema.md
+*_plan.md
+*_schema.md
