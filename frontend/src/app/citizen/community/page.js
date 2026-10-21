@@ -344,7 +344,7 @@ export default function CommunityFeed() {
 
                             <div className="p-3 bg-blue-50 border border-blue-200 rounded text-blue-900 leading-relaxed">
                                 <span className="font-bold block mb-1">Citizen Advisory / नागरिक सूचना:</span>
-                                Civic grievances with 5+ community upvotes are automatically flagged for accelerated review under the Citizen Charter statutory SLA.
+                                Community upvotes highlight shared neighborhood issues to help municipal authorities gauge local impact and coordinate prompt redressal.
                             </div>
                         </div>
                     </div>
@@ -354,7 +354,7 @@ export default function CommunityFeed() {
                             Redressal Guarantee
                         </h4>
                         <p className="leading-relaxed">
-                            Under Rule 7 of Civic Services Act, every citizen complaint is assigned an officer within 24 hours of registration.
+                            Under municipal citizen charter standards, every lodged grievance is routed for departmental review and monitored against mandated resolution timelines.
                         </p>
                     </div>
                 </div>

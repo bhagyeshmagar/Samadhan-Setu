@@ -107,6 +107,49 @@
   --nav-hover:               var(--navy-xlight);
 }
 
+/* ===== Dark Theme Overrides ===== */
+html.dark, .dark {
+  --bg-page:          #0B132B;
+  --bg-section:       #111C3A;
+  --bg-card:          #162244;
+  --bg-card-hover:    #1C2A52;
+  --bg-header:        #0E1733;
+  --bg-footer:        #080E21;
+
+  --border:           #243258;
+  --border-mid:       #314373;
+  --border-strong:    #475E99;
+  --border-focus:     #4D88FF;
+
+  --text-primary:     #E8EDF5;
+  --text-secondary:   #A9B7D1;
+  --text-muted:       #6C7E9E;
+  --text-inverse:     #0B132B;
+  --text-navy:        #6FA4FF;
+  --text-saffron:     #FFB25E;
+  --text-green:       #4AE052;
+
+  --navy-light:       #162850;
+  --navy-xlight:      #122042;
+  --saffron-light:    #3A240A;
+  --india-green-light:#0C2E14;
+
+  --status-submitted-bg:   #1E1E4A;
+  --status-in-progress-bg: #3E1E0E;
+  --status-resolved-bg:    #0C2E18;
+  --status-closed-bg:      #1E293B;
+  --status-critical-bg:    #3E1214;
+  --status-appealed-bg:    #2A174E;
+
+  --nav-bg:       #0E1733;
+  --nav-border:   #243258;
+  --nav-text:     #A9B7D1;
+  --nav-active:   #6FA4FF;
+
+  --input-bg:     #162244;
+  --input-border: #314373;
+}
+
 /* ===== Tailwind Theme Mapping ===== */
 @theme inline {
   --color-background:           var(--bg-page);

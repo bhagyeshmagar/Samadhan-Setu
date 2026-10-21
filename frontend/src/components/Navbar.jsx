@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { useRouter, usePathname } from 'next/navigation';
 import { Menu, X, User, LogOut, ChevronDown } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
+import ThemeToggle from './ThemeToggle';
 
 const emptySubscribe = () => () => {};
 
@@ -141,6 +142,7 @@ export default function Navbar() {
 
                     {/* Desktop: User actions */}
                     <div className="hidden md:flex items-center gap-3 shrink-0">
+                        <ThemeToggle />
                         {user ? (
                             <div className="relative">
                                 <button
@@ -249,6 +251,10 @@ export default function Navbar() {
                         ))}
 
                         <div className="my-2 border-t" style={{ borderColor: 'var(--border)' }} />
+                        <div className="px-3 py-1 flex items-center justify-between">
+                            <span className="text-xs font-medium text-(--text-muted)">Display Theme</span>
+                            <ThemeToggle />
+                        </div>
 
                         {user ? (
                             <>

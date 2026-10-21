@@ -19,33 +19,38 @@ class CategoryClassifier:
     CATEGORY_KEYWORDS: Dict[str, List[str]] = {
         'Roads & Transport': [
             'pothole', 'road', 'highway', 'traffic', 'signal', 'bus', 'transport',
-            'footpath', 'pavement', 'asphalt', 'tar', 'bridge', 'flyover', 'metro',
+            'footpath', 'pavement', 'asphalt', 'tar road', 'bridge', 'flyover', 'metro',
             'auto', 'rickshaw', 'taxi', 'parking', 'divider', 'zebra', 'crossing',
-            'speed', 'accident', 'crash', 'vehicle', 'lane', 'street'
+            'speed', 'accident', 'crash', 'vehicle', 'lane', 'street',
+            'खड्डा', 'रस्ता', 'रस्ते', 'वाहतूक', 'पादचारी', 'पुल', 'सड़क', 'गड्ढा', 'यातायात'
         ],
         'Water Supply': [
             'water', 'pipe', 'leak', 'leakage', 'drainage', 'drain', 'sewage',
-            'sewer', 'supply', 'tap', 'tank', 'bore', 'borewell', 'well',
-            'drinking', 'contaminated', 'dirty', 'muddy', 'brown', 'smell',
-            'overflow', 'flood', 'waterlogging', 'pipeline', 'plumbing'
+            'sewer', 'supply', 'tap', 'tank', 'bore', 'borewell', 'water well',
+            'drinking', 'contaminated', 'dirty water', 'muddy', 'brown water',
+            'overflow', 'flood', 'waterlogging', 'pipeline', 'plumbing',
+            'पाणी', 'नळ', 'गळती', 'पाईप', 'सांडपाणी', 'जल', 'नल', 'सीवर', 'पानी'
         ],
         'Electricity': [
             'power', 'electricity', 'current', 'voltage', 'wire', 'cable',
             'pole', 'transformer', 'meter', 'billing', 'outage', 'blackout',
             'light', 'bulb', 'lamp', 'streetlight', 'electric', 'spark',
-            'short', 'circuit', 'fuse', 'phase', 'generator'
+            'short circuit', 'fuse', 'phase', 'generator',
+            'वीज', 'करंट', 'वायर', 'खांब', 'लाईट', 'विद्युत', 'बिजली', 'तार', 'अंधेरा'
         ],
         'Sanitation & Waste': [
             'garbage', 'trash', 'waste', 'dustbin', 'bin', 'dump', 'dumping',
             'litter', 'clean', 'cleaning', 'sweeper', 'sanitation', 'toilet',
             'public toilet', 'urinal', 'hygiene', 'stink', 'smell', 'odor',
-            'pest', 'rat', 'cockroach', 'mosquito', 'flies', 'debris'
+            'pest', 'rats', 'rodents', 'cockroach', 'mosquito', 'flies', 'debris',
+            'कचरा', 'घाण', 'दुर्गंधी', 'नाला', 'गटार', 'सफाई', 'कचरापेटी', 'कूड़ा', 'बदबू'
         ],
         'Health & Safety': [
             'hospital', 'clinic', 'doctor', 'ambulance', 'emergency', 'medical',
             'health', 'disease', 'dengue', 'malaria', 'fever', 'epidemic',
             'vaccination', 'vaccine', 'unsafe', 'danger', 'hazard', 'risk',
-            'fire', 'smoke', 'chemical', 'poison', 'injury', 'death'
+            'fire', 'smoke', 'chemical', 'poison', 'injury', 'death', 'dead body',
+            'रुग्णालय', 'आजार', 'डास', 'मलेरिया', 'डेंग्यू', 'धोका', 'आग', 'अस्पताल', 'बीमारी', 'मच्छर', 'खतरा'
         ]
     }
     

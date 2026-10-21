@@ -15,7 +15,7 @@ from ..auth import get_password_hash, verify_password, create_access_token, get_
 from ..models.orm import User
 from ..models.orm.enums import UserRole
 from ..repositories.user_repo import UserRepository
-from ..schemas import UserCreate, UserResponse, UserWithToken, Token, UserLogin
+from ..schemas import UserCreate, UserUpdate, UserResponse, UserWithToken, Token, UserLogin
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -42,6 +42,8 @@ async def register(
     # Uniqueness check
     if await repo.get_by_email(user_data.email):
         raise HTTPException(status_code=400, detail="Email already registered")
+    if user_data.phone and await repo.get_by_phone(user_data.phone):
+        raise HTTPException(status_code=400, detail="Phone number already registered")
 
     hashed_password = get_password_hash(user_data.password)
     user = await repo.create(
@@ -121,20 +123,19 @@ async def get_current_user_profile(current_user: User = Depends(get_current_user
 
 @router.put("/me", response_model=UserResponse)
 async def update_profile(
-    name: Optional[str] = None,
-    phone: Optional[str] = None,
+    update_data: UserUpdate,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
     """Update own profile — only name and phone. Role changes require admin."""
-    if name is not None:
-        name = name.strip()
+    if update_data.name is not None:
+        name = update_data.name.strip()
         if not name or len(name) > 200:
             raise HTTPException(status_code=422, detail="Name must be 1–200 characters")
         current_user.name = name
 
-    if phone is not None:
-        phone = phone.strip()
+    if update_data.phone is not None:
+        phone = update_data.phone.strip()
         if phone and (not phone.lstrip("+").isdigit() or len(phone) > 15):
             raise HTTPException(status_code=422, detail="Invalid phone number")
         current_user.phone = phone or None

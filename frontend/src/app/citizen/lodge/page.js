@@ -176,7 +176,9 @@ export default function LodgeGrievance() {
     }
 
     const canSubmit = title && description && location && !loading;
-    const aiConfidence = classification?.confidence ? Math.round(classification.confidence * 100) : null;
+    const aiConfidence = classification?.confidence != null
+        ? Math.round(classification.confidence <= 1 ? classification.confidence * 100 : classification.confidence)
+        : null;
 
     return (
         <div className="max-w-5xl mx-auto py-6">

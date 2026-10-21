@@ -66,10 +66,11 @@ async def list_teams(
 ):
     """List all active teams with their current load."""
     user_repo = UserRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-
     query = select(Team).where(Team.is_active == True)
-    if officer and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id:
+            raise HTTPException(status_code=403, detail="Officer profile or department not assigned")
         query = query.where(Team.department_id == officer.department_id)
 
     res = await session.execute(query.order_by(Team.name))
@@ -103,13 +104,14 @@ async def list_assignments(
 ):
     """List task assignments for the officer's department."""
     user_repo = UserRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-
     query = select(TaskAssignment)
     if active_only:
         query = query.where(TaskAssignment.is_active == True)
 
-    if officer and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id:
+            raise HTTPException(status_code=403, detail="Officer profile or department not assigned")
         query = query.join(Team, TaskAssignment.team_id == Team.id).where(
             Team.department_id == officer.department_id
         )
@@ -146,7 +148,7 @@ async def reassign_complaint(
     current_user: User = Depends(require_officer),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Manually reassign a complaint to a different team."""
+    """Manually reassign a complaint to a different team in the department."""
     try:
         aid = uuid.UUID(assignment_id)
         new_team_id = uuid.UUID(body.team_id)
@@ -159,6 +161,28 @@ async def reassign_complaint(
         raise HTTPException(status_code=404, detail="Assignment not found")
     if not assignment.is_active:
         raise HTTPException(status_code=400, detail="Assignment is no longer active")
+
+    user_repo = UserRepository(session)
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id:
+            raise HTTPException(status_code=403, detail="Officer profile or department not assigned")
+
+        res_team = await session.execute(select(Team).where(Team.id == assignment.team_id))
+        old_team = res_team.scalar_one_or_none()
+        if old_team and old_team.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — assignment belongs to another department")
+
+    # Verify target team exists
+    res_new_team = await session.execute(select(Team).where(Team.id == new_team_id))
+    new_team = res_new_team.scalar_one_or_none()
+    if not new_team:
+        raise HTTPException(status_code=404, detail="Target team not found")
+
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if officer and new_team.department_id != officer.department_id:
+            raise HTTPException(status_code=400, detail="Cannot reassign to a team outside your department")
 
     # Deactivate old assignment
     old_team_id = assignment.team_id

@@ -1,4 +1,4 @@
-﻿"""
+"""
 conftest.py — stubs out all heavy AI / Firebase modules BEFORE any test
 imports app.main. This keeps pytest collection fast and lets the HTTP
 integration tests run without GPU/network/Firestore credentials.
@@ -53,7 +53,6 @@ _um.patch("app.database.init_db", return_value=None).start()
 for _ai_mod in [
     "app.services.ai_bridge",
     "app.services.ai_pipeline",
-    "app.ai.classifier",
     "app.ai.similarity",
     "app.ai.validator",
 ]:

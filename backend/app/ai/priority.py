@@ -22,7 +22,7 @@ Phase 2 upgrades:
 Upvotes do NOT determine priority. Crowd impact is capped and comes from
 local confirmations, not popularity. AI suggests, officers decide.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 from .text_processor import TextProcessor
 
@@ -138,9 +138,11 @@ class PriorityCalculator:
         risk = 1.0
 
         if created_at and deadline:
-            now = datetime.utcnow()
-            total_window = (deadline - created_at).total_seconds()
-            elapsed = (now - created_at).total_seconds()
+            now = datetime.now(timezone.utc)
+            c_at = created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
+            d_line = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+            total_window = (d_line - c_at).total_seconds()
+            elapsed = (now - c_at).total_seconds()
 
             if total_window > 0:
                 progress = elapsed / total_window
@@ -154,7 +156,9 @@ class PriorityCalculator:
                     risk = 1.5
         elif created_at:
             # No deadline — estimate from age
-            age_hours = (datetime.utcnow() - created_at).total_seconds() / 3600
+            now = datetime.now(timezone.utc)
+            c_at = created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
+            age_hours = (now - c_at).total_seconds() / 3600
             if age_hours > 168:
                 risk = 2.5
             elif age_hours > 72:

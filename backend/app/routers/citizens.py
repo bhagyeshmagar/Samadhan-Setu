@@ -39,16 +39,38 @@ os.makedirs(CITIZEN_UPLOAD_DIR, exist_ok=True)
 router = APIRouter(prefix="/api/complaints", tags=["Citizens"])
 
 
-def _complaint_to_response(c: Complaint) -> dict:
+def _complaint_to_response(c: Complaint) -> ComplaintResponse:
     """Map ORM Complaint to ComplaintResponse-compatible dict."""
+    status_logs = [
+        StatusLogResponse(
+            id=str(t.id),
+            complaint_id=str(t.complaint_id),
+            from_status=t.status_from,
+            to_status=t.status_to,
+            remarks=t.notes,
+            updated_by=str(t.changed_by) if t.changed_by else None,
+            created_at=t.created_at,
+        )
+        for t in sorted(c.timeline or [], key=lambda x: x.created_at)
+    ]
+    user_dict = None
+    if getattr(c, "citizen", None) and not c.is_anonymous:
+        user_dict = {
+            "id": str(c.citizen.id),
+            "name": c.citizen.name,
+            "email": c.citizen.email,
+            "phone": c.citizen.phone,
+        }
+
     return ComplaintResponse(
         id=str(c.id),
         user_id=str(c.citizen_id),
+        user=user_dict,
         title=c.title,
         category=c.category,
         subcategory=c.sub_category,
         description=c.description,
-        location=c.address or f"{c.latitude},{c.longitude}" if c.latitude else c.address or "",
+        location=c.address or (f"{c.latitude},{c.longitude}" if c.latitude else ""),
         ward=c.ward,
         latitude=c.latitude,
         longitude=c.longitude,
@@ -63,23 +85,26 @@ def _complaint_to_response(c: Complaint) -> dict:
         upvotes=c.vote_count,
         attachments=[m.s3_key for m in c.media] if c.media else [],
         resolution_remarks=c.resolution_remarks,
+        citizen_rating=c.citizen_rating,
+        feedback_text=c.feedback.feedback_text if getattr(c, 'feedback', None) else None,
         created_at=c.created_at,
         updated_at=c.updated_at,
         resolved_at=c.resolved_at,
         deadline=c.sla_deadline,
-        status_history=[
-            StatusLogResponse(
-                id=str(t.id),
-                complaint_id=str(t.complaint_id),
-                from_status=t.status_from,
-                to_status=t.status_to,
-                remarks=t.notes,
-                updated_by=str(t.changed_by) if t.changed_by else None,
-                created_at=t.created_at,
-            )
-            for t in (c.timeline or [])
-        ],
+        status_logs=status_logs,
+        status_history=status_logs,
     )
+
+
+def _complaint_to_public_response(c: Complaint) -> ComplaintResponse:
+    resp = _complaint_to_response(c)
+    if c.is_anonymous:
+        resp.user_id = "anonymous"
+        resp.user = None
+    if resp.latitude is not None and resp.longitude is not None:
+        resp.latitude = round(resp.latitude, 3)
+        resp.longitude = round(resp.longitude, 3)
+    return resp
 
 
 # POST /
@@ -185,20 +210,24 @@ async def check_similar_complaints(
             {"id": str(c.id), "text": c.description}
             for c in recent
         ]
-        matches = ai_bridge.get_similar_complaints(description, candidates, threshold=0.70)
-        matched_ids = {m["complaint_id"] for m in matches}
+        matches = ai_bridge.get_similar_complaints(description, candidates, threshold=0.60)
+        score_map = {m["complaint_id"]: m["similarity_score"] for m in matches}
         similar = [
             {
                 "id": str(c.id),
+                "complaint_id": str(c.id),
                 "complaint_number": c.complaint_number,
                 "title": c.title,
+                "description": c.description,
+                "similarity_score": score_map.get(str(c.id), 0.75),
                 "category": c.category,
                 "status": c.status.value,
-                "created_at": c.created_at.isoformat(),
+                "created_at": c.created_at.isoformat() if c.created_at else None,
             }
             for c in recent
-            if str(c.id) in matched_ids
+            if str(c.id) in score_map
         ]
+        similar.sort(key=lambda x: x["similarity_score"], reverse=True)
     except Exception:
         similar = []
 
@@ -234,7 +263,7 @@ async def get_my_complaints(
 async def get_public_complaints(
     category: Optional[str] = None,
     ward: Optional[str] = None,
-    sort_by: str = Query("recent", enum=["recent", "priority"]),
+    sort_by: str = Query("recent", enum=["recent", "priority", "upvotes"]),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_async_session),
@@ -246,10 +275,11 @@ async def get_public_complaints(
         category=category,
         ward=ward,
         is_public_only=True,
+        sort_by=sort_by,
         limit=per_page,
         offset=offset,
     )
-    return [_complaint_to_response(c) for c in complaints]
+    return [_complaint_to_public_response(c) for c in complaints]
 
 
 # GET /{complaint_id}
@@ -414,8 +444,6 @@ async def upvote_complaint(
     if not voted:
         return {"message": "Already upvoted", "upvotes": complaint.vote_count}
     return {"message": "Upvoted successfully", "upvotes": complaint.vote_count + 1}
-
-
 # POST /{complaint_id}/feedback
 @router.post("/{complaint_id}/feedback")
 async def submit_feedback(
@@ -442,6 +470,16 @@ async def submit_feedback(
     if not (1 <= feedback_data.rating <= 5):
         raise HTTPException(status_code=422, detail="Rating must be between 1 and 5")
 
+    # Prevent duplicate feedback submissions
+    existing = await session.execute(
+        select(CitizenFeedback).where(
+            CitizenFeedback.complaint_id == complaint.id,
+            CitizenFeedback.citizen_id == current_user.id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Feedback already submitted for this complaint")
+
     feedback = CitizenFeedback(
         id=uuid.uuid4(),
         complaint_id=complaint.id,
@@ -450,6 +488,55 @@ async def submit_feedback(
         comment=feedback_data.feedback_text,
     )
     session.add(feedback)
+
+    # Set citizen_rating and feedback_text on the complaint
+    complaint.citizen_rating = feedback_data.rating
+    complaint.feedback_text = feedback_data.feedback_text
+
     await session.commit()
 
-    return {"message": "Feedback submitted. Thank you!", "rating": feedback_data.rating}
+    return {
+        "message": "Feedback submitted. Thank you!",
+        "rating": feedback_data.rating,
+        "citizen_rating": feedback_data.rating,
+        "feedback_text": feedback_data.feedback_text,
+    }
+
+
+# POST /verify-priority
+@router.post("/verify-priority")
+async def verify_priority(
+    urgency: int = Query(..., ge=0, le=10),
+    severity: int = Query(..., ge=0, le=10),
+    upvotes: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+):
+    """Verify priority score and SLA tier given urgency, severity, and upvote metrics."""
+    base_score = (urgency * 0.4) + (severity * 0.4)
+    vote_boost = min(upvotes * 0.1, 2.0)
+    final_score = round(base_score + vote_boost, 2)
+
+    if final_score >= 7.0:
+        band = "CRITICAL"
+        sla_hours = 4
+    elif final_score >= 5.0:
+        band = "HIGH"
+        sla_hours = 24
+    elif final_score >= 3.0:
+        band = "MEDIUM"
+        sla_hours = 48
+    else:
+        band = "LOW"
+        sla_hours = 72
+
+    return {
+        "priority": band,
+        "priority_score": final_score,
+        "sla_target_hours": sla_hours,
+        "breakdown": {
+            "urgency": urgency,
+            "severity": severity,
+            "upvotes": upvotes,
+            "vote_boost": vote_boost,
+        }
+    }

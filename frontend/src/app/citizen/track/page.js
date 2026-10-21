@@ -8,7 +8,26 @@ import { complaintsAPI, aiAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
 import { MapPin, Loader2, ArrowRight, ExternalLink, Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ListTodo, Brain, Link2, BarChart3, Search } from 'lucide-react';
 
-const STATUS_ORDER = ['Submitted', 'Verified', 'Assigned', 'In Progress', 'Resolved', 'Closed'];
+const STATUS_ORDER = ['submitted', 'verified', 'assigned', 'in_progress', 'resolved', 'closed'];
+const STATUS_LABELS = {
+    'submitted': 'Submitted',
+    'verified': 'Verified',
+    'assigned': 'Assigned',
+    'in_progress': 'In Progress',
+    'resolved': 'Resolved',
+    'closed': 'Closed',
+    'reopened': 'Reopened',
+    'escalated': 'Escalated',
+    'rejected': 'Rejected',
+    'appealed': 'Appealed'
+};
+
+const getStatusIndex = (status) => {
+    if (!status) return 0;
+    const clean = status.toLowerCase().replace(/\s+/g, '_');
+    const idx = STATUS_ORDER.indexOf(clean);
+    return idx >= 0 ? idx : 0;
+};
 
 export default function TrackGrievance() {
     const { user, loading: authLoading } = useAuth();
@@ -87,17 +106,12 @@ export default function TrackGrievance() {
 
     const getImageUrl = (img) => {
         if (!img) return '';
-        if (typeof img === 'string') {
-            if (img.startsWith('http')) return img;
-            return `http://127.0.0.1:8000${img}`;
-        }
-        if (img?.path) return `http://127.0.0.1:8000${img.path}`;
-        return '';
-    };
-
-    const getStatusIndex = (status) => {
-        const idx = STATUS_ORDER.indexOf(status);
-        return idx >= 0 ? idx : 0;
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+        const raw = typeof img === 'string' ? img : (img?.s3_key || img?.path || img?.url || '');
+        if (!raw) return '';
+        if (raw.startsWith('http')) return raw;
+        if (raw.startsWith('/uploads/')) return `${apiBase}${raw}`;
+        return `${apiBase}/uploads/${raw.replace(/^\//, '')}`;
     };
 
     if (authLoading || loading) {
@@ -153,10 +167,19 @@ export default function TrackGrievance() {
                     {complaints.map((complaint) => {
                         const isExpanded = expandedId === complaint.id;
                         const detail = detailData[complaint.id];
+                        const sNorm = (complaint.status || '').toLowerCase().replace(/\s+/g, '_');
+                        const pNorm = (complaint.priority || '').toLowerCase();
                         const statusIdx = getStatusIndex(complaint.status);
-                        const isTerminal = ['Resolved', 'Closed'].includes(complaint.status);
-                        const isReopened = complaint.status === 'Reopened';
-                        const isAppealed = complaint.status === 'Appealed';
+                        const isTerminal = ['resolved', 'closed'].includes(sNorm);
+                        const isReopened = sNorm === 'reopened';
+                        const isAppealed = sNorm === 'appealed' || sNorm === 'escalated';
+
+                        const statusBadge = ['resolved', 'closed'].includes(sNorm) ? 'resolved' :
+                            ['in_progress', 'assigned'].includes(sNorm) ? 'progress' :
+                            ['appealed', 'escalated'].includes(sNorm) ? 'appealed' : 'submitted';
+
+                        const priorityBadge = ['high', 'critical'].includes(pNorm) ? 'badge-critical' :
+                            pNorm === 'medium' ? 'badge-progress' : 'badge-closed';
 
                         return (
                             <div key={complaint.id} className="gov-section" style={{ marginBottom: 0 }}>
@@ -175,17 +198,10 @@ export default function TrackGrievance() {
                                                     style={{ background: 'var(--navy-light)', color: 'var(--navy)' }}>
                                                     #{complaint.id?.substring(0, 8).toUpperCase()}
                                                 </span>
-                                                <span className={`badge badge-${
-                                                    complaint.status === 'Resolved' || complaint.status === 'Closed' ? 'resolved' :
-                                                    complaint.status === 'In Progress' || complaint.status === 'Assigned' ? 'progress' :
-                                                    complaint.status === 'Appealed' ? 'appealed' : 'submitted'
-                                                }`}>
-                                                    <span className="badge-dot" />{complaint.status}
+                                                <span className={`badge badge-${statusBadge}`}>
+                                                    <span className="badge-dot" />{STATUS_LABELS[sNorm] || complaint.status}
                                                 </span>
-                                                <span className={`badge ${
-                                                    complaint.priority === 'High'   ? 'badge-critical' :
-                                                    complaint.priority === 'Medium' ? 'badge-progress'  : 'badge-closed'
-                                                }`}>
+                                                <span className={`badge ${priorityBadge} capitalize`}>
                                                     {complaint.priority}
                                                 </span>
                                             </div>
@@ -322,26 +338,26 @@ export default function TrackGrievance() {
 
                                                     {detail?.tasks && detail.tasks.length > 0 ? (
                                                         <div className="space-y-4">
-                                                            {detail.tasks.map((task, idx) => (
+                                                            {detail.tasks.map((task, idx) => {
+                                                                const tStatus = (task.status || '').toLowerCase().replace(/\s+/g, '_');
+                                                                const isDone = ['completed', 'resolved', 'closed'].includes(tStatus);
+                                                                const isProg = ['in_progress', 'assigned', 'active'].includes(tStatus);
+                                                                const isRej = ['rejected', 'cancelled'].includes(tStatus);
+                                                                const borderColor = isDone ? 'var(--india-green)' : isProg ? 'var(--navy)' : isRej ? 'var(--status-critical)' : 'var(--border-mid)';
+                                                                const badgeClass = isDone ? 'badge-resolved' : isProg ? 'badge-progress' : isRej ? 'badge-critical' : 'badge-submitted';
+                                                                return (
                                                                 <div key={idx} className="relative overflow-hidden rounded-lg"
-                                                                    style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${
-                                                                        task.status === 'Completed' ? 'var(--india-green)' :
-                                                                        task.status === 'In Progress' ? 'var(--navy)' :
-                                                                        task.status === 'Rejected'   ? 'var(--status-critical)' : 'var(--border-mid)'
-                                                                    }` }}>
+                                                                    style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${borderColor}` }}>
                                                                     <div className="flex items-center justify-between p-3">
                                                                         <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                                                                             {task.department_name || 'Department'}
                                                                         </span>
-                                                                        <span className={`badge ${
-                                                                            task.status === 'Completed'  ? 'badge-resolved' :
-                                                                            task.status === 'In Progress'? 'badge-progress' :
-                                                                            task.status === 'Rejected'   ? 'badge-critical' : 'badge-submitted'
-                                                                        }`}>{task.status}</span>
+                                                                        <span className={`badge ${badgeClass} capitalize`}>{STATUS_LABELS[tStatus] || task.status}</span>
                                                                     </div>
                                                                     {task.notes && <p className="text-xs px-3 pb-3" style={{ color: 'var(--text-secondary)' }}>{task.notes}</p>}
                                                                 </div>
-                                                            ))}
+                                                                );
+                                                            })}
                                                         </div>
                                                     ) : (
                                                         <p className="text-sm font-medium text-theme-muted">Awaiting departmental assignment.</p>

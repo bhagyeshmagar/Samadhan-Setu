@@ -1,409 +1,376 @@
-﻿"""
-Integration tests for Samadhan Setu — Phase 0.1 Security Containment.
-
-Run:
-    cd backend
-    python -m pytest tests/test_security.py -v
+"""
+Integration tests for Samadhan Setu — Security Containment & Scoping.
+Validates role-based authorization, citizen upload isolation, file validation,
+department scoping, and configuration security.
 """
 import io
+import uuid
 import pytest
-from unittest.mock import MagicMock, patch
-from starlette.testclient import TestClient
+import pytest_asyncio
+import httpx
+from unittest.mock import patch
+
+from sqlalchemy.pool import NullPool
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.main import app
-from app.database import get_db
-from app.models.user import User, UserRole
-from app.models.complaint import Complaint, ComplaintStatus, ComplaintPriority
+from app.config import settings
+from app.db.session import get_async_session
+from app.auth import get_current_user, create_access_token, decode_token, get_password_hash
+from app.models.orm import (
+    User,
+    UserRole,
+    Complaint,
+    ComplaintStatus,
+    ComplaintPriority,
+    Department,
+    Officer,
+)
+
+# Test engine with NullPool so each test connection is isolated
+test_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+TestSessionLocal = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
+
+async def _test_get_async_session():
+    async with TestSessionLocal() as session:
+        yield session
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_user(uid="user-001", email="citizen@test.in", name="Test Citizen",
-               role=UserRole.CITIZEN, department_id=None):
-    u = User(email=email, password_hash="x", name=name, role=role,
-             department_id=department_id)
-    u.id = uid
-    return u
+def _make_user(uid=None, email=None, name="Test Citizen", role=UserRole.CITIZEN):
+    return User(
+        id=uid or uuid.uuid4(),
+        email=email or f"user_{uuid.uuid4().hex[:8]}@test.in",
+        name=name,
+        password_hash=get_password_hash("SecurePass123!"),
+        role=role,
+        is_active=True,
+    )
 
 
-def _make_officer(uid="off-001", department_id="dept-water"):
-    return _make_user(uid=uid, email="officer@test.in", name="Officer A",
-                      role=UserRole.OFFICER, department_id=department_id)
+def _make_officer(uid=None, department_id=None):
+    dept_id = department_id or uuid.uuid4()
+    user = _make_user(uid=uid, email=f"officer_{uuid.uuid4().hex[:8]}@test.in", role=UserRole.OFFICER)
+    profile = Officer(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        department_id=dept_id,
+        employee_id=f"EMP-{uuid.uuid4().hex[:6]}",
+        designation="Field Officer",
+    )
+    user.officer_profile = profile
+    return user, dept_id
 
 
-def _make_complaint(complaint_id="comp-001", user_id="user-001", department_id="dept-water"):
-    c = Complaint(user_id=user_id, title="Test pothole", category="Road",
-                  description="Big pothole near station", location="Ward 5",
-                  priority=ComplaintPriority.MEDIUM, status=ComplaintStatus.SUBMITTED)
-    c.id = complaint_id
-    c.department_id = department_id
-    c.attachments = []
+def _make_complaint(complaint_id=None, citizen_id=None, department_id=None):
+    c = Complaint(
+        id=complaint_id or uuid.uuid4(),
+        complaint_number=f"SS-2026-{uuid.uuid4().hex[:6]}",
+        citizen_id=citizen_id or uuid.uuid4(),
+        department_id=department_id or uuid.uuid4(),
+        title="Pothole in Ward 12",
+        description="Dangerous pothole causing road traffic issue",
+        category="Roads & Transport",
+        priority=ComplaintPriority.MEDIUM,
+        status=ComplaintStatus.SUBMITTED,
+    )
+    c.media = []
     return c
 
 
 def _valid_jpeg_bytes():
     from PIL import Image
     buf = io.BytesIO()
-    Image.new("RGB", (2, 2), color=(255, 0, 0)).save(buf, format="JPEG")
+    Image.new("RGB", (10, 10), color=(255, 0, 0)).save(buf, format="JPEG")
     return buf.getvalue()
 
 
-def _fake_db(user=None, complaint=None, team_dept="dept-water"):
-    """Minimal Firestore mock."""
-    db = MagicMock()
-
-    # users by doc id
-    user_doc = MagicMock()
-    user_doc.exists = user is not None
-    user_doc.id = user.id if user else "u0"
-    if user:
-        fd = user.to_firestore()
-        fd["id"] = user.id
-        user_doc.to_dict = MagicMock(return_value=fd)
-    else:
-        user_doc.to_dict = MagicMock(return_value={})
-
-    # allow any document(id) lookup to resolve the user
-    db.collection.return_value.document.return_value.get.return_value = user_doc
-    db.collection.return_value.document.return_value.set = MagicMock()
-    db.collection.return_value.document.return_value.update = MagicMock()
-
-    # users by email (where query)
-    db.collection.return_value.where.return_value.limit.return_value.get.return_value = \
-        [user_doc] if user else []
-
-    # complaints
-    comp_doc = MagicMock()
-    comp_doc.exists = complaint is not None
-    comp_doc.id = complaint.id if complaint else "c0"
-    if complaint:
-        cfd = complaint.to_firestore()
-        cfd["id"] = complaint.id
-        comp_doc.to_dict = MagicMock(return_value=cfd)
-    else:
-        comp_doc.to_dict = MagicMock(return_value={})
-
-    def _doc_selector(doc_id=None):
-        ref = MagicMock()
-        ref.set = MagicMock()
-        ref.update = MagicMock()
-        if complaint and doc_id == complaint.id:
-            ref.get.return_value = comp_doc
-            ref.id = complaint.id
-        else:
-            ref.get.return_value = user_doc
-            ref.id = doc_id or "new-001"
-        return ref
-
-    # Return a new fake ref for each collection().document() call
-    db.collection.return_value.document.side_effect = _doc_selector
-    db.collection.return_value.add = MagicMock()
-
-    # teams
-    team_doc = MagicMock()
-    team_doc.exists = True
-    team_doc.to_dict = MagicMock(return_value={"department_id": team_dept, "name": "Team A"})
-
-    # task_assignments
-    assign_doc = MagicMock()
-    assign_doc.exists = True; assign_doc.id = "assign-001"
-    assign_doc.to_dict = MagicMock(return_value={
-        "complaint_id": "comp-001", "team_id": "team-001",
-        "deadline": "2026-01-01T00:00:00", "assigned_at": "2026-01-01T00:00:00",
-        "load_score": 0.5, "reason": "auto", "is_reassigned": False, "is_active": True,
-    })
-
-    db.collection.return_value.where.return_value.get.return_value = []
-    db.collection.return_value.get.return_value = []
-
-    return db
-
-
-def _override_db(db):
-    """Override the FastAPI get_db dependency with a mock."""
-    app.dependency_overrides[get_db] = lambda: db
-
-
-def _clear_overrides():
+@pytest_asyncio.fixture
+async def client():
     app.dependency_overrides.clear()
-
-
-def _token_for(user: User) -> str:
-    from datetime import timedelta
-    from app.auth import create_access_token
-    return create_access_token(data={"sub": user.id, "role": user.role.value},
-                                expires_delta=timedelta(minutes=30))
-
-
-def _auth(user: User) -> dict:
-    return {"Authorization": f"Bearer {_token_for(user)}"}
-
-
-@pytest.fixture
-def client():
-    return TestClient(app)
+    app.dependency_overrides[get_async_session] = _test_get_async_session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        yield ac
+    app.dependency_overrides.clear()
 
 
 # ─── Registration ──────────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 class TestRegistration:
-    def test_register_always_citizen(self, client):
-        """role=officer in payload must be stripped -> citizen returned."""
-        db = MagicMock()
-        # No existing user
-        db.collection.return_value.where.return_value.limit.return_value.get.return_value = []
-        new_ref = MagicMock(); new_ref.id = "new-001"; new_ref.set = MagicMock()
-        db.collection.return_value.document.return_value = new_ref
-        # token lookup for user doc after creation: return user doc
-        user_doc = MagicMock(); user_doc.exists = True
-        new_ref.get.return_value = user_doc
-
-        _override_db(db)
-        try:
-            r = client.post("/api/auth/register", json={
-                "email": "bad@evil.com", "password": "StrongPass1!", "name": "Attacker",
-                "role": "officer", "department_id": "dept-xyz",
-            })
-        finally:
-            _clear_overrides()
-
+    async def test_register_always_citizen(self, client):
+        """role=officer in client payload must be forced to citizen."""
+        email = f"attacker_{uuid.uuid4().hex[:8]}@test.in"
+        r = await client.post("/api/auth/register", json={
+            "email": email,
+            "password": "StrongPassword123!",
+            "name": "Attacker",
+            "role": "officer",
+            "department_id": str(uuid.uuid4()),
+        })
         assert r.status_code == 201
         assert r.json()["user"]["role"] == "citizen"
 
-    def test_duplicate_email_400(self, client):
-        user = _make_user()
-        db = _fake_db(user=user)
-        _override_db(db)
-        try:
-            r = client.post("/api/auth/register", json={
-                "email": user.email, "password": "Pass1234!", "name": "Dup",
-            })
-        finally:
-            _clear_overrides()
-        assert r.status_code == 400
+    async def test_duplicate_email_400(self, client):
+        email = f"dup_{uuid.uuid4().hex[:8]}@test.in"
+        r1 = await client.post("/api/auth/register", json={
+            "email": email,
+            "password": "StrongPassword123!",
+            "name": "User 1",
+        })
+        assert r1.status_code == 201
+
+        r2 = await client.post("/api/auth/register", json={
+            "email": email,
+            "password": "OtherPassword123!",
+            "name": "User 2",
+        })
+        assert r2.status_code == 400
+        assert "already registered" in r2.json()["detail"].lower()
+
+    async def test_duplicate_phone_400(self, client):
+        phone = f"+9198{uuid.uuid4().int % 100000000:08d}"
+        r1 = await client.post("/api/auth/register", json={
+            "email": f"phone1_{uuid.uuid4().hex[:8]}@test.in",
+            "password": "StrongPassword123!",
+            "name": "Phone User 1",
+            "phone": phone,
+        })
+        assert r1.status_code == 201
+
+        r2 = await client.post("/api/auth/register", json={
+            "email": f"phone2_{uuid.uuid4().hex[:8]}@test.in",
+            "password": "StrongPassword123!",
+            "name": "Phone User 2",
+            "phone": phone,
+        })
+        assert r2.status_code == 400
+        assert "phone" in r2.json()["detail"].lower()
 
 
 # ─── Login ─────────────────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 class TestLogin:
-    def test_login_embeds_role_in_token(self, client):
-        from app.auth import get_password_hash, decode_token
-        user = _make_user()
-        user.password_hash = get_password_hash("Correct1!")
-        db = _fake_db(user=user)
-        _override_db(db)
-        try:
-            r = client.post("/api/auth/login/json",
-                            json={"email": user.email, "password": "Correct1!"})
-        finally:
-            _clear_overrides()
-        assert r.status_code == 200
-        assert decode_token(r.json()["access_token"])["role"] == "citizen"
+    async def test_login_embeds_role_in_token(self, client):
+        email = f"login_{uuid.uuid4().hex[:8]}@test.in"
+        password = "CorrectPassword123!"
+        r_reg = await client.post("/api/auth/register", json={
+            "email": email,
+            "password": password,
+            "name": "Login User",
+        })
+        assert r_reg.status_code == 201
 
-    def test_wrong_password_401(self, client):
-        from app.auth import get_password_hash
-        user = _make_user()
-        user.password_hash = get_password_hash("RightPass1!")
-        db = _fake_db(user=user)
-        _override_db(db)
-        try:
-            r = client.post("/api/auth/login/json",
-                            json={"email": user.email, "password": "WrongPass!"})
-        finally:
-            _clear_overrides()
+        r_login = await client.post("/api/auth/login/json", json={
+            "email": email,
+            "password": password,
+        })
+        assert r_login.status_code == 200
+        token = r_login.json()["access_token"]
+        claims = decode_token(token)
+        assert claims["role"] == "citizen"
+
+    async def test_wrong_password_401(self, client):
+        email = f"wrong_{uuid.uuid4().hex[:8]}@test.in"
+        await client.post("/api/auth/register", json={
+            "email": email,
+            "password": "CorrectPassword123!",
+            "name": "Wrong Pass User",
+        })
+        r = await client.post("/api/auth/login/json", json={
+            "email": email,
+            "password": "WrongPassword123!",
+        })
         assert r.status_code == 401
 
-    def test_unknown_email_401(self, client):
-        db = MagicMock()
-        db.collection.return_value.where.return_value.limit.return_value.get.return_value = []
-        _override_db(db)
-        try:
-            r = client.post("/api/auth/login/json",
-                            json={"email": "ghost@nowhere.com", "password": "Any1!"})
-        finally:
-            _clear_overrides()
+    async def test_unknown_email_401(self, client):
+        r = await client.post("/api/auth/login/json", json={
+            "email": "ghost_nonexistent@nowhere.in",
+            "password": "AnyPassword123!",
+        })
         assert r.status_code == 401
 
 
-# ─── Upload ownership ──────────────────────────────────────────────────────────
+# ─── Upload Ownership ──────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 class TestUploadOwnership:
-    def test_owner_can_upload(self, client, tmp_path):
-        user = _make_user(uid="user-001")
-        complaint = _make_complaint(user_id="user-001")
-        db = _fake_db(user=user, complaint=complaint)
-        _override_db(db)
-        try:
-            with patch("app.routers.citizens.CITIZEN_UPLOAD_DIR", str(tmp_path)):
-                r = client.post(f"/api/complaints/{complaint.id}/upload-images",
-                                headers=_auth(user),
-                                files=[("files", ("p.jpg", io.BytesIO(_valid_jpeg_bytes()), "image/jpeg"))])
-        finally:
-            _clear_overrides()
+    async def test_owner_can_upload(self, client, tmp_path):
+        owner = _make_user()
+        complaint = _make_complaint(citizen_id=owner.id)
+
+        app.dependency_overrides[get_current_user] = lambda: owner
+        with patch("app.repositories.complaint_repo.ComplaintRepository.get_by_id", return_value=complaint), \
+             patch("app.repositories.complaint_repo.ComplaintRepository.add_media_proof", return_value=None), \
+             patch("app.routers.citizens.CITIZEN_UPLOAD_DIR", str(tmp_path)):
+            r = await client.post(
+                f"/api/complaints/{complaint.id}/upload-images",
+                files=[("files", ("photo.jpg", io.BytesIO(_valid_jpeg_bytes()), "image/jpeg"))],
+            )
         assert r.status_code == 200
+        assert len(r.json()["uploaded"]) == 1
         assert r.json()["rejected"] == []
 
-    def test_non_owner_gets_403(self, client, tmp_path):
-        stranger = _make_user(uid="user-999", email="stranger@test.in")
-        complaint = _make_complaint(user_id="user-001")
-        db = _fake_db(user=stranger, complaint=complaint)
-        _override_db(db)
-        try:
-            r = client.post(f"/api/complaints/{complaint.id}/upload-images",
-                            headers=_auth(stranger),
-                            files=[("files", ("p.jpg", io.BytesIO(_valid_jpeg_bytes()), "image/jpeg"))])
-        finally:
-            _clear_overrides()
-        assert r.status_code == 403
+    async def test_non_owner_gets_403(self, client, tmp_path):
+        owner = _make_user()
+        stranger = _make_user()
+        complaint = _make_complaint(citizen_id=owner.id)
 
-    def test_unauthenticated_401(self, client):
-        r = client.post("/api/complaints/comp-001/upload-images",
-                        files=[("files", ("p.jpg", io.BytesIO(b"x"), "image/jpeg"))])
+        app.dependency_overrides[get_current_user] = lambda: stranger
+        with patch("app.repositories.complaint_repo.ComplaintRepository.get_by_id", return_value=complaint), \
+             patch("app.routers.citizens.CITIZEN_UPLOAD_DIR", str(tmp_path)):
+            r = await client.post(
+                f"/api/complaints/{complaint.id}/upload-images",
+                files=[("files", ("photo.jpg", io.BytesIO(_valid_jpeg_bytes()), "image/jpeg"))],
+            )
+        assert r.status_code == 403
+        assert "owner" in r.json()["detail"].lower()
+
+    async def test_unauthenticated_401(self, client):
+        r = await client.post(
+            f"/api/complaints/{uuid.uuid4()}/upload-images",
+            files=[("files", ("photo.jpg", io.BytesIO(b"dummy"), "image/jpeg"))],
+        )
         assert r.status_code == 401
 
 
-# ─── Upload validation ─────────────────────────────────────────────────────────
+# ─── Upload Validation ─────────────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 class TestUploadValidation:
-    def _up(self, client, tmp_path, data, ctype, fname="file"):
-        user = _make_user()
-        complaint = _make_complaint()
-        db = _fake_db(user=user, complaint=complaint)
-        _override_db(db)
-        try:
-            with patch("app.routers.citizens.CITIZEN_UPLOAD_DIR", str(tmp_path)):
-                r = client.post(f"/api/complaints/{complaint.id}/upload-images",
-                                headers=_auth(user),
-                                files=[("files", (fname, io.BytesIO(data), ctype))])
-        finally:
-            _clear_overrides()
+    async def _up(self, client, tmp_path, data, ctype, fname="file"):
+        owner = _make_user()
+        complaint = _make_complaint(citizen_id=owner.id)
+
+        app.dependency_overrides[get_current_user] = lambda: owner
+        with patch("app.repositories.complaint_repo.ComplaintRepository.get_by_id", return_value=complaint), \
+             patch("app.repositories.complaint_repo.ComplaintRepository.add_media_proof", return_value=None), \
+             patch("app.routers.citizens.CITIZEN_UPLOAD_DIR", str(tmp_path)):
+            r = await client.post(
+                f"/api/complaints/{complaint.id}/upload-images",
+                files=[("files", (fname, io.BytesIO(data), ctype))],
+            )
         return r
 
-    def test_valid_jpeg_accepted(self, client, tmp_path):
-        r = self._up(client, tmp_path, _valid_jpeg_bytes(), "image/jpeg", "ok.jpg")
+    async def test_valid_jpeg_accepted(self, client, tmp_path):
+        r = await self._up(client, tmp_path, _valid_jpeg_bytes(), "image/jpeg", "ok.jpg")
         assert r.status_code == 200
-        assert len(r.json()["attachments"]) == 1
+        assert len(r.json()["uploaded"]) == 1
         assert r.json()["rejected"] == []
 
-    def test_html_mime_rejected(self, client, tmp_path):
-        r = self._up(client, tmp_path, b"<h1>xss</h1>", "text/html", "evil.html")
+    async def test_html_mime_rejected(self, client, tmp_path):
+        r = await self._up(client, tmp_path, b"<h1>xss</h1>", "text/html", "evil.html")
         assert r.status_code == 200
-        assert r.json()["attachments"] == []
+        assert r.json()["uploaded"] == []
         assert "Unsupported" in r.json()["rejected"][0]["reason"]
 
-    def test_gif_mime_rejected(self, client, tmp_path):
-        r = self._up(client, tmp_path, b"GIF89a", "image/gif", "anim.gif")
+    async def test_gif_mime_rejected(self, client, tmp_path):
+        r = await self._up(client, tmp_path, b"GIF89a", "image/gif", "anim.gif")
         assert r.status_code == 200
-        assert r.json()["attachments"] == []
+        assert r.json()["uploaded"] == []
         assert "Unsupported" in r.json()["rejected"][0]["reason"]
 
-    def test_oversized_file_rejected(self, client, tmp_path):
+    async def test_oversized_file_rejected(self, client, tmp_path):
         big = b"A" * (6 * 1024 * 1024)
-        r = self._up(client, tmp_path, big, "image/jpeg", "big.jpg")
+        r = await self._up(client, tmp_path, big, "image/jpeg", "big.jpg")
         assert r.status_code == 200
-        assert r.json()["attachments"] == []
+        assert r.json()["uploaded"] == []
         assert "5MB" in r.json()["rejected"][0]["reason"]
 
-    def test_corrupt_jpeg_rejected(self, client, tmp_path):
-        r = self._up(client, tmp_path, b"\xff\xd8NOTREALJPEG\xff\xd9", "image/jpeg", "bad.jpg")
+    async def test_corrupt_jpeg_rejected(self, client, tmp_path):
+        r = await self._up(client, tmp_path, b"\xff\xd8NOTREALJPEG\xff\xd9", "image/jpeg", "bad.jpg")
         assert r.status_code == 200
-        assert r.json()["attachments"] == []
+        assert r.json()["uploaded"] == []
         assert "Invalid" in r.json()["rejected"][0]["reason"]
 
-    def test_path_traversal_sanitized(self, client, tmp_path):
-        r = self._up(client, tmp_path, _valid_jpeg_bytes(), "image/jpeg", "../../etc/passwd.jpg")
+    async def test_path_traversal_sanitized(self, client, tmp_path):
+        r = await self._up(client, tmp_path, _valid_jpeg_bytes(), "image/jpeg", "../../etc/passwd.jpg")
         assert r.status_code == 200
-        for path in r.json()["attachments"]:
+        for path in r.json()["uploaded"]:
             assert ".." not in path and "etc" not in path
 
 
-# ─── Analytics authorization ───────────────────────────────────────────────────
+# ─── Analytics Authorization ───────────────────────────────────────────────────
 
+@pytest.mark.asyncio
 class TestAnalyticsAuth:
     BLOCKED = [
         "/api/analytics/departments/performance",
         "/api/analytics/smart-alerts",
-        "/api/analytics/recurring-issues",
         "/api/analytics/summary",
+        "/api/analytics/map-data",
     ]
 
-    def test_citizen_gets_403(self, client):
-        user = _make_user()
-        db = _fake_db(user=user)
-        _override_db(db)
-        try:
-            for route in self.BLOCKED:
-                r = client.get(route, headers=_auth(user))
-                assert r.status_code == 403, f"{route} should be 403 for citizen, got {r.status_code}"
-        finally:
-            _clear_overrides()
+    async def test_citizen_gets_403(self, client):
+        citizen = _make_user(role=UserRole.CITIZEN)
+        app.dependency_overrides[get_current_user] = lambda: citizen
 
-    def test_no_token_gets_401(self, client):
         for route in self.BLOCKED:
-            r = client.get(route)
+            r = await client.get(route)
+            assert r.status_code == 403, f"{route} should return 403 for citizen, got {r.status_code}"
+
+    async def test_no_token_gets_401(self, client):
+        for route in self.BLOCKED:
+            r = await client.get(route)
             assert r.status_code == 401
 
 
-# ─── Assignment authorization ──────────────────────────────────────────────────
+# ─── Assignment Authorization & Department Scoping ────────────────────────────
 
+@pytest.mark.asyncio
 class TestAssignmentAuth:
-    def test_citizen_cannot_list_teams(self, client):
-        user = _make_user()
-        db = _fake_db(user=user)
-        _override_db(db)
-        try:
-            r = client.get("/api/assignments/teams", headers=_auth(user))
-        finally:
-            _clear_overrides()
+    async def test_citizen_cannot_list_teams(self, client):
+        citizen = _make_user(role=UserRole.CITIZEN)
+        app.dependency_overrides[get_current_user] = lambda: citizen
+
+        r = await client.get("/api/assignments/teams")
         assert r.status_code == 403
 
-    def test_citizen_cannot_get_assignment(self, client):
-        user = _make_user()
-        db = _fake_db(user=user)
-        _override_db(db)
-        try:
-            r = client.get("/api/assignments/assign-001", headers=_auth(user))
-        finally:
-            _clear_overrides()
+    async def test_citizen_cannot_list_assignments(self, client):
+        citizen = _make_user(role=UserRole.CITIZEN)
+        app.dependency_overrides[get_current_user] = lambda: citizen
+
+        r = await client.get("/api/assignments/")
         assert r.status_code == 403
 
-    def test_unauthenticated_cannot_override(self, client):
-        r = client.post("/api/assignments/assign-001/override",
-                        json={"new_team_id": "t2", "reason": "test"})
+    async def test_unauthenticated_cannot_reassign(self, client):
+        r = await client.post(f"/api/assignments/{uuid.uuid4()}/reassign",
+                              json={"team_id": str(uuid.uuid4()), "reason": "emergency"})
         assert r.status_code == 401
 
-    def test_officer_dept_param_ignored(self, client):
-        officer = _make_officer(department_id="dept-water")
-        db = _fake_db(user=officer)
-        db.collection.return_value.where.return_value.get.return_value = []
-        _override_db(db)
-        try:
-            r = client.get("/api/assignments/teams?department_id=dept-OTHER",
-                           headers=_auth(officer))
-        finally:
-            _clear_overrides()
-        assert r.status_code == 200
-        # The where() call must have used officer's own dept
-        where_calls = str(db.collection.return_value.where.call_args_list)
-        assert "dept-water" in where_calls
+    async def test_officer_without_profile_gets_403(self, client):
+        officer_no_profile = _make_user(role=UserRole.OFFICER)
+        app.dependency_overrides[get_current_user] = lambda: officer_no_profile
+
+        with patch("app.repositories.user_repo.UserRepository.get_officer_by_user_id", return_value=None):
+            r = await client.get("/api/assignments/teams")
+        assert r.status_code == 403
 
 
-# ─── Config security ───────────────────────────────────────────────────────────
+# ─── Config Security ───────────────────────────────────────────────────────────
 
 class TestConfigSecurity:
     def test_default_secret_ok_in_development(self):
         from app.config import Settings, _DEFAULT_SECRET
-        s = Settings(); s.ENVIRONMENT = "development"; s.SECRET_KEY = _DEFAULT_SECRET
+        s = Settings()
+        s.ENVIRONMENT = "development"
+        s.SECRET_KEY = _DEFAULT_SECRET
         s.validate()
 
     def test_default_secret_kills_in_production(self):
         from app.config import Settings, _DEFAULT_SECRET
-        s = Settings(); s.ENVIRONMENT = "production"; s.SECRET_KEY = _DEFAULT_SECRET
+        s = Settings()
+        s.ENVIRONMENT = "production"
+        s.SECRET_KEY = _DEFAULT_SECRET
         with pytest.raises(SystemExit):
             s.validate()
 
     def test_strong_secret_ok_in_production(self):
         from app.config import Settings
-        s = Settings(); s.ENVIRONMENT = "production"
+        s = Settings()
+        s.ENVIRONMENT = "production"
         s.SECRET_KEY = "super-strong-random-key-not-default-abc123XYZ"
         s.validate()

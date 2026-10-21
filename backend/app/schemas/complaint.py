@@ -24,6 +24,7 @@ class ComplaintUpdate(BaseModel):
     """Schema for updating a complaint (officer/admin)."""
     status: Optional[ComplaintStatus] = None
     remarks: Optional[str] = None
+    notes: Optional[str] = None
     assigned_officer_id: Optional[str] = None
 
 
@@ -93,6 +94,8 @@ class ComplaintResponse(BaseModel):
     deadline: Optional[datetime] = None
 
     # Populated on detail view
+    user: Optional[Dict[str, Any]] = None
+    status_logs: Optional[List[StatusLogResponse]] = []
     status_history: Optional[List[StatusLogResponse]] = []
     tasks: Optional[List[Dict[str, Any]]] = []
 

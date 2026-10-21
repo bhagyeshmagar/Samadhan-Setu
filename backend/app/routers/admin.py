@@ -107,7 +107,11 @@ async def get_dashboard_stats(
         select(Complaint.priority, func.count().label("n"))
         .group_by(Complaint.priority)
     )
-    by_priority = {row.priority.value: row.n for row in pri_res}
+    by_priority = {}
+    for row in pri_res:
+        val = row.priority.value if hasattr(row.priority, "value") else str(row.priority)
+        by_priority[val.lower()] = row.n
+        by_priority[val.capitalize()] = row.n
 
     return ComplaintStats(
         total=total,
@@ -160,11 +164,11 @@ async def get_stats_summary(
 
     # Task counts from assignments table
     try:
-        from ..models.orm.team import Assignment
-        tasks_total_res = await session.execute(select(func.count(Assignment.id)))
+        from ..models.orm.team import TaskAssignment
+        tasks_total_res = await session.execute(select(func.count(TaskAssignment.id)))
         tasks_total = tasks_total_res.scalar() or 0
         tasks_done_res = await session.execute(
-            select(func.count()).where(Assignment.status == "completed")
+            select(func.count(TaskAssignment.id)).where(TaskAssignment.completed_at.is_not(None))
         )
         tasks_done = tasks_done_res.scalar() or 0
     except Exception:
@@ -199,7 +203,7 @@ async def list_all_complaints(
 
     if status_filter:
         try:
-            s_enum = ComplaintStatus(status_filter)
+            s_enum = ComplaintStatus(status_filter.lower())
             query = query.where(Complaint.status == s_enum)
         except ValueError:
             raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
@@ -227,12 +231,14 @@ async def list_all_complaints(
                 "category": c.category,
                 "status": c.status.value,
                 "priority": c.priority.value,
-                "location": c.location,
+                "location": c.address or "",
+                "address": c.address or "",
                 "ward": c.ward,
-                "user_id": str(c.user_id),
+                "user_id": str(c.citizen_id),
+                "citizen_id": str(c.citizen_id),
                 "department_id": str(c.department_id) if c.department_id else None,
-                "created_at": c.created_at.isoformat(),
-                "updated_at": c.updated_at.isoformat(),
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "updated_at": c.updated_at.isoformat() if c.updated_at else (c.created_at.isoformat() if c.created_at else None),
             }
             for c in complaints
         ],
@@ -254,22 +260,28 @@ async def list_all_tasks(
 ):
     """List all tasks/assignments system-wide. Admin only."""
     try:
-        from ..models.orm.team import Assignment
+        from ..models.orm.team import TaskAssignment, Team
     except ImportError:
         return {"total": 0, "page": page, "per_page": per_page, "tasks": []}
 
     query = (
-        select(Assignment)
-        .options(selectinload(Assignment.complaint), selectinload(Assignment.department))
-        .order_by(Assignment.created_at.desc())
+        select(TaskAssignment)
+        .options(
+            selectinload(TaskAssignment.complaint),
+            selectinload(TaskAssignment.team).selectinload(Team.department)
+        )
+        .order_by(TaskAssignment.assigned_at.desc())
     )
 
     if status_filter:
-        query = query.where(Assignment.status == status_filter)
+        if status_filter.lower() == "completed":
+            query = query.where(TaskAssignment.completed_at.is_not(None))
+        elif status_filter.lower() in ("active", "assigned", "in_progress", "pending"):
+            query = query.where(TaskAssignment.is_active == True)
     if department_id:
         try:
             dept_uuid = uuid.UUID(department_id)
-            query = query.where(Assignment.department_id == dept_uuid)
+            query = query.join(TaskAssignment.team).where(Team.department_id == dept_uuid)
         except ValueError:
             raise HTTPException(status_code=422, detail="Invalid department_id UUID")
 
@@ -290,12 +302,13 @@ async def list_all_tasks(
             {
                 "id": str(t.id),
                 "complaint_id": str(t.complaint_id),
-                "department_id": str(t.department_id),
-                "department_name": t.department.name if t.department else None,
-                "status": t.status,
-                "notes": t.notes,
-                "created_at": t.created_at.isoformat(),
-                "updated_at": t.updated_at.isoformat(),
+                "department_id": str(t.team.department_id) if t.team else None,
+                "department_name": t.team.department.name if t.team and t.team.department else None,
+                "team_name": t.team.name if t.team else None,
+                "status": "completed" if t.completed_at else ("active" if t.is_active else "inactive"),
+                "notes": t.reason or "",
+                "created_at": t.assigned_at.isoformat() if t.assigned_at else None,
+                "updated_at": t.completed_at.isoformat() if t.completed_at else (t.assigned_at.isoformat() if t.assigned_at else None),
             }
             for t in tasks
         ],
@@ -862,3 +875,49 @@ async def create_sla_rule(
         escalation_hours=rule.escalation_hours,
         created_at=rule.created_at,
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Admin Thematic & Spatial Clusters
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/insights/clusters")
+async def get_admin_clusters(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Thematic and spatial grievance clusters across wards for executive oversight."""
+    from datetime import timezone, timedelta
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    res = await session.execute(
+        select(
+            Complaint.ward,
+            Complaint.category,
+            func.count(Complaint.id).label("count"),
+            func.avg(Complaint.priority_score).label("avg_priority"),
+        )
+        .where(Complaint.created_at >= since, Complaint.ward.is_not(None))
+        .group_by(Complaint.ward, Complaint.category)
+        .having(func.count(Complaint.id) >= 1)
+        .order_by(func.count(Complaint.id).desc())
+    )
+    rows = res.all()
+
+    clusters = []
+    for r in rows:
+        cluster_id = f"{r.ward}_{r.category}".lower().replace(" ", "_")
+        clusters.append({
+            "id": cluster_id,
+            "cluster_id": cluster_id,
+            "title": f"Concentrated {r.category} Issues in {r.ward}",
+            "cluster_title": f"Concentrated {r.category} Issues in {r.ward}",
+            "ward": r.ward,
+            "category": r.category,
+            "count": r.count,
+            "complaint_count": r.count,
+            "avg_priority": round(float(r.avg_priority or 0), 2),
+            "recommendation": f"Prioritize immediate maintenance inspection in {r.ward} for {r.category}.",
+        })
+
+    return clusters
+

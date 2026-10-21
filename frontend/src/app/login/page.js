@@ -86,7 +86,7 @@ export default function LoginPage() {
                                 </svg>
                             </div>
                             <div>
-                                <div className="text-xs uppercase tracking-widest text-white/70 font-semibold">Government of India</div>
+                                <div className="text-xs uppercase tracking-widest text-white/70 font-semibold">Civic Grievance Redressal</div>
                                 <h2 className="text-xl font-bold tracking-tight text-white leading-tight">Samadhan Setu</h2>
                                 <div className="text-xs text-saffron font-medium" style={{ color: '#FF9933', fontFamily: "'Noto Sans Devanagari', sans-serif" }}>
                                     समाधान सेतु • नागरिक पोर्टल
@@ -120,7 +120,7 @@ export default function LoginPage() {
                     <div className="pt-4 border-t border-white/10 text-[11px] text-white/60 space-y-1">
                         <div className="flex items-center gap-1.5 text-white/80 font-medium">
                             <ShieldCheck size={14} className="text-green-400" />
-                            <span>CERT-In Compliant & Encrypted</span>
+                            <span>End-to-End Encrypted & Secure</span>
                         </div>
                         <p>Toll Free Citizen Helpline: 1800-123-4567</p>
                     </div>

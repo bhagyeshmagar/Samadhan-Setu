@@ -55,7 +55,20 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-        throw new Error(error.detail || 'Request failed');
+        let message = 'Request failed';
+        if (typeof error.detail === 'string') {
+            message = error.detail;
+        } else if (Array.isArray(error.detail)) {
+            message = error.detail
+                .map(err => {
+                    const field = Array.isArray(err.loc) ? err.loc[err.loc.length - 1] : '';
+                    return field ? `${field}: ${err.msg}` : (err.msg || JSON.stringify(err));
+                })
+                .join('; ');
+        } else if (error.message) {
+            message = error.message;
+        }
+        throw new Error(message);
     }
 
     return response.json();
@@ -156,6 +169,8 @@ export const departmentAPI = {
         method: 'PUT',
         body: JSON.stringify(data),
     }),
+
+    updateStatus: (id, data) => departmentAPI.updateComplaintStatus(id, data),
 
     getComplaintHistory: (id) => apiRequest(`/api/department/complaints/${id}/history`),
 

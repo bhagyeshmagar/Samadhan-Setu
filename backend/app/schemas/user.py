@@ -14,6 +14,10 @@ class UserCreate(UserBase):
     role: Optional[UserRole] = UserRole.CITIZEN
     department_id: Optional[str] = None
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str

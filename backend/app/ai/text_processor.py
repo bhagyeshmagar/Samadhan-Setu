@@ -32,7 +32,7 @@ class TextProcessor:
         """
         Clean and normalize text for processing
         - Lowercase
-        - Remove special characters (keep alphanumeric and spaces)
+        - Remove special punctuation but keep Unicode alphanumeric (Devanagari, English, numbers) and spaces
         - Remove extra whitespace
         """
         if not text:
@@ -41,8 +41,8 @@ class TextProcessor:
         # Convert to lowercase
         text = text.lower()
         
-        # Remove special characters but keep spaces
-        text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)
+        # Remove punctuation but preserve Unicode letters/numbers/spaces (supports Hindi/Marathi)
+        text = re.sub(r'[^\w\s]', ' ', text, flags=re.UNICODE)
         
         # Remove extra whitespace
         text = re.sub(r'\s+', ' ', text).strip()
@@ -76,12 +76,40 @@ class TextProcessor:
     
     @staticmethod
     def contains_any(text: str, keywords: List[str]) -> bool:
-        """Check if text contains any of the given keywords"""
+        """Check if text contains any of the given keywords as full words/phrases"""
         cleaned = TextProcessor.clean_text(text)
-        return any(keyword.lower() in cleaned for keyword in keywords)
+        if not cleaned:
+            return False
+        for keyword in keywords:
+            kw = keyword.strip().lower()
+            if not kw:
+                continue
+            pattern = r'(?u)\b' + re.escape(kw) + r'\b'
+            if re.search(pattern, cleaned):
+                return True
+        return False
     
     @staticmethod
     def count_keyword_matches(text: str, keywords: List[str]) -> int:
-        """Count how many keywords from the list appear in the text"""
+        """
+        Count distinct keyword matches without double counting overlapping substrings
+        (e.g., 'leak' and 'leaking' in the same span only count once).
+        """
         cleaned = TextProcessor.clean_text(text)
-        return sum(1 for keyword in keywords if keyword.lower() in cleaned)
+        if not cleaned:
+            return 0
+        
+        # Sort keywords by length descending so longer phrases match first
+        sorted_kw = sorted(set(k.strip().lower() for k in keywords if k.strip()), key=len, reverse=True)
+        matched_spans = []
+        count = 0
+        
+        for kw in sorted_kw:
+            pattern = r'(?u)\b' + re.escape(kw) + r'\b'
+            for match in re.finditer(pattern, cleaned):
+                start, end = match.span()
+                # Check if this span overlaps with an already-counted span
+                if not any(max(start, m_start) < min(end, m_end) for m_start, m_end in matched_spans):
+                    matched_spans.append((start, end))
+                    count += 1
+        return count

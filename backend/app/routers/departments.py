@@ -22,6 +22,7 @@ from ..repositories.complaint_repo import ComplaintRepository
 from ..repositories.department_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas import ComplaintResponse, ComplaintUpdate, StatusLogResponse
+from ..services.state_machine import is_valid_transition
 from ..config import settings
 
 PROOF_UPLOAD_DIR = os.path.join(
@@ -33,9 +34,31 @@ router = APIRouter(prefix="/api/department", tags=["Department"])
 
 
 def _complaint_to_response(c: Complaint) -> ComplaintResponse:
+    status_logs = [
+        StatusLogResponse(
+            id=str(t.id),
+            complaint_id=str(t.complaint_id),
+            from_status=t.status_from,
+            to_status=t.status_to,
+            remarks=t.notes,
+            updated_by=str(t.changed_by) if t.changed_by else None,
+            created_at=t.created_at,
+        )
+        for t in sorted(c.timeline or [], key=lambda x: x.created_at)
+    ]
+    user_dict = None
+    if getattr(c, "citizen", None) and not c.is_anonymous:
+        user_dict = {
+            "id": str(c.citizen.id),
+            "name": c.citizen.name,
+            "email": c.citizen.email,
+            "phone": c.citizen.phone,
+        }
+
     return ComplaintResponse(
         id=str(c.id),
         user_id=str(c.citizen_id),
+        user=user_dict,
         title=c.title,
         category=c.category,
         subcategory=c.sub_category,
@@ -55,22 +78,13 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
         upvotes=c.vote_count,
         attachments=[m.s3_key for m in c.media] if c.media else [],
         resolution_remarks=c.resolution_remarks,
+        citizen_rating=c.citizen_rating,
         created_at=c.created_at,
         updated_at=c.updated_at,
         resolved_at=c.resolved_at,
         deadline=c.sla_deadline,
-        status_history=[
-            StatusLogResponse(
-                id=str(t.id),
-                complaint_id=str(t.complaint_id),
-                from_status=t.status_from,
-                to_status=t.status_to,
-                remarks=t.notes,
-                updated_by=str(t.changed_by) if t.changed_by else None,
-                created_at=t.created_at,
-            )
-            for t in sorted(c.timeline or [], key=lambda x: x.created_at)
-        ],
+        status_logs=status_logs,
+        status_history=status_logs,
     )
 
 
@@ -90,18 +104,19 @@ async def get_department_complaints(
     repo = ComplaintRepository(session)
     user_repo = UserRepository(session)
 
-    # Resolve officer's department
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-    department_id = officer.department_id if officer else None
-
-    # Admins/super-admins see all
+    # Scoping check: Admins/super-admins see all, officers are strictly scoped to department
     if current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         department_id = None
+    else:
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id:
+            raise HTTPException(status_code=403, detail="Officer profile or department not assigned")
+        department_id = officer.department_id
 
     status_enum = None
     if status_filter:
         try:
-            status_enum = ComplaintStatus(status_filter)
+            status_enum = ComplaintStatus(status_filter.lower().replace(" ", "_"))
         except ValueError:
             raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
 
@@ -136,14 +151,11 @@ async def get_complaint_detail(
         raise HTTPException(status_code=404, detail="Complaint not found")
 
     # Department-scoped access check
-    user_repo = UserRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-    if (
-        officer
-        and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
-        and complaint.department_id != officer.department_id
-    ):
-        raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
     return _complaint_to_response(complaint)
 
@@ -170,28 +182,35 @@ async def update_complaint_status(
         raise HTTPException(status_code=404, detail="Complaint not found")
 
     # Department-scoped access
-    user_repo = UserRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-    if (
-        officer
-        and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
-        and complaint.department_id != officer.department_id
-    ):
-        raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
     if update_data.status:
         try:
-            new_status = ComplaintStatus(update_data.status.value if hasattr(update_data.status, 'value') else update_data.status)
+            raw = update_data.status.value if hasattr(update_data.status, 'value') else str(update_data.status)
+            new_status = ComplaintStatus(raw.lower().replace(" ", "_"))
         except ValueError:
             raise HTTPException(status_code=422, detail=f"Invalid status: {update_data.status}")
 
+        # Enforce state machine transitions for non-admin users
+        if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            if not is_valid_transition(complaint.status, new_status):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status transition from '{complaint.status.value}' to '{new_status.value}'"
+                )
+
+        status_notes = update_data.remarks or update_data.notes
         await repo.add_status_transition(
             complaint,
             new_status,
             changed_by=current_user.id,
             actor_role=current_user.role.value,
-            notes=update_data.remarks,
-            remarks=update_data.remarks,
+            notes=status_notes,
+            remarks=status_notes,
         )
 
     if update_data.assigned_officer_id:
@@ -210,6 +229,7 @@ async def update_complaint_status(
 # Upload resolution proof
 # ──────────────────────────────────────────────────────────────────────────────
 @router.post("/complaints/{complaint_id}/resolution-proof")
+@router.post("/complaints/{complaint_id}/upload-proof")
 async def upload_resolution_proof(
     complaint_id: str,
     files: List[UploadFile] = File(...),
@@ -226,6 +246,13 @@ async def upload_resolution_proof(
     complaint = await repo.get_by_id(cid)
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
+
+    # Department-scoped access check
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
     uploaded, rejected = [], []
     for file in files[:5]:
@@ -278,8 +305,13 @@ async def get_department_stats(
 ):
     """Summary stats for the officer's department."""
     user_repo = UserRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-    dept_id = officer.department_id if officer else None
+    if current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        dept_id = None
+    else:
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id:
+            raise HTTPException(status_code=403, detail="Officer profile or department not assigned")
+        dept_id = officer.department_id
 
     base_q = select(Complaint)
     if dept_id and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
@@ -310,8 +342,13 @@ async def get_dashboard_metrics(
 ):
     """Dashboard summary counts for the officer's department task desk."""
     user_repo = UserRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-    dept_id = officer.department_id if officer else None
+    if current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        dept_id = None
+    else:
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id:
+            raise HTTPException(status_code=403, detail="Officer profile or department not assigned")
+        dept_id = officer.department_id
 
     def _count_q(st: ComplaintStatus):
         q = select(func.count()).where(Complaint.status == st)
@@ -382,8 +419,6 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
 
 
 # Status label → ComplaintStatus enum mapping for incoming filter values
-# "Pending" maps to SUBMITTED (primary entry state); VERIFIED/REOPENED/PENDING_INFO
-# are also surfaced as pending but filtered separately if needed.
 _TASK_STATUS_TO_COMPLAINT = {
     "pending": ComplaintStatus.SUBMITTED,
     "assigned": ComplaintStatus.ASSIGNED,
@@ -408,11 +443,14 @@ async def get_tasks(
     """
     user_repo = UserRepository(session)
     dept_repo = DepartmentRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-    department_id = officer.department_id if officer else None
 
     if current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         department_id = None
+    else:
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id:
+            raise HTTPException(status_code=403, detail="Officer profile or department not assigned")
+        department_id = officer.department_id
 
     # Resolve department name once
     dept_name = ""
@@ -425,7 +463,6 @@ async def get_tasks(
 
     # Map frontend status label to DB enum(s)
     status_enum = None
-    extra_statuses = None
     if status_filter:
         key = status_filter.lower()
         if key == "completed":
@@ -487,14 +524,11 @@ async def update_task_status(
         raise HTTPException(status_code=404, detail="Task not found")
 
     # Department-scoped access
-    user_repo = UserRepository(session)
-    officer = await user_repo.get_officer_by_user_id(current_user.id)
-    if (
-        officer
-        and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
-        and complaint.department_id != officer.department_id
-    ):
-        raise HTTPException(status_code=403, detail="Access denied — task belongs to another department")
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — task belongs to another department")
 
     if update_data.status:
         raw = update_data.status.value if hasattr(update_data.status, "value") else str(update_data.status)
@@ -502,9 +536,17 @@ async def update_task_status(
         if new_status is None:
             # Fallback: try direct enum lookup
             try:
-                new_status = ComplaintStatus(raw)
+                new_status = ComplaintStatus(raw.lower().replace(" ", "_"))
             except ValueError:
                 raise HTTPException(status_code=422, detail=f"Invalid status: {raw}")
+
+        # Enforce state machine transitions for non-admin users
+        if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            if not is_valid_transition(complaint.status, new_status):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status transition from '{complaint.status.value}' to '{new_status.value}'"
+                )
 
         await repo.add_status_transition(
             complaint,
@@ -536,7 +578,7 @@ async def assign_task(
     current_user: User = Depends(require_officer),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Assign a task (complaint) to a specific officer."""
+    """Assign a task (complaint) to a specific officer in the same department."""
     try:
         cid = uuid.UUID(task_id)
         oid = uuid.UUID(officer_id)
@@ -547,6 +589,19 @@ async def assign_task(
     complaint = await repo.get_by_id(cid)
     if not complaint:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    user_repo = UserRepository(session)
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — task belongs to another department")
+
+    # Verify target officer exists and belongs to this complaint's department
+    target_officer = await user_repo.get_officer_by_id(oid)
+    if not target_officer:
+        raise HTTPException(status_code=404, detail="Target officer not found")
+    if complaint.department_id and target_officer.department_id != complaint.department_id:
+        raise HTTPException(status_code=400, detail="Target officer does not belong to this department")
 
     complaint.assigned_officer_id = oid
     await session.commit()
@@ -566,4 +621,5 @@ async def upload_proof_alias(
 ):
     """Alias for upload_resolution_proof — kept for frontend api.js compatibility."""
     return await upload_resolution_proof(complaint_id, files, current_user, session)
+
 

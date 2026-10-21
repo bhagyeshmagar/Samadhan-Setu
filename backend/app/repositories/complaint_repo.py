@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Tuple
-from sqlalchemy import select, update, func, desc, or_
+from sqlalchemy import select, update, func, desc, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,11 +25,22 @@ class ComplaintRepository:
         self.session = session
 
     async def generate_complaint_number(self) -> str:
-        """Generate unique complaint number e.g. SS-2026-001234."""
+        """Generate unique complaint number e.g. SS-2026-001234 using PostgreSQL sequence."""
         year = datetime.now(timezone.utc).year
-        res = await self.session.execute(select(func.count(Complaint.id)))
-        count = (res.scalar() or 0) + 1001
-        return f"SS-{year}-{count:06d}"
+        try:
+            async with self.session.begin_nested():
+                res = await self.session.execute(text("SELECT nextval('complaint_number_seq')"))
+                val = res.scalar()
+        except Exception:
+            try:
+                async with self.session.begin_nested():
+                    await self.session.execute(text("CREATE SEQUENCE IF NOT EXISTS complaint_number_seq START 1001"))
+                    res = await self.session.execute(text("SELECT nextval('complaint_number_seq')"))
+                    val = res.scalar()
+            except Exception:
+                res = await self.session.execute(select(func.count(Complaint.id)))
+                val = (res.scalar() or 0) + 1001
+        return f"SS-{year}-{val:06d}"
 
     async def create(
         self,
@@ -143,6 +154,7 @@ class ComplaintRepository:
         category: Optional[str] = None,
         ward: Optional[str] = None,
         is_public_only: bool = False,
+        sort_by: str = "recent",
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[Complaint], int]:
@@ -173,8 +185,14 @@ class ComplaintRepository:
         total_res = await self.session.execute(count_query)
         total = total_res.scalar() or 0
 
-        # Order by priority and recency
-        query = query.order_by(desc(Complaint.priority_score), desc(Complaint.created_at))
+        # Dynamic ordering based on sort_by
+        if sort_by == "priority":
+            query = query.order_by(desc(Complaint.priority_score), desc(Complaint.created_at))
+        elif sort_by == "upvotes":
+            query = query.order_by(desc(Complaint.vote_count), desc(Complaint.created_at))
+        else:
+            query = query.order_by(desc(Complaint.created_at))
+
         query = query.limit(limit).offset(offset)
 
         res = await self.session.execute(query)
@@ -228,10 +246,11 @@ class ComplaintRepository:
 
         complaint.status = new_status
         complaint.updated_at = now
-        if new_status == ComplaintStatus.RESOLVED:
+        effective_remarks = remarks or notes
+        if new_status in (ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED):
             complaint.resolved_at = now
-            if remarks:
-                complaint.resolution_remarks = remarks
+            if effective_remarks:
+                complaint.resolution_remarks = effective_remarks
 
         timeline = ComplaintTimeline(
             complaint_id=complaint.id,
@@ -239,7 +258,7 @@ class ComplaintRepository:
             status_to=new_status.value,
             changed_by=changed_by,
             actor_role=actor_role,
-            notes=notes,
+            notes=notes or remarks,
             created_at=now,
         )
         self.session.add(timeline)

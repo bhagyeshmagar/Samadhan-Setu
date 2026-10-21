@@ -19,6 +19,7 @@ class ComplaintStatus(str, Enum):
     REOPENED = "reopened"
     REJECTED = "rejected"
     ESCALATED = "escalated"
+    APPEALED = "escalated"
 
 class ComplaintPriority(str, Enum):
     LOW = "low"

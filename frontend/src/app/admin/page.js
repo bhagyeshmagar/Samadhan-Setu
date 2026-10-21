@@ -268,9 +268,9 @@ export default function AdminDashboard() {
                 <Section title="Urgency Distribution" icon={<TrendingUp size={12} />}>
                     <div className="grid grid-cols-3 gap-3">
                         {[
-                            { label: 'Critical', labelHi: 'गंभीर', count: stats?.by_priority?.High, color: 'var(--status-critical)', bg: 'var(--status-critical-bg)' },
-                            { label: 'Elevated', labelHi: 'उच्च', count: stats?.by_priority?.Medium, color: 'var(--saffron-dark)', bg: 'var(--saffron-light)' },
-                            { label: 'Normal', labelHi: 'सामान्य', count: stats?.by_priority?.Low, color: 'var(--india-green)', bg: 'var(--india-green-light)' },
+                            { label: 'Critical', labelHi: 'गंभीर', count: (stats?.by_priority?.critical ?? stats?.by_priority?.Critical ?? stats?.by_priority?.high ?? stats?.by_priority?.High ?? 0), color: 'var(--status-critical)', bg: 'var(--status-critical-bg)' },
+                            { label: 'Elevated', labelHi: 'उच्च', count: (stats?.by_priority?.medium ?? stats?.by_priority?.Medium ?? 0), color: 'var(--saffron-dark)', bg: 'var(--saffron-light)' },
+                            { label: 'Normal', labelHi: 'सामान्य', count: (stats?.by_priority?.low ?? stats?.by_priority?.Low ?? 0), color: 'var(--india-green)', bg: 'var(--india-green-light)' },
                         ].map(p => (
                             <div key={p.label} className="gov-card p-4 text-center"
                                 style={{ borderTop: `3px solid ${p.color}` }}>

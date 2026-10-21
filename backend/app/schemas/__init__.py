@@ -1,5 +1,5 @@
 from .user import (
-    UserBase, UserCreate, UserLogin, UserResponse,
+    UserBase, UserCreate, UserUpdate, UserLogin, UserResponse,
     UserWithToken, Token, TokenData,
     OfficerCreate, OfficerResponse,
 )

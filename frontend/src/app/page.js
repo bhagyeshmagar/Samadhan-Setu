@@ -39,12 +39,12 @@ function AnnouncementTicker() {
     );
 }
 
-/* ── Stats (will be replaced with real API data in Phase 1) ── */
+/* ── Stats ── */
 const STATS = [
-    { value: '98%',    label: 'Routing Accuracy',    labelHi: 'रूटिंग सटीकता',    color: 'mc-navy' },
-    { value: '<2s',    label: 'AI Classification',   labelHi: 'AI वर्गीकरण',       color: 'mc-saffron' },
-    { value: '94%',    label: 'Resolution Rate',     labelHi: 'समाधान दर',         color: 'mc-green' },
-    { value: 'Live',   label: 'System Status',       labelHi: 'सिस्टम स्थिति',    color: 'mc-purple' },
+    { value: '24/7',   label: 'Civic Access',        labelHi: 'नागरिक सेवा',       color: 'mc-navy' },
+    { value: '<2s',    label: 'AI Categorization',   labelHi: 'AI वर्गीकरण',       color: 'mc-saffron' },
+    { value: '100%',   label: 'Transparent Audit',   labelHi: 'पारदर्शी निगरानी',  color: 'mc-green' },
+    { value: 'Active', label: 'System Operational',  labelHi: 'सिस्टम सक्रिय',    color: 'mc-purple' },
 ];
 
 /* ── Quick Action Tiles ── */
@@ -142,7 +142,7 @@ export default function Home() {
                             style={{ background: 'var(--navy-light)', color: 'var(--navy)', border: '1px solid rgba(0,53,128,0.15)' }}
                         >
                             <ShieldCheck size={13} style={{ color: 'var(--india-green)' }} />
-                            Government of India — Authorised Portal
+                            Civic Grievance Redressal Portal
                         </div>
 
                         <h1

@@ -27,6 +27,16 @@ class UserRepository:
         )
         return res.scalar_one_or_none()
 
+    async def get_by_phone(self, phone: str) -> Optional[User]:
+        if not phone:
+            return None
+        res = await self.session.execute(
+            select(User)
+            .options(selectinload(User.officer_profile))
+            .where(User.phone == phone.strip())
+        )
+        return res.scalar_one_or_none()
+
     async def create(
         self,
         email: str,

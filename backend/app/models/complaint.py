@@ -8,22 +8,7 @@ from typing import Optional, List, Dict, Any
 from enum import Enum
 
 
-class ComplaintStatus(str, Enum):
-    SUBMITTED = "Submitted"
-    VERIFIED = "Verified"
-    ASSIGNED = "Assigned"
-    IN_PROGRESS = "In Progress"
-    RESOLVED = "Resolved"
-    CLOSED = "Closed"
-    REOPENED = "Reopened"
-    APPEALED = "Appealed"
-
-
-class ComplaintPriority(str, Enum):
-    LOW = "Low"
-    MEDIUM = "Medium"
-    HIGH = "High"
-    CRITICAL = "Critical"
+from .orm.enums import ComplaintStatus, ComplaintPriority
 
 
 class Complaint(BaseModel):
@@ -87,6 +72,8 @@ class Complaint(BaseModel):
     def to_firestore(self):
         data = self.model_dump(mode='json')
         data.pop("id", None)
+        if "status" in data and isinstance(data["status"], str):
+            data["status"] = data["status"].capitalize()
         return data
 
 
