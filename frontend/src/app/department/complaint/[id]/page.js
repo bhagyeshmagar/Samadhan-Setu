@@ -292,7 +292,7 @@ export default function HandleComplaint() {
                             {complaint.attachments && complaint.attachments.length > 0 && (
                                 <div className="mt-4 pt-4 border-t border-gray-200">
                                     <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                        <ImagePlus size={14} className="text-[var(--navy)]" /> Citizen Submitted Photographic Evidence ({complaint.attachments.length})
+                                        <ImagePlus size={14} className="text-(--navy)" /> Citizen Submitted Photographic Evidence ({complaint.attachments.length})
                                     </h4>
                                     <div className="flex gap-3 flex-wrap">
                                         {complaint.attachments.map((img, idx) => (
@@ -318,7 +318,7 @@ export default function HandleComplaint() {
                     </div>
 
                     {/* Officer Resolution Workspace */}
-                    <div className="gov-section border-t-4 border-t-[var(--india-green)]">
+                    <div className="gov-section border-t-4 border-t-(--india-green)">
                         <div className="gov-section-header bg-green-50/50">
                             <span className="gov-section-title flex items-center gap-2 text-green-950 font-bold">
                                 <CheckCircle size={14} className="text-green-700" />
