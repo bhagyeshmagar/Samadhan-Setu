@@ -5,7 +5,8 @@ Main FastAPI Application Entry Point (PostgreSQL edition)
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -48,6 +49,16 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=600,
 )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    import logging, traceback
+    logging.error(f"Unhandled server error on {request.method} {request.url}: {exc}")
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
+    )
 
 # ── Static uploads (local disk — Phase 4 will swap to S3) ────────────────────
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")

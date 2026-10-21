@@ -403,24 +403,32 @@ async def create_officer(
         raise HTTPException(status_code=404, detail="Department not found")
 
     # Check email uniqueness
-    email_res = await session.execute(select(User).where(User.email == officer_data.email))
+    email_clean = officer_data.email.strip().lower()
+    email_res = await session.execute(select(User).where(User.email == email_clean))
     if email_res.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # Check employee_id uniqueness
+    emp_clean = officer_data.employee_id.strip()
     emp_res = await session.execute(
-        select(Officer).where(Officer.employee_id == officer_data.employee_id)
+        select(Officer).where(Officer.employee_id == emp_clean)
     )
     if emp_res.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Employee ID already in use")
 
+    phone_clean = officer_data.phone.strip() if officer_data.phone and officer_data.phone.strip() else None
+    if phone_clean:
+        phone_res = await session.execute(select(User).where(User.phone == phone_clean))
+        if phone_res.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Phone number already registered to another user")
+
     # Create user
     new_user = User(
         id=uuid.uuid4(),
-        email=officer_data.email,
-        name=officer_data.name,
-        phone=officer_data.phone,
-        hashed_password=get_password_hash(officer_data.password),
+        email=email_clean,
+        name=officer_data.name.strip(),
+        phone=phone_clean,
+        password_hash=get_password_hash(officer_data.password),
         role=UserRole.OFFICER,
     )
     session.add(new_user)
@@ -431,8 +439,8 @@ async def create_officer(
         id=uuid.uuid4(),
         user_id=new_user.id,
         department_id=dept_uuid,
-        employee_id=officer_data.employee_id,
-        designation=officer_data.designation,
+        employee_id=emp_clean,
+        designation=officer_data.designation.strip() if officer_data.designation else None,
         jurisdiction_wards=officer_data.jurisdiction_wards,
     )
     session.add(new_officer)
