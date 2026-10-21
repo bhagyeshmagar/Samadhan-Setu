@@ -305,6 +305,7 @@ export default function AdminDashboard() {
                             </div>
                         ))}
                     </div>
+                </Section>
             </div>
 
             {/* ── Collector Statutory SLA Countdown Monitoring ── */}
