@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session
@@ -173,7 +173,7 @@ async def ai_health(current_user: User = Depends(get_current_user)):
         "priority_engine": "healthy",
         "components": {
             "distilbert_nlp": "operational" if classifier_ok else "degraded",
-            "sbert_similarity": "operational" if ai_bridge.sbert_available else "fallback_active",
+            "sbert_similarity": "operational" if getattr(ai_bridge, 'sbert_available', False) else "fallback_active",
             "priority_scoring_engine": "operational",
             "spatial_clustering": "operational",
         },

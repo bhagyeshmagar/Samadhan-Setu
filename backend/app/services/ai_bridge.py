@@ -53,6 +53,7 @@ class AIBridge:
     Bridge service to connect the main Backend with AI services.
     Uses ML models when available, falls back to rule-based when not.
     """
+    sbert_available: bool = SBERT_AVAILABLE
 
     @staticmethod
     def get_similar_complaints(

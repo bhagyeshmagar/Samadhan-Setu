@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { adminAPI, aiAPI } from '@/lib/api';
 import { useAIServices } from '@/hooks/useAIServices';
+import DeadlineTimer from '@/components/DeadlineTimer';
 import {
     BarChart3, AlertTriangle, CheckCircle, Loader2,
     Sparkles, Activity, Cpu, ShieldCheck, RefreshCw,
-    ChevronRight, TrendingUp, Users
+    ChevronRight, TrendingUp, Users, Clock, CheckCircle2
 } from 'lucide-react';
 
 /* ── Small helper: model status badge ── */
@@ -50,6 +51,7 @@ export default function AdminDashboard() {
     const [error, setError] = useState('');
     const [modelHealth, setModelHealth] = useState(null);
     const [overrideStats, setOverrideStats] = useState(null);
+    const [recentComplaints, setRecentComplaints] = useState([]);
 
     const { getInsights, insights, loading: insightsLoading } = useAIServices();
 
@@ -72,6 +74,7 @@ export default function AdminDashboard() {
             getInsights();
             aiAPI.getModelHealth().then(d => setModelHealth(d)).catch(() => {});
             aiAPI.getOverrideStats().then(d => setOverrideStats(d)).catch(() => {});
+            adminAPI.getComplaints().then(d => setRecentComplaints(d?.complaints || d || [])).catch(() => {});
         } catch (err) {
             setError(err.message || 'Failed to fetch data');
         } finally {
@@ -302,6 +305,69 @@ export default function AdminDashboard() {
                             </div>
                         ))}
                     </div>
+            </div>
+
+            {/* ── Collector Statutory SLA Countdown Monitoring ── */}
+            <div className="mb-6">
+                <Section
+                    title="Collector Statutory SLA Monitoring & Active Grievances"
+                    icon={<Clock size={12} />}
+                    action={
+                        <span className="text-[11px] font-bold text-gray-500">
+                            Statutory Windows: Critical 3d | Medium 7d | Low 21d
+                        </span>
+                    }
+                >
+                    {recentComplaints.length > 0 ? (
+                        <div className="space-y-3">
+                            {recentComplaints.slice(0, 5).map(c => {
+                                const priorityLower = (c.priority || 'medium').toLowerCase();
+                                return (
+                                    <div key={c.id} className="p-3.5 rounded-lg border border-gray-200 bg-white hover:border-gray-300 transition-colors">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-900">
+                                                    #{c.id?.substring(0, 8)}
+                                                </span>
+                                                <span className="text-xs font-bold text-gray-900">
+                                                    {c.title || c.category}
+                                                </span>
+                                                <span className="text-[11px] text-gray-500">
+                                                    Ward: {c.ward || 'General'}
+                                                </span>
+                                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                                    priorityLower === 'critical' ? 'bg-red-100 text-red-800' :
+                                                    priorityLower === 'high' ? 'bg-rose-100 text-rose-800' :
+                                                    priorityLower === 'medium' ? 'bg-amber-100 text-amber-800' :
+                                                    'bg-gray-100 text-gray-700'
+                                                }`}>
+                                                    Priority: {c.priority}
+                                                </span>
+                                            </div>
+                                            <DeadlineTimer
+                                                deadline={c.deadline}
+                                                createdAt={c.created_at}
+                                                priority={c.priority}
+                                                status={c.status}
+                                                resolvedAt={c.resolved_at}
+                                                compact={true}
+                                            />
+                                        </div>
+                                        <DeadlineTimer
+                                            deadline={c.deadline}
+                                            createdAt={c.created_at}
+                                            priority={c.priority}
+                                            status={c.status}
+                                            resolvedAt={c.resolved_at}
+                                            showProgressBar={true}
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <p className="text-xs text-gray-500 py-3">No active grievances pending statutory SLA tracking.</p>
+                    )}
                 </Section>
             </div>
 

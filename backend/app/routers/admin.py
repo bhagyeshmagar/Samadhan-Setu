@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..db.session import get_async_session
-from ..auth import get_current_user, require_admin, get_password_hash
+from ..auth import get_current_user, require_admin, require_officer, get_password_hash
 from ..models.orm import User, Complaint, Department, CategoryMapping, Officer
 from ..models.orm.department import SLARule
 from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole
@@ -883,11 +883,11 @@ async def create_sla_rule(
 @router.get("/insights/clusters")
 async def get_admin_clusters(
     days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_officer),
     session: AsyncSession = Depends(get_async_session),
 ):
     """Thematic and spatial grievance clusters across wards for executive oversight."""
-    from datetime import timezone, timedelta
+    from datetime import datetime, timezone, timedelta
     since = datetime.now(timezone.utc) - timedelta(days=days)
     res = await session.execute(
         select(

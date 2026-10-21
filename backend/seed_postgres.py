@@ -135,11 +135,11 @@ async def seed_data():
 
         # 3. SLA RULES
         sla_rules = [
-            SLARule(category=None, priority="High", resolution_hours=24, escalation_hours=12),
-            SLARule(category=None, priority="Medium", resolution_hours=72, escalation_hours=48),
-            SLARule(category=None, priority="Low", resolution_hours=168, escalation_hours=120),
-            SLARule(category="Health & Safety", priority=None, resolution_hours=12, escalation_hours=6),
-            SLARule(category=None, priority="Critical", resolution_hours=4, escalation_hours=2),
+            SLARule(category=None, priority="High", resolution_hours=120, escalation_hours=72),
+            SLARule(category=None, priority="Medium", resolution_hours=168, escalation_hours=120),
+            SLARule(category=None, priority="Low", resolution_hours=504, escalation_hours=360),
+            SLARule(category="Health & Safety", priority=None, resolution_hours=72, escalation_hours=48),
+            SLARule(category=None, priority="Critical", resolution_hours=72, escalation_hours=48),
         ]
         session.add_all(sla_rules)
 

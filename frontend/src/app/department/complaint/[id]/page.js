@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { useAuth } from '@/lib/auth';
 import { departmentAPI, complaintsAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
+import DeadlineTimer from '@/components/DeadlineTimer';
 import {
     MapPin, Clock, User, Phone, Mail, FileText, Upload, CheckCircle,
     AlertTriangle, ArrowLeft, Loader2, ImagePlus, X,
@@ -225,33 +226,17 @@ export default function HandleComplaint() {
                     </p>
                 </div>
 
-                {/* SLA Timer */}
-                {complaint.deadline && (() => {
-                    const diff = new Date(complaint.deadline) - now;
-                    const isOverdue = diff < 0;
-                    const absDiff = Math.abs(diff);
-                    const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
-                    const hours = Math.floor((absDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                    const timeText = `${days.toString().padStart(2, '0')}d : ${hours.toString().padStart(2, '0')}h`;
-
-                    return (
-                        <div className={`flex items-center gap-3 px-4 py-2.5 rounded border ${
-                            isOverdue
-                                ? 'bg-red-50 border-red-300 text-red-900'
-                                : 'bg-blue-50 border-blue-200 text-blue-900'
-                        }`}>
-                            <Clock className={isOverdue ? 'text-red-600 animate-pulse' : 'text-blue-700'} size={20} />
-                            <div>
-                                <p className="text-[10px] font-bold uppercase tracking-wider">
-                                    {isOverdue ? 'SLA OVERDUE / समय सीमा समाप्त' : 'Statutory SLA Deadline'}
-                                </p>
-                                <p className="text-base font-bold font-mono leading-none mt-0.5">
-                                    {isOverdue ? `-${timeText}` : timeText}
-                                </p>
-                            </div>
-                        </div>
-                    );
-                })()}
+                {/* Statutory SLA Timer */}
+                <div className="w-full sm:w-auto">
+                    <DeadlineTimer
+                        deadline={complaint.deadline}
+                        createdAt={complaint.created_at}
+                        priority={complaint.priority}
+                        status={complaint.status}
+                        resolvedAt={complaint.resolved_at}
+                        showProgressBar={false}
+                    />
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -32,6 +32,23 @@ os.makedirs(PROOF_UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter(prefix="/api/department", tags=["Department"])
 
+STATUS_LABEL_TO_ENUM = {
+    "pending": ComplaintStatus.SUBMITTED,
+    "submitted": ComplaintStatus.SUBMITTED,
+    "verified": ComplaintStatus.VERIFIED,
+    "assigned": ComplaintStatus.ASSIGNED,
+    "in progress": ComplaintStatus.IN_PROGRESS,
+    "in_progress": ComplaintStatus.IN_PROGRESS,
+    "pending info": ComplaintStatus.PENDING_INFO,
+    "pending_info": ComplaintStatus.PENDING_INFO,
+    "resolved": ComplaintStatus.RESOLVED,
+    "completed": ComplaintStatus.RESOLVED,
+    "closed": ComplaintStatus.CLOSED,
+    "reopened": ComplaintStatus.REOPENED,
+    "rejected": ComplaintStatus.REJECTED,
+    "escalated": ComplaintStatus.ESCALATED,
+}
+
 
 def _complaint_to_response(c: Complaint) -> ComplaintResponse:
     status_logs = [
@@ -55,6 +72,15 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
             "phone": c.citizen.phone,
         }
 
+    proof_images = []
+    attachments = []
+    if getattr(c, "media", None):
+        for m in c.media:
+            url = f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+            if m.media_type == MediaType.RESOLUTION_PHOTO:
+                proof_images.append(url)
+            attachments.append(url)
+
     return ComplaintResponse(
         id=str(c.id),
         user_id=str(c.citizen_id),
@@ -76,7 +102,8 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
         department_id=str(c.department_id) if c.department_id else None,
         assigned_officer_id=str(c.assigned_officer_id) if c.assigned_officer_id else None,
         upvotes=c.vote_count,
-        attachments=[m.s3_key for m in c.media] if c.media else [],
+        attachments=attachments,
+        resolution_proof=proof_images,
         resolution_remarks=c.resolution_remarks,
         citizen_rating=c.citizen_rating,
         created_at=c.created_at,
@@ -189,11 +216,13 @@ async def update_complaint_status(
             raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
     if update_data.status:
-        try:
-            raw = update_data.status.value if hasattr(update_data.status, 'value') else str(update_data.status)
-            new_status = ComplaintStatus(raw.lower().replace(" ", "_"))
-        except ValueError:
-            raise HTTPException(status_code=422, detail=f"Invalid status: {update_data.status}")
+        raw = update_data.status.value if hasattr(update_data.status, 'value') else str(update_data.status).strip()
+        new_status = STATUS_LABEL_TO_ENUM.get(raw.lower())
+        if new_status is None:
+            try:
+                new_status = ComplaintStatus(raw.lower().replace(" ", "_"))
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"Invalid status: {update_data.status}")
 
         # Enforce state machine transitions for non-admin users
         if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
@@ -226,10 +255,79 @@ async def update_complaint_status(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Upload resolution proof
+# Upload site inspection proof & resolution proof
 # ──────────────────────────────────────────────────────────────────────────────
+@router.post("/complaints/{complaint_id}/inspection-proof")
+@router.post("/tasks/{complaint_id}/inspection-proof")
+async def upload_inspection_proof(
+    complaint_id: str,
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Upload preliminary site inspection proof photos before commencing work (officers only)."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Department-scoped access check
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — task belongs to another department")
+
+    uploaded, rejected = [], []
+    for file in files[:5]:
+        if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
+            rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
+            continue
+
+        content = await file.read()
+        if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
+            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
+            continue
+
+        try:
+            img = Image.open(io.BytesIO(content))
+            img.verify()
+        except Exception:
+            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
+            continue
+
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        safe_ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
+        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
+        file_path = os.path.join(PROOF_UPLOAD_DIR, unique_name)
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        local_key = f"proof/{unique_name}"
+        await repo.add_media_proof(
+            complaint_id=complaint.id,
+            media_type=MediaType.PROOF_PHOTO,
+            s3_key=local_key,
+            file_name=unique_name,
+            file_size_bytes=len(content),
+            mime_type=file.content_type or "image/jpeg",
+            uploaded_by=current_user.id,
+        )
+        uploaded.append(f"/uploads/{local_key}")
+
+    await session.commit()
+    return {"message": f"Uploaded {len(uploaded)} site inspection proof image(s).", "uploaded": uploaded, "rejected": rejected}
+
+
 @router.post("/complaints/{complaint_id}/resolution-proof")
 @router.post("/complaints/{complaint_id}/upload-proof")
+@router.post("/tasks/{complaint_id}/resolution-proof")
+@router.post("/tasks/{complaint_id}/upload-proof")
 async def upload_resolution_proof(
     complaint_id: str,
     files: List[UploadFile] = File(...),
@@ -402,9 +500,30 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
         ComplaintStatus.REOPENED: "Pending",
         ComplaintStatus.PENDING_INFO: "Pending",
     }
+    proof_images = []
+    inspection_images = []
+    attachments = []
+    if getattr(c, "media", None):
+        for m in c.media:
+            url = f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+            media_item = {
+                "id": str(m.id),
+                "url": url,
+                "file_name": m.file_name,
+                "media_type": m.media_type.value if hasattr(m.media_type, "value") else str(m.media_type),
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            if m.media_type == MediaType.RESOLUTION_PHOTO:
+                proof_images.append(url)
+            elif m.media_type == MediaType.PROOF_PHOTO:
+                inspection_images.append(url)
+            attachments.append(media_item)
+
     return {
         "id": str(c.id),
         "status": status_label_map.get(c.status, c.status.value),
+        "raw_status": c.status.value if hasattr(c.status, "value") else str(c.status),
+        "category": c.category,
         "complaint_title": c.title,
         "complaint_description": c.description,
         "complaint_location": c.address or (f"{c.latitude},{c.longitude}" if c.latitude else ""),
@@ -415,6 +534,9 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
         "completed_at": c.resolved_at.isoformat() if c.resolved_at else None,
         "priority_score": c.priority_score,
         "sla_deadline": c.sla_deadline.isoformat() if c.sla_deadline else None,
+        "proof_images": proof_images,
+        "inspection_images": inspection_images,
+        "attachments": attachments,
     }
 
 
@@ -531,10 +653,9 @@ async def update_task_status(
             raise HTTPException(status_code=403, detail="Access denied — task belongs to another department")
 
     if update_data.status:
-        raw = update_data.status.value if hasattr(update_data.status, "value") else str(update_data.status)
-        new_status = label_to_enum.get(raw.lower())
+        raw = update_data.status.value if hasattr(update_data.status, "value") else str(update_data.status).strip()
+        new_status = STATUS_LABEL_TO_ENUM.get(raw.lower())
         if new_status is None:
-            # Fallback: try direct enum lookup
             try:
                 new_status = ComplaintStatus(raw.lower().replace(" ", "_"))
             except ValueError:
@@ -548,13 +669,14 @@ async def update_task_status(
                     detail=f"Invalid status transition from '{complaint.status.value}' to '{new_status.value}'"
                 )
 
+        status_notes = update_data.remarks or update_data.notes or f"Status updated to {raw}"
         await repo.add_status_transition(
             complaint,
             new_status,
             changed_by=current_user.id,
             actor_role=current_user.role.value,
-            notes=update_data.remarks or f"Status updated to {raw}",
-            remarks=update_data.remarks,
+            notes=status_notes,
+            remarks=update_data.remarks or update_data.notes,
         )
 
     await session.commit()

@@ -70,13 +70,14 @@ class DepartmentRepository:
         if rule:
             return rule.resolution_hours
 
-        # 3. Standard fallback defaults
+        # 3. Standard fallback defaults matching statutory deadlines:
+        # Critical = 3 days (72h), High = 5 days (120h), Medium = 7 days (168h), Low = 21 days (504h)
         priority_lower = priority.lower()
         if priority_lower == "critical":
-            return 4
-        elif priority_lower == "high":
-            return 24
-        elif priority_lower == "medium":
             return 72
-        else:
+        elif priority_lower == "high":
+            return 120
+        elif priority_lower == "medium":
             return 168
+        else:
+            return 504

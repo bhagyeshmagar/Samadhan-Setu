@@ -6,7 +6,17 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { complaintsAPI, aiAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
-import { MapPin, Loader2, ArrowRight, ExternalLink, Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ListTodo, Brain, Link2, BarChart3, Search } from 'lucide-react';
+import DeadlineTimer from '@/components/DeadlineTimer';
+import { MapPin, Loader2, ArrowRight, ExternalLink, Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ListTodo, Brain, Link2, BarChart3, Search, Camera } from 'lucide-react';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const getImageUrl = (img) => {
+    const raw = typeof img === 'string' ? img : img?.path || img?.url;
+    if (!raw) return '';
+    if (raw.startsWith('http')) return raw;
+    if (raw.startsWith('/uploads/')) return `${API_BASE}${raw}`;
+    return `${API_BASE}/uploads/${raw.replace(/^\//, '')}`;
+};
 
 const STATUS_ORDER = ['submitted', 'verified', 'assigned', 'in_progress', 'resolved', 'closed'];
 const STATUS_LABELS = {
@@ -204,6 +214,14 @@ export default function TrackGrievance() {
                                                 <span className={`badge ${priorityBadge} capitalize`}>
                                                     {complaint.priority}
                                                 </span>
+                                                <DeadlineTimer
+                                                    deadline={complaint.deadline}
+                                                    createdAt={complaint.created_at}
+                                                    priority={complaint.priority}
+                                                    status={complaint.status}
+                                                    resolvedAt={complaint.resolved_at}
+                                                    compact={true}
+                                                />
                                             </div>
                                             <h3 className="text-base font-bold mb-1 truncate" style={{ color: 'var(--navy)' }}>
                                                 {complaint.title || complaint.category}
@@ -238,6 +256,18 @@ export default function TrackGrievance() {
                                 {/* Expanded Detail */}
                                 {isExpanded && (
                                     <div className="border-t p-5" style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}>
+                                        {/* Statutory SLA Countdown Timer */}
+                                        <div className="gov-card p-4 mb-4" style={{ background: 'var(--bg-card)' }}>
+                                            <DeadlineTimer
+                                                deadline={complaint.deadline}
+                                                createdAt={complaint.created_at}
+                                                priority={complaint.priority}
+                                                status={complaint.status}
+                                                resolvedAt={complaint.resolved_at}
+                                                showProgressBar={true}
+                                            />
+                                        </div>
+
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                                             {/* Left Column: Timeline & Analysis */}
                                             <div className="space-y-4">
@@ -367,11 +397,28 @@ export default function TrackGrievance() {
                                                 {/* Attachments */}
                                                 {complaint.attachments && complaint.attachments.length > 0 && (
                                                     <div className="gov-card p-5">
-                                                        <h4 className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: 'var(--navy)' }}>Evidence Uploaded</h4>
+                                                        <h4 className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: 'var(--navy)' }}>Evidence Uploaded by You / संलग्न प्रमाण</h4>
                                                         <div className="flex gap-3 flex-wrap">
                                                             {complaint.attachments.map((img, idx) => (
                                                                 <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-gray-200 dark:border-theme hover:border-primary transition-all shadow-sm">
                                                                     <img src={getImageUrl(img)} alt="Evidence" className="w-20 h-20 object-cover hover:scale-105 transition-transform" />
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Official Resolution Proofs uploaded by Officer */}
+                                                {complaint.resolution_proof && complaint.resolution_proof.length > 0 && (
+                                                    <div className="gov-card p-5 border border-emerald-300 bg-emerald-50/30">
+                                                        <h4 className="text-[10px] font-bold tracking-widest uppercase mb-3 flex items-center gap-1.5 text-emerald-800">
+                                                            <CheckCircle size={12} className="text-emerald-600" />
+                                                            Officer Field Redressal Proof / समाधान प्रमाण
+                                                        </h4>
+                                                        <div className="flex gap-3 flex-wrap">
+                                                            {complaint.resolution_proof.map((img, idx) => (
+                                                                <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-emerald-300 shadow-sm hover:scale-105 transition-transform">
+                                                                    <img src={getImageUrl(img)} alt="Resolution Proof" className="w-20 h-20 object-cover" />
                                                                 </a>
                                                             ))}
                                                         </div>

@@ -55,9 +55,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     import logging, traceback
     logging.error(f"Unhandled server error on {request.method} {request.url}: {exc}")
     traceback.print_exc()
+    origin = request.headers.get("origin") or "*"
     return JSONResponse(
         status_code=500,
         content={"detail": f"Internal Server Error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        },
     )
 
 # ── Static uploads (local disk — Phase 4 will swap to S3) ────────────────────

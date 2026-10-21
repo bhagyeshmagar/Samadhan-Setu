@@ -185,7 +185,46 @@ export const departmentAPI = {
             body: formData,
         });
 
-        if (!response.ok) throw new Error('Failed to upload proof');
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to upload proof');
+        }
+        return response.json();
+    },
+
+    uploadInspectionProof: async (taskId, files) => {
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        files.forEach(file => formData.append('files', file));
+
+        const response = await fetch(`${API_BASE_URL}/api/department/tasks/${taskId}/inspection-proof`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to upload inspection proof');
+        }
+        return response.json();
+    },
+
+    uploadResolutionProof: async (taskId, files) => {
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        files.forEach(file => formData.append('files', file));
+
+        const response = await fetch(`${API_BASE_URL}/api/department/tasks/${taskId}/resolution-proof`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to upload completion proof');
+        }
         return response.json();
     },
 };

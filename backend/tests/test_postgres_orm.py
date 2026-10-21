@@ -222,9 +222,9 @@ async def test_repositories_flow(db_session):
     assert dept is not None
     assert dept.code == "dept_roads"
 
-    # 3. Resolve SLA Hours
+    # 3. Resolve SLA Hours (Statutory: Critical=72h, High=120h, Medium=168h, Low=504h)
     sla_hours = await dept_repo.get_sla_hours("Roads & Transport", "high")
-    assert sla_hours == 24
+    assert sla_hours == 120
 
     # 4. Create Complaint via Repo
     complaint = await complaint_repo.create(

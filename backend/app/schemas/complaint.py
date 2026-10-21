@@ -22,7 +22,7 @@ class ComplaintCreate(ComplaintBase):
 
 class ComplaintUpdate(BaseModel):
     """Schema for updating a complaint (officer/admin)."""
-    status: Optional[ComplaintStatus] = None
+    status: Optional[str] = None
     remarks: Optional[str] = None
     notes: Optional[str] = None
     assigned_officer_id: Optional[str] = None
