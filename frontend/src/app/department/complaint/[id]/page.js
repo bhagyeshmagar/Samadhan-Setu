@@ -2,14 +2,37 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { useAuth } from '@/lib/auth';
 import { departmentAPI, complaintsAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
 import {
     MapPin, Clock, User, Phone, Mail, FileText, Upload, CheckCircle,
-    AlertTriangle, ArrowLeft, Loader2, ImagePlus, X, MessageSquare,
-    Calendar, Activity, ChevronRight, ShieldCheck, CheckCircle2
+    AlertTriangle, ArrowLeft, Loader2, ImagePlus, X,
+    Calendar, Activity, ChevronRight, CheckCircle2
 } from 'lucide-react';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const MAX_PROOF_FILES = 5;
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // backend limit is 5 MB
+
+// Values match the backend ComplaintStatus enum (lowercase / snake_case)
+const STATUS_OPTIONS = [
+    { value: 'submitted', label: 'Pending / प्रतीक्षारत' },
+    { value: 'assigned', label: 'Assigned / स्वीकृत' },
+    { value: 'in_progress', label: 'In Progress / प्रगति पर' },
+    { value: 'resolved', label: 'Resolved / समाधानित' },
+    { value: 'rejected', label: 'Rejected / निरस्त' },
+];
+
+// Backend stores keys like "citizen/abc.jpg" and serves them under /uploads
+const getImageUrl = (img) => {
+    const raw = typeof img === 'string' ? img : img?.path;
+    if (!raw) return '';
+    if (raw.startsWith('http')) return raw;
+    if (raw.startsWith('/uploads/')) return `${API_BASE}${raw}`;
+    return `${API_BASE}/uploads/${raw.replace(/^\//, '')}`;
+};
 
 export default function HandleComplaint() {
     const params = useParams();
@@ -19,6 +42,7 @@ export default function HandleComplaint() {
     const [complaint, setComplaint] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [now] = useState(() => Date.now());
 
     // Form state
     const [remarks, setRemarks] = useState('');
@@ -26,17 +50,6 @@ export default function HandleComplaint() {
     const [proofImages, setProofImages] = useState([]);
     const [submitting, setSubmitting] = useState(false);
     const [success, setSuccess] = useState(false);
-
-    // Helper to get correct image URL
-    const getImageUrl = (img) => {
-        if (!img) return '';
-        if (typeof img === 'string') {
-            if (img.startsWith('http')) return img;
-            return `http://127.0.0.1:8000${img}`;
-        }
-        if (img.path) return `http://127.0.0.1:8000${img.path}`;
-        return '';
-    };
 
     const complaintId = params?.id;
 
@@ -51,7 +64,7 @@ export default function HandleComplaint() {
             const data = await complaintsAPI.getById(complaintId);
             setComplaint(data);
             setStatus(data.status);
-        } catch (err) {
+        } catch {
             setError('Failed to load complaint data');
         } finally {
             setLoading(false);
@@ -66,26 +79,28 @@ export default function HandleComplaint() {
 
     const handleProofUpload = (e) => {
         const files = Array.from(e.target.files);
-        if (files.length + proofImages.length > 5) {
-            setError('Maximum 5 proof images allowed');
+        if (files.length + proofImages.length > MAX_PROOF_FILES) {
+            setError(`Maximum ${MAX_PROOF_FILES} proof images allowed`);
             return;
         }
+        setError('');
 
-        files.forEach(file => {
-            if (file.size > 10 * 1024 * 1024) {
-                setError('Each file must be less than 10MB');
+        files.forEach((file) => {
+            if (file.size > MAX_FILE_BYTES) {
+                setError('Each file must be less than 5MB');
                 return;
             }
             const reader = new FileReader();
-            reader.onload = (e) => {
-                setProofImages(prev => [...prev, { url: e.target.result, file, name: file.name }]);
+            reader.onload = (ev) => {
+                setProofImages((prev) => [...prev, { url: ev.target.result, file, name: file.name }]);
             };
             reader.readAsDataURL(file);
         });
+        e.target.value = '';
     };
 
     const removeProof = (index) => {
-        setProofImages(prev => prev.filter((_, i) => i !== index));
+        setProofImages((prev) => prev.filter((_, i) => i !== index));
     };
 
     const handleResolve = async () => {
@@ -98,15 +113,16 @@ export default function HandleComplaint() {
         setError('');
 
         try {
-            await departmentAPI.updateStatus(complaintId, {
-                status: 'Resolved',
-                remarks: remarks
+            if (proofImages.length > 0) {
+                await departmentAPI.uploadProof(complaintId, proofImages.map((i) => i.file));
+            }
+            await departmentAPI.updateComplaintStatus(complaintId, {
+                status: 'resolved',
+                remarks,
             });
 
             setSuccess(true);
-            setTimeout(() => {
-                router.push('/department');
-            }, 2000);
+            setTimeout(() => router.push('/department'), 2000);
         } catch (err) {
             setError(err.message || 'Failed to update resolution status');
         } finally {
@@ -115,15 +131,16 @@ export default function HandleComplaint() {
     };
 
     const handleStatusUpdate = async (newStatus) => {
+        setError('');
         try {
-            await departmentAPI.updateStatus(complaintId, {
-                status: newStatus === 'IN_PROGRESS' ? 'In Progress' : newStatus,
-                remarks: `Status updated to ${newStatus}`
+            await departmentAPI.updateComplaintStatus(complaintId, {
+                status: newStatus,
+                remarks: `Status updated to ${newStatus.replace('_', ' ')}`,
             });
             setStatus(newStatus);
             fetchComplaint();
         } catch (err) {
-            setError('Failed to update status');
+            setError(err.message || 'Failed to update status');
         }
     };
 
@@ -166,6 +183,19 @@ export default function HandleComplaint() {
         );
     }
 
+    const priority = (complaint.priority || '').toLowerCase();
+    const history = [...(complaint.status_history || [])].slice(-4).reverse();
+
+    // SLA timing (computed from real created_at / deadline)
+    let slaHealth = null;
+    if (complaint.deadline && complaint.created_at) {
+        const total = new Date(complaint.deadline) - new Date(complaint.created_at);
+        const elapsed = now - new Date(complaint.created_at);
+        if (total > 0) {
+            slaHealth = Math.max(0, Math.min(100, Math.round((1 - elapsed / total) * 100)));
+        }
+    }
+
     return (
         <div className="max-w-6xl mx-auto py-6">
             {/* ── Breadcrumb & Header ── */}
@@ -197,9 +227,7 @@ export default function HandleComplaint() {
 
                 {/* SLA Timer */}
                 {complaint.deadline && (() => {
-                    const now = new Date();
-                    const deadline = new Date(complaint.deadline);
-                    const diff = deadline - now;
+                    const diff = new Date(complaint.deadline) - now;
                     const isOverdue = diff < 0;
                     const absDiff = Math.abs(diff);
                     const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
@@ -208,8 +236,8 @@ export default function HandleComplaint() {
 
                     return (
                         <div className={`flex items-center gap-3 px-4 py-2.5 rounded border ${
-                            isOverdue 
-                                ? 'bg-red-50 border-red-300 text-red-900' 
+                            isOverdue
+                                ? 'bg-red-50 border-red-300 text-red-900'
                                 : 'bg-blue-50 border-blue-200 text-blue-900'
                         }`}>
                             <Clock className={isOverdue ? 'text-red-600 animate-pulse' : 'text-blue-700'} size={20} />
@@ -237,13 +265,13 @@ export default function HandleComplaint() {
                             </span>
                             <div className="flex items-center gap-2">
                                 <Badge status={complaint.status} />
-                                {complaint.priority && (
+                                {priority && (
                                     <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                                        complaint.priority === 'HIGH' ? 'bg-red-100 text-red-800' :
-                                        complaint.priority === 'MEDIUM' ? 'bg-amber-100 text-amber-800' :
+                                        priority === 'high' || priority === 'critical' ? 'bg-red-100 text-red-800' :
+                                        priority === 'medium' ? 'bg-amber-100 text-amber-800' :
                                         'bg-gray-100 text-gray-700'
                                     }`}>
-                                        AI Priority: {complaint.priority}
+                                        AI Priority: {priority}
                                     </span>
                                 )}
                             </div>
@@ -303,11 +331,13 @@ export default function HandleComplaint() {
                                                 rel="noopener noreferrer"
                                                 className="block"
                                             >
-                                                <img
+                                                <Image
                                                     src={getImageUrl(img)}
                                                     alt={`Evidence ${idx + 1}`}
+                                                    width={112}
+                                                    height={112}
+                                                    unoptimized
                                                     className="w-28 h-28 object-cover rounded border border-gray-300 hover:border-(--navy) shadow-sm transition hover:scale-105"
-                                                    onError={(e) => { e.target.src = 'https://via.placeholder.com/128?text=Evidence'; }}
                                                 />
                                             </a>
                                         ))}
@@ -337,7 +367,7 @@ export default function HandleComplaint() {
                                     onChange={(e) => setRemarks(e.target.value)}
                                     className="gov-input w-full resize-none p-3 text-xs"
                                     placeholder="Enter detailed report on repairs conducted, materials utilized, and on-site resolution verification..."
-                                    rows="4"
+                                    rows={4}
                                 />
                                 <div className="mt-2 flex gap-2 flex-wrap">
                                     <button
@@ -365,7 +395,7 @@ export default function HandleComplaint() {
                                 <div className="border-2 border-dashed border-gray-300 rounded p-5 hover:bg-gray-50 transition cursor-pointer text-center">
                                     <input
                                         type="file"
-                                        accept="image/*"
+                                        accept="image/jpeg,image/png,image/webp"
                                         multiple
                                         onChange={handleProofUpload}
                                         className="hidden"
@@ -373,8 +403,8 @@ export default function HandleComplaint() {
                                     />
                                     <label htmlFor="proof-upload" className="cursor-pointer flex flex-col items-center">
                                         <Upload className="text-gray-400 mb-1.5" size={32} />
-                                        <span className="text-xs font-bold text-[var(--navy)]">Attach On-Site Proof Images</span>
-                                        <span className="text-[10px] text-gray-400 mt-0.5">PNG, JPG up to 10MB each (max 5 files)</span>
+                                        <span className="text-xs font-bold text-(--navy)">Attach On-Site Proof Images</span>
+                                        <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WEBP up to 5MB each (max {MAX_PROOF_FILES} files)</span>
                                     </label>
                                 </div>
 
@@ -382,9 +412,12 @@ export default function HandleComplaint() {
                                     <div className="flex gap-2.5 mt-3 flex-wrap">
                                         {proofImages.map((img, idx) => (
                                             <div key={idx} className="relative group">
-                                                <img
+                                                <Image
                                                     src={img.url}
                                                     alt={`Proof ${idx + 1}`}
+                                                    width={80}
+                                                    height={80}
+                                                    unoptimized
                                                     className="w-20 h-20 object-cover rounded border border-green-300 shadow-sm"
                                                 />
                                                 <button
@@ -415,7 +448,7 @@ export default function HandleComplaint() {
                             <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
                                 <button
                                     type="button"
-                                    onClick={() => handleStatusUpdate('IN_PROGRESS')}
+                                    onClick={() => handleStatusUpdate('in_progress')}
                                     className="text-xs font-bold text-gray-600 hover:text-gray-900 underline transition"
                                 >
                                     Save Progress / प्रगति दर्ज करें
@@ -457,23 +490,29 @@ export default function HandleComplaint() {
                                     onChange={(e) => handleStatusUpdate(e.target.value)}
                                     className="gov-input w-full text-xs font-semibold py-1.5"
                                 >
-                                    <option value="Pending">Pending / प्रतीक्षारत</option>
-                                    <option value="Assigned">Assigned / स्वीकृत</option>
-                                    <option value="In Progress">In Progress / प्रगति पर</option>
-                                    <option value="Resolved">Resolved / समाधानित</option>
-                                    <option value="Rejected">Rejected / निरस्त</option>
+                                    {STATUS_OPTIONS.map((o) => (
+                                        <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
                                 </select>
                             </div>
 
-                            <div className="pt-2">
-                                <div className="flex justify-between text-[11px] mb-1">
-                                    <span className="text-gray-500 font-semibold">SLA Health</span>
-                                    <span className="font-bold text-[var(--navy)]">75%</span>
+                            {slaHealth !== null && (
+                                <div className="pt-2">
+                                    <div className="flex justify-between text-[11px] mb-1">
+                                        <span className="text-gray-500 font-semibold">SLA Time Remaining</span>
+                                        <span className="font-bold text-(--navy)">{slaHealth}%</span>
+                                    </div>
+                                    <div className="priority-bar">
+                                        <div
+                                            className="priority-bar-fill"
+                                            style={{
+                                                width: `${slaHealth}%`,
+                                                background: slaHealth > 50 ? 'var(--india-green)' : slaHealth > 20 ? 'var(--saffron)' : 'var(--status-critical)',
+                                            }}
+                                        />
+                                    </div>
                                 </div>
-                                <div className="priority-bar">
-                                    <div className="priority-bar-fill" style={{ width: '75%', background: 'var(--india-green)' }} />
-                                </div>
-                            </div>
+                            )}
                         </div>
                     </div>
 
@@ -515,12 +554,12 @@ export default function HandleComplaint() {
                             </span>
                         </div>
                         <div className="p-4 space-y-3">
-                            {complaint.status_logs?.slice(-4).reverse().map((log, idx) => (
-                                <div key={idx} className="flex gap-2.5 text-xs">
-                                    <div className="w-2 h-2 mt-1.5 rounded-full bg-[var(--navy)] flex-shrink-0" />
+                            {history.map((log, idx) => (
+                                <div key={log.id || idx} className="flex gap-2.5 text-xs">
+                                    <div className="w-2 h-2 mt-1.5 rounded-full bg-(--navy) shrink-0" />
                                     <div>
                                         <p className="font-semibold text-gray-900">
-                                            Stage: <Badge status={log.status} size="small" />
+                                            Stage: <Badge status={log.to_status} size="small" />
                                         </p>
                                         {log.remarks && <p className="text-gray-600 text-[11px] mt-0.5">{log.remarks}</p>}
                                         <p className="text-[10px] text-gray-400 mt-0.5">
@@ -529,7 +568,7 @@ export default function HandleComplaint() {
                                     </div>
                                 </div>
                             ))}
-                            {(!complaint.status_logs || complaint.status_logs.length === 0) && (
+                            {history.length === 0 && (
                                 <p className="text-xs text-gray-400 text-center py-2">No preceding action logged.</p>
                             )}
                         </div>

@@ -70,8 +70,10 @@ dist/
 *.sqlite3
 *.db
 backend/samadhan_setu.db
-backend/uploads/
-uploads/
+backend/uploads/*
+!backend/uploads/.gitkeep
+uploads/*
+!uploads/.gitkeep
 backend/error.txt
 backend/output.txt
 
