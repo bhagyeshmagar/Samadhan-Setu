@@ -1,102 +1,103 @@
-# Samadhan Setu
+# Samadhan Setu (समाधान सेतु)
 
-> **AI-Powered Grievance Redressal Platform for Public Governance**
+> **AI-Powered Civic Grievance Redressal & Governance Platform**
 
-An intelligent, governance-first complaint management system that uses AI to assist — not replace — human decision-making. Officers lead; AI suggests.
+An intelligent, governance-first civic complaint management ecosystem that leverages multi-modal AI to assist — never replace — human decision-making. Officers lead; AI suggests.
 
 ---
 
 ## Overview
 
-Samadhan Setu is a full-stack civic grievance redressal platform that combines a robust workflow engine with an AI intelligence layer to improve complaint triage, routing, duplicate detection, and priority scoring across municipal departments.
+**Samadhan Setu** is an enterprise-grade civic grievance redressal and decision-support platform designed for municipal corporations and public administration bodies. It combines an asynchronous workflow engine, role-based access control, and an explainable AI pipeline to streamline complaint ingestion, semantic deduplication, multi-modal severity grading, automated department routing, and SLA risk forecasting.
 
-**Core Philosophy:** AI must suggest, officers must decide. Every AI-generated suggestion is advisory, auditable, and overridable.
+**Core Philosophy:** *AI advises, officers decide.* Every AI-generated prediction (classification, severity, routing, and priority) is transparent, fully explainable, auditable, and overridable by authorized personnel.
 
 ---
 
-## Architecture
+## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    FRONTEND (Next.js 14)                     │
-│  Citizen Portal │ Officer Dashboard │ Admin Oversight Panel  │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ REST API
-┌───────────────────────────┴─────────────────────────────────┐
-│                    BACKEND (FastAPI)                        │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │ Auth Module  │  │ Workflow     │  │ AI Pipeline        │ │
-│  │ JWT + RBAC   │  │ State Machine│  │ (Background Tasks) │ │
-│  └─────────────┘  └──────────────┘  └────────────────────┘  │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐  │
-│  │ Task Router  │  │ Audit Logger │  │ Priority Engine    │ │
-│  │ Multi-dept   │  │ Full history │  │ 6-factor formula   │ │
-│  └─────────────┘  └──────────────┘  └────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐│
-│  │                AI Intelligence Layer                      ││
-│  │  DistilBERT │ SBERT │ YOLOv8 │ Fusion │ Routing Engine  ││
-│  └──────────────────────────────────────────────────────────┘│
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-┌───────────────────────────┴─────────────────────────────────┐
-│                 Firebase Firestore (Database)                 │
-│  complaints │ tasks │ users │ audit_logs │ ai_results        │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                   FRONTEND (Next.js 16 • React 19)                    │
+│   Citizen Portal   │   Officer Workflows   │   Admin Oversight Suite   │
+│   • Lodge / Track  │   • AI Task Queue     │   • Department / Officer  │
+│   • GIS Issues Map │   • Status Transitions│     CRUD Management       │
+│   • Community Feed │   • Proof Uploads     │   • Model Health Telemetry│
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ REST API / JWT Bearer
+┌───────────────────────────────────┴────────────────────────────────────┐
+│                       BACKEND (FastAPI • Python 3.11+)                 │
+│  ┌───────────────────────┐  ┌─────────────────┐  ┌──────────────────┐  │
+│  │ Authentication & RBAC │  │ Workflow State  │  │ Async Repository │  │
+│  │ JWT + Argon2 Hashing  │  │ Machine (FSM)   │  │ Layer (SQLAlchemy│  │
+│  └───────────────────────┘  └─────────────────┘  └──────────────────┘  │
+│  ┌───────────────────────┐  ┌─────────────────┐  ┌──────────────────┐  │
+│  │ Multi-Dept Router     │  │ Audit Logger    │  │ 6-Factor Priority│  │
+│  │ Parallel Sub-Tasks    │  │ Immutable Trail │  │ Engine           │  │
+│  └───────────────────────┘  └─────────────────┘  └──────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                     AI Intelligence Pipeline                     │  │
+│  │  DistilBERT (Zero-Shot) │ SBERT (MiniLM Embeddings) │ YOLOv8n    │  │
+│  │  Multi-Modal Fusion     │ Hotspot Clustering       │ SLA Risk    │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ AsyncPG / SQLAlchemy 2.0
+┌───────────────────────────────────┴────────────────────────────────────┐
+│                       DATABASE & STORAGE LAYER                         │
+│  PostgreSQL (Relational Storage)       │ Alembic (Schema Migrations)   │
+│  • Users, Departments, Officers        │ • Version-controlled schema   │
+│  • Complaints, Tasks, Audit Trails     │ • Safe automated upgrades     │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Features
+## Key Features
 
-### Phase 1 — Workflow Engine
+### 1. Citizen Portal
+- **Streamlined Grievance Lodging**: Dynamic category prediction, ward selection, geolocation capture, and multi-image evidence uploads.
+- **Transparent Status Tracking**: Real-time lifecycle timeline (Submitted → Verified → Assigned → In Progress → Resolved → Closed).
+- **Resolution Verification & Feedback**: Citizens rate officer resolutions (1-5 stars) and submit remarks before closure.
+- **Community Grievance Feed**: Public issue visibility with upvoting and category-based filtering to reduce duplicate submissions.
 
-- **Explicit State Machine**: Complaint lifecycle (Submitted → Verified → Assigned → In Progress → Resolved → Closed) with validated transitions
-- **Multi-Department Task Routing**: One complaint generates tasks for multiple departments based on text analysis
-- **Role-Based Access Control**: Citizens, Officers, and Admins with distinct permissions
-- **Full Audit Trail**: Every status change, assignment, and action is logged with actor, timestamp, and reason
-- **SLA Tracking**: Deadline estimation based on priority and category
-- **Citizen Transparency**: Status timeline with complete history visible to the complainant
+### 2. Department & Officer Workflows
+- **AI-Ranked Task Queue**: Officer tasks dynamically sorted by multi-factor composite priority, urgency, and SLA deadline.
+- **Resolution Proof Upload**: Officers can submit resolution notes and after-action photographic proof.
+- **Interactive Spatial GIS Map**: Geographic visualization of complaints with priority/category color-coding and ward boundaries.
 
-### Phase 2 — AI Intelligence Layer
+### 3. Administrative Control & Oversight
+- **Officer Management (CRUD)**: Create, view, search, update department assignments, and toggle officer active status.
+- **Department Management (CRUD)**: Full control over municipal departments, contact info, lead assignments, and safe deactivation rules.
+- **System Telemetry & AI Model Health**: Real-time monitoring of classifier fallbacks, inference latency, and officer override ratios.
+- **Geographic Hotspot Analytics**: Ward-level cluster detection for identifying chronic civic bottlenecks.
 
-- **DistilBERT Classification**: Zero-shot text classification for complaint categorization with confidence scoring (automatic rule-based fallback)
-- **SBERT Duplicate Detection**: Semantic similarity using `all-MiniLM-L6-v2` embeddings with advisory linking (officers approve merges)
-- **YOLOv8 Image Validation**: Object detection on evidence images with category-relevance scoring and visual severity estimation
-- **Multi-Modal Severity Fusion**: Combines text severity + image severity with adaptive weighting based on text length and image relevance
-- **6-Factor Priority Engine**: `0.30×Urgency + 0.30×Severity + 0.15×CrowdImpact + 0.10×SLARisk + 0.10×LocationCriticality + 0.05×History`
-  - Upvotes are bounded and do not control final priority
-  - "Critical" priority band (≥2.5) with 12-hour SLA
-  - Full explainability for every score
-- **AI-Assisted Routing**: Suggests department, officer assignment (least-loaded), and urgency band — all overridable
-- **SLA Risk Engine**: Real-time risk scoring from complaint age, deadline proximity, and department backlog
-- **Complaint Clustering**: Ward/category-based hotspot detection for systemic issue identification
-- **Officer AI Queue**: Tasks ranked by composite priority score with urgency/severity/SLA badges
-- **Admin Model Health**: Live dashboard showing model availability, fallback rate, latency, and override statistics
-- **Inference Logging**: Every AI pipeline run is logged for auditability and performance monitoring
-
-### Frontend
-
-- **Citizen Portal**: Complaint submission with auto-location, real-time AI classification preview, duplicate radar, image upload
-- **Citizen Tracker**: Status timeline, department task progress, AI insights panel (category confidence, urgency/severity, similar reports, priority score)
-- **Officer Dashboard**: Task management with status transitions, AI-Ranked Priority Queue toggle, urgency/SLA badges
-- **Admin Oversight**: System telemetry, category distribution, neural insights, model health monitoring, AI override statistics
-- **Dark/Light Mode**: Full theme support with responsive design
+### 4. AI Intelligence Layer
+- **Zero-Shot Categorization (DistilBERT/BART)**: Classifies unstructured grievance text into civic categories with confidence scoring.
+- **Semantic Duplicate Radar (SBERT)**: Vector embeddings (`all-MiniLM-L6-v2`) identify similar complaints to prevent duplicate investigations.
+- **Visual Evidence Inspection (YOLOv8)**: Detects civic hazards (potholes, garbage, water leaks, wiring) and evaluates image severity.
+- **Multi-Modal Severity Fusion**: Combines text urgency and visual evidence into a balanced, adaptive severity metric.
+- **6-Factor Priority Calculator**:
+  $$\text{Score} = 0.30U + 0.30S + 0.15C + 0.10R + 0.10L + 0.05H$$
+  *(Urgency, Severity, Bounded Crowd Impact, SLA Risk, Location Criticality, History).*
+  - **Bounded Crowd Impact**: Vote brigading cannot force an artificial Critical priority.
+  - **Explainability**: Complete factor breakdown visible to officers and admins.
+- **Automated Graceful Fallback**: Rule-based classifiers guarantee system continuity if machine learning models are offline or loading.
 
 ---
 
-## Tech Stack
+## Technology Stack
 
-| Layer | Technology |
-| ------- | ----------- |
-| Frontend | Next.js 14, React 18, Lucide Icons |
-| Backend | FastAPI, Python 3.11+ |
-| Database | Firebase Firestore |
-| Auth | JWT (python-jose) + Argon2 hashing |
-| AI: Classification | DistilBERT (zero-shot, HuggingFace Transformers) |
-| AI: Similarity | SBERT (all-MiniLM-L6-v2, sentence-transformers) |
-| AI: Vision | YOLOv8n (Ultralytics) |
-| AI: Priority | Custom 6-factor weighted formula |
-| Testing | pytest (82 tests across Phase 1 + Phase 2) |
+| Layer | Technology | Details |
+| --- | --- | --- |
+| **Frontend Framework** | **Next.js 16** (App Router) | High-performance React 19 server and client rendering |
+| **UI & Styling** | **Tailwind CSS v4** | Modern CSS variable styling, full light & dark theme support |
+| **Icons & Visuals** | **Lucide React** & **Leaflet** | Clean accessible icons and Leaflet GIS mapping |
+| **Backend API** | **FastAPI** (Python 3.11+) | Async ASGI web framework with OpenAPI / Swagger documentation |
+| **Database & ORM** | **PostgreSQL** + **SQLAlchemy 2.0** | Fully async database operations via `asyncpg` |
+| **Database Migrations**| **Alembic** | Versioned, auditable database schema migrations |
+| **Authentication** | **JWT** + **Argon2** | Stateless tokens with RBAC (Citizen, Officer, Admin) |
+| **AI: NLP** | **Transformers** & **Sentence-Transformers** | Zero-shot DistilBERT classification & SBERT duplicate detection |
+| **AI: Computer Vision**| **Ultralytics YOLOv8** | Evidence image inspection and civic hazard verification |
 
 ---
 
@@ -105,210 +106,212 @@ Samadhan Setu is a full-stack civic grievance redressal platform that combines a
 ```
 Samadhan-Setu/
 ├── backend/
+│   ├── alembic/                      # Database schema migration versions
 │   ├── app/
-│   │   ├── ai/
-│   │   │   ├── __init__.py           # AI module entry point
+│   │   ├── ai/                       # AI Pipeline Modules
 │   │   │   ├── distilbert_classifier.py  # Zero-shot classification
-│   │   │   ├── sbert_engine.py       # Embedding engine with caching
-│   │   │   ├── yolo_validator.py     # Image detection + relevance
-│   │   │   ├── text_intelligence.py  # Unified text analysis
-│   │   │   ├── fusion.py            # Multi-modal severity fusion
-│   │   │   ├── priority.py          # 6-factor priority calculator
-│   │   │   ├── classifier.py        # Rule-based fallback classifier
-│   │   │   └── text_processor.py    # Text cleaning utilities
-│   │   ├── models/
-│   │   │   ├── complaint.py          # Complaint model + state machine
-│   │   │   ├── task.py               # Task model + status
-│   │   │   ├── user.py              # User model + roles
-│   │   │   └── audit.py             # Audit log model
-│   │   ├── routers/
-│   │   │   ├── auth.py              # Login/register/profile
-│   │   │   ├── citizens.py          # Complaint CRUD + AI pipeline trigger
-│   │   │   ├── departments.py       # Officer task management
-│   │   │   ├── admin.py             # Admin operations
-│   │   │   ├── analytics.py         # Maps + summary endpoints
-│   │   │   ├── ai_insights.py       # Phase 2 AI endpoints (12 routes)
-│   │   │   └── assignments.py       # Task assignments
-│   │   ├── services/
-│   │   │   ├── ai_pipeline.py       # 9-step AI orchestrator
-│   │   │   ├── ai_routing.py        # Department + officer suggestions
-│   │   │   ├── similarity_service.py # SBERT duplicate detection + linking
-│   │   │   ├── image_analysis_service.py  # YOLO orchestration
-│   │   │   ├── task_router.py       # Multi-department detection
-│   │   │   ├── audit_service.py     # Audit logging
-│   │   │   ├── complaint_clustering.py   # Hotspot detection
-│   │   │   ├── state_machine.py     # Complaint state transitions
-│   │   │   └── task_state_machine.py # Task state transitions
-│   │   ├── schemas/
-│   │   │   ├── ai.py                # AI response schemas
-│   │   │   └── complaint.py         # Complaint schemas
-│   │   ├── auth.py                  # JWT + RBAC
-│   │   ├── config.py               # Settings + environment
-│   │   ├── database.py             # Firebase init
-│   │   └── main.py                 # FastAPI app
-│   ├── tests/
-│   │   ├── test_phase1.py          # 36 tests (workflow, state, priority)
-│   │   └── test_phase2.py          # 49 tests (AI, fusion, SBERT, YOLO)
-│   └── requirements.txt
+│   │   │   ├── sbert_engine.py           # SBERT embeddings & cache
+│   │   │   ├── yolo_validator.py         # YOLOv8 image detection
+│   │   │   ├── fusion.py                 # Multi-modal severity fusion
+│   │   │   ├── priority.py               # 6-factor priority engine
+│   │   │   └── classifier.py             # Rule-based fallback classifier
+│   │   ├── models/                   # SQLAlchemy 2.0 ORM Models
+│   │   │   ├── user.py                   # User & Role models
+│   │   │   ├── department.py             # Department model
+│   │   │   ├── complaint.py              # Complaint & ComplaintImage models
+│   │   │   ├── task.py                   # Department task & assignment models
+│   │   │   └── audit.py                  # Audit log model
+│   │   ├── repositories/             # Async Data Access Layer
+│   │   │   ├── user_repo.py              # User & Officer queries
+│   │   │   ├── department_repo.py        # Department queries
+│   │   │   └── complaint_repo.py         # Complaint & Task queries
+│   │   ├── routers/                  # API Endpoints
+│   │   │   ├── auth.py                   # Registration & JWT Login
+│   │   │   ├── citizens.py               # Complaint filing & tracking
+│   │   │   ├── departments.py            # Officer workflows
+│   │   │   ├── admin.py                  # Officer & Department CRUD, Stats
+│   │   │   ├── analytics.py              # Spatial GIS map & telemetry
+│   │   │   └── ai_insights.py            # Model health & explainability
+│   │   ├── schemas/                  # Pydantic v2 validation models
+│   │   ├── services/                 # Business logic & state machine
+│   │   ├── auth.py                   # Security, hashing & JWT helpers
+│   │   ├── config.py                 # Environment settings
+│   │   ├── database.py               # Async engine & session lifecycle
+│   │   └── main.py                   # FastAPI application initialization
+│   ├── tests/                        # Comprehensive test suite
+│   ├── alembic.ini                   # Alembic configuration
+│   └── requirements.txt              # Backend dependencies
 ├── frontend/
-│   └── src/
-│       ├── app/
-│       │   ├── citizen/             # Lodge + Track + Community pages
-│       │   ├── department/          # Officer dashboard
-│       │   └── admin/               # Admin oversight
-│       ├── components/              # Reusable UI components
-│       ├── hooks/                   # Custom React hooks
-│       └── lib/                     # API client + auth context
-└── PROJECT_DOCUMENTATION.txt
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── admin/                # Admin oversight, officers, departments, GIS map
+│   │   │   ├── citizen/              # Lodge, Track status, Community feed
+│   │   │   ├── department/           # Officer dashboard & task handling
+│   │   │   ├── login/                # Role-aware authentication
+│   │   │   └── layout.js             # Root shell & navigation
+│   │   ├── components/               # Navbar, ThemeToggle, IssueMap, Badges
+│   │   ├── hooks/                    # Custom hooks (e.g., useAIServices)
+│   │   └── lib/                      # API client, Auth, and Theme context
+│   ├── package.json
+│   └── postcss.config.mjs
+└── README.md
 ```
 
 ---
 
-## API Endpoints
+## API Overview
 
-### Auth
-
+### Authentication (`/api/auth`)
 | Method | Endpoint | Description |
-| -------- | ---------- | ------------- |
-| POST | `/api/auth/register` | Register new user |
-| POST | `/api/auth/login` | Login (returns JWT) |
-| GET | `/api/auth/me` | Get current user profile |
+| --- | --- | --- |
+| `POST` | `/api/auth/register` | Register citizen account |
+| `POST` | `/api/auth/login` | Authenticate and obtain JWT token |
+| `GET` | `/api/auth/me` | Fetch active user profile and role |
 
-### Citizens
-
+### Citizens (`/api/complaints`)
 | Method | Endpoint | Description |
-| -------- | ---------- | ------------- |
-| POST | `/api/complaints/` | Submit complaint (triggers AI pipeline) |
-| GET | `/api/complaints/my` | Get citizen's complaints |
-| GET | `/api/complaints/{id}` | Get complaint detail + tasks + history |
-| POST | `/api/complaints/{id}/upload` | Upload evidence images |
+| --- | --- | --- |
+| `POST` | `/api/complaints/` | Lodge grievance and initiate async AI pipeline |
+| `GET` | `/api/complaints/my` | Retrieve grievances lodged by current citizen |
+| `GET` | `/api/complaints/{id}` | Detailed complaint history, sub-tasks, and audit trail |
+| `POST` | `/api/complaints/{id}/upload` | Upload evidence images |
+| `POST` | `/api/complaints/{id}/feedback` | Submit resolution satisfaction rating & remarks |
+| `GET` | `/api/complaints/feed/public` | Public community grievance feed |
+| `POST` | `/api/complaints/{id}/upvote` | Upvote a public grievance |
 
-### Officers (Department)
-
+### Department Officers (`/api/department`)
 | Method | Endpoint | Description |
-| -------- | ---------- | ------------- |
-| GET | `/api/department/tasks` | Get department tasks |
-| PATCH | `/api/department/tasks/{id}/status` | Update task status |
-| GET | `/api/department/stats` | Department statistics |
+| --- | --- | --- |
+| `GET` | `/api/department/tasks` | Fetch department tasks with status filtering |
+| `PATCH`| `/api/department/tasks/{id}/status` | Transition task status (Assigned → In Progress → Completed) |
+| `GET` | `/api/department/dashboard` | Officer dashboard KPIs and workload metrics |
 
-### AI Insights (Phase 2)
-
+### Admin & Operations (`/api/admin`)
 | Method | Endpoint | Description |
-| -------- | ---------- | ------------- |
-| GET | `/api/ai/complaint/{id}/summary` | Full AI analysis summary |
-| POST | `/api/ai/complaint/{id}/rerun` | Re-run AI pipeline |
-| GET | `/api/ai/complaint/{id}/similar` | Similar complaints + links |
-| GET | `/api/ai/complaint/{id}/cluster` | Cluster membership |
-| GET | `/api/ai/complaint/{id}/priority-explanation` | Priority score breakdown |
-| GET | `/api/ai/complaint/{id}/sla-risk` | SLA risk assessment |
-| GET | `/api/ai/complaint/{id}/image-analysis` | YOLO image results |
-| GET | `/api/ai/complaint/{id}/routing` | AI routing suggestion |
-| POST | `/api/ai/complaint/{id}/routing/override` | Officer override |
-| GET | `/api/ai/officer/queue` | AI-ranked task queue |
-| GET | `/api/ai/admin/model-health` | Model availability metrics |
-| GET | `/api/ai/admin/hotspots` | Complaint hotspots |
-| GET | `/api/ai/admin/override-stats` | Override statistics |
+| --- | --- | --- |
+| `GET` | `/api/admin/stats` | City-wide performance metrics and category breakdowns |
+| `GET` | `/api/admin/officers` | List all department officers with assignment counts |
+| `POST` | `/api/admin/officers` | Register a new officer account |
+| `PUT` | `/api/admin/officers/{id}` | Update officer details or department assignment |
+| `DELETE`| `/api/admin/officers/{id}` | Deactivate or remove an officer |
+| `GET` | `/api/admin/departments` | List municipal departments |
+| `POST` | `/api/admin/departments` | Create a municipal department |
+| `PUT` | `/api/admin/departments/{id}` | Update department details & contact information |
+| `DELETE`| `/api/admin/departments/{id}` | Soft-deactivate an unused department |
 
-### Admin
-
+### AI Intelligence & Telemetry (`/api/ai`)
 | Method | Endpoint | Description |
-| -------- | ---------- | ------------- |
-| GET | `/api/admin/stats` | System-wide statistics |
-| GET | `/api/admin/departments` | List departments |
-| POST | `/api/admin/departments` | Create department |
+| --- | --- | --- |
+| `GET` | `/api/ai/complaint/{id}/summary` | Comprehensive AI inference report |
+| `GET` | `/api/ai/complaint/{id}/similar` | SBERT semantic duplicate matches |
+| `GET` | `/api/ai/complaint/{id}/priority-explanation` | Exact breakdown of 6-factor priority calculation |
+| `GET` | `/api/ai/officer/queue` | Dynamically prioritized task queue for officers |
+| `GET` | `/api/ai/admin/model-health` | Machine learning model status and fallback telemetry |
+| `GET` | `/api/ai/admin/override-stats` | AI decision override frequency and auditing |
 
 ---
 
-## Setup
+## Installation & Setup
 
 ### Prerequisites
+- **Python 3.11+**
+- **Node.js 18+** & **npm**
+- **PostgreSQL** instance (or SQLite for local development)
 
-- Python 3.11+
-- Node.js 18+
-- Firebase project with Firestore enabled
-- Firebase service account JSON key
+---
 
 ### Backend Setup
 
-```bash
-cd backend
-pip install -r requirements.txt
+1. **Navigate to the backend directory and activate a virtual environment:**
+   ```bash
+   cd backend
+   python -m venv venv
+   # On Windows:
+   venv\Scripts\activate
+   # On Linux/macOS:
+   source venv/bin/activate
+   ```
 
-# Environment variables (.env)
-# FIREBASE_CREDENTIALS_PATH=path/to/serviceAccountKey.json
-# SECRET_KEY=your-secret-key-change-in-production
-# CLASSIFICATION_MODEL_NAME=facebook/bart-large-mnli
-# SBERT_MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
-# SIMILARITY_THRESHOLD=0.75
-# EMBEDDING_BATCH_SIZE=32
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-# Run backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+3. **Configure Environment Variables:**
+   Create a `.env` file in the `backend/` directory:
+   ```env
+   DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/samadhan_setu
+   SECRET_KEY=your-secure-random-secret-key
+   ACCESS_TOKEN_EXPIRE_MINUTES=1440
+   ENVIRONMENT=development
+   ```
+
+4. **Run Database Migrations:**
+   ```bash
+   alembic upgrade head
+   ```
+
+5. **Start the FastAPI Server:**
+   ```bash
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   ```
+   Interactive Swagger documentation will be available at `http://127.0.0.1:8000/docs`.
+
+---
 
 ### Frontend Setup
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+1. **Navigate to the frontend directory:**
+   ```bash
+   cd frontend
+   ```
 
-### Running Tests
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
+3. **Configure Environment Variables:**
+   Create a `.env.local` file:
+   ```env
+   NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+   ```
+
+4. **Launch the Development Server:**
+   ```bash
+   npm run dev
+   ```
+   Access the web application at `http://localhost:3000`.
+
+---
+
+## Running Automated Tests
+
+Run backend unit and integration tests:
 ```bash
 cd backend
 python -m pytest tests/ -v
 ```
 
----
-
-## Priority Formula
-
-```
-Score = 0.30 × Urgency(1-3)
-      + 0.30 × Severity(1-3)
-      + 0.15 × CrowdImpact(1-3, bounded)
-      + 0.10 × SLARisk(1-3)
-      + 0.10 × LocationCriticality(1-3)
-      + 0.05 × History(1-3)
-
-Priority Bands:
-  Critical (≥2.5) → 12h SLA
-  High     (≥2.0) → 24h SLA
-  Medium   (≥1.5) → 72h SLA
-  Low      (<1.5) → 168h SLA (7 days)
+Validate frontend code quality and production build:
+```bash
+cd frontend
+npm run lint
+npm run build
 ```
 
-**Crowd Impact is bounded.** Upvotes contribute logarithmically (capped at 1.5). Ward density and semantic similarity count provide additional bounded contributions. No vote brigading can force a Critical priority.
-
 ---
 
-## AI Fallback Strategy
+## Security & Reliability Standards
 
-Every AI model is designed to degrade gracefully:
-
-| Model | Primary | Fallback |
-| ------- | --------- | ---------- |
-| DistilBERT | Zero-shot classification | Keyword-based rule engine |
-| SBERT | Semantic embeddings | Jaccard keyword similarity |
-| YOLOv8 | Object detection | Skipped (image analysis unavailable) |
-| Fusion | Text + Image severity | Text-only severity |
-
-All fallbacks are logged. Officers can see whether a result came from ML or rule-based fallback.
-
----
-
-## Security Notes
-
-- `SECRET_KEY` in `config.py` is for development only. **Rotate in production.**
-- All passwords are hashed with Argon2.
-- JWT tokens expire after configured `ACCESS_TOKEN_EXPIRE_MINUTES`.
-- File uploads are validated for size (5MB max) and type.
-- AI model inference runs in background tasks to prevent request timeout.
+- **Department-Scoped Authorization**: Officers can only view and update tasks assigned to their respective department.
+- **Cryptographic Password Security**: Passwords hashed using Argon2 with automated salt generation.
+- **Strict Hydration & SSR Safety**: State synchronization handled using React 19 `useSyncExternalStore` for flicker-free rendering.
+- **Rate-Limiting & Upload Guards**: File upload checks strictly limit attachment extensions and enforce maximum payload sizes.
+- **Explainable Audit Logging**: Changes to complaint statuses and task assignments are recorded with actor metadata and timestamps.
 
 ---
 
 ## License
 
-This project is developed as an AI-powered grievance redressal platform for public governance improvement.
+This project is developed for civic governance enhancement and public service grievance redressal.
