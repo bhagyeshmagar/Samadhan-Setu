@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { useRouter, usePathname } from 'next/navigation';
 import { Menu, X, User, LogOut, ChevronDown } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+
+const emptySubscribe = () => () => {};
 
 /* ── Ashoka Pillar SVG (simplified line-art) ── */
 function AshokaPillar({ size = 36 }) {
@@ -46,26 +48,39 @@ const NAV_LINKS = {
         { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
     ],
     admin: [
-        { href: '/admin',     label: 'Oversight', labelHi: 'निगरानी' },
-        { href: '/admin/map', label: 'Districts',  labelHi: 'जिले' },
+        { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
+        { href: '/admin/officers',     label: 'Officers',     labelHi: 'अधिकारी' },
+        { href: '/admin/departments',  label: 'Departments',  labelHi: 'विभाग' },
+        { href: '/admin/map',          label: 'Districts',    labelHi: 'जिले' },
     ],
 };
+
+/* ── Skeleton header shown before hydration ── */
+function HeaderShell({ children }) {
+    return (
+        <header style={{ background: 'var(--bg-header)' }}>
+            {/* Tricolor stripe */}
+            <div className="tricolor-bar" role="presentation" />
+            {children}
+        </header>
+    );
+}
 
 export default function Navbar() {
     const { user, logout } = useAuth();
     const router = useRouter();
     const pathname = usePathname();
+    const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
     const [mobileOpen, setMobileOpen] = useState(false);
-    const [mounted, setMounted] = useState(false);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
+    const [prevPathname, setPrevPathname] = useState(pathname);
 
-    useEffect(() => { setMounted(true); }, []);
-
-    // Close menus on route change
-    useEffect(() => {
+    // Close menus on route change without triggering cascading renders in effect
+    if (pathname !== prevPathname) {
+        setPrevPathname(pathname);
         setMobileOpen(false);
         setUserMenuOpen(false);
-    }, [pathname]);
+    }
 
     const handleLogout = () => {
         logout();
@@ -87,19 +102,10 @@ export default function Navbar() {
     };
     const roleBadge = user ? (roleBadgeStyle[user.role] || roleBadgeStyle.citizen) : null;
 
-    /* ── Skeleton header shown before hydration ── */
-    const HeaderShell = ({ children }) => (
-        <header style={{ background: 'var(--bg-header)' }}>
-            {/* Tricolor stripe */}
-            <div className="tricolor-bar" role="presentation" />
-            {children}
-        </header>
-    );
-
     if (!mounted) {
         return (
             <HeaderShell>
-                <div className="max-w-[1400px] mx-auto px-4 md:px-8 flex items-center justify-between h-14">
+                <div className="max-w-350 mx-auto px-4 md:px-8 flex items-center justify-between h-14">
                     <BrandLogo />
                 </div>
             </HeaderShell>
@@ -109,11 +115,11 @@ export default function Navbar() {
     return (
         <HeaderShell>
             {/* ── Row 1: Brand + User ── */}
-            <div className="max-w-[1400px] mx-auto px-4 md:px-8">
+            <div className="max-w-350 mx-auto px-4 md:px-8">
                 <div className="flex items-center justify-between h-14 gap-4">
 
                     {/* Brand */}
-                    <Link href="/" className="flex-shrink-0">
+                    <Link href="/" className="shrink-0">
                         <BrandLogo />
                     </Link>
 
@@ -134,12 +140,12 @@ export default function Navbar() {
                     </nav>
 
                     {/* Desktop: User actions */}
-                    <div className="hidden md:flex items-center gap-3 flex-shrink-0">
+                    <div className="hidden md:flex items-center gap-3 shrink-0">
                         {user ? (
                             <div className="relative">
                                 <button
                                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-[var(--navy-xlight)] transition-colors"
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-(--navy-xlight) transition-colors"
                                     aria-expanded={userMenuOpen}
                                     aria-haspopup="true"
                                 >
@@ -152,13 +158,13 @@ export default function Navbar() {
                                             {roleBadge.label}
                                         </span>
                                     )}
-                                    <span className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
-                                        <User size={14} className="text-[var(--text-muted)]" />
+                                    <span className="flex items-center gap-1.5 text-sm font-semibold text-(--text-primary)">
+                                        <User size={14} className="text-(--text-muted)" />
                                         {user.name?.split(' ')[0]}
                                     </span>
                                     <ChevronDown
                                         size={13}
-                                        className={`text-[var(--text-muted)] transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
+                                        className={`text-(--text-muted) transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
                                     />
                                 </button>
 
@@ -169,8 +175,8 @@ export default function Navbar() {
                                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                                     >
                                         <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
-                                            <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{user.name}</p>
-                                            <p className="text-[10px] text-[var(--text-muted)] truncate">{user.email}</p>
+                                            <p className="text-xs font-semibold text-(--text-primary) truncate">{user.name}</p>
+                                            <p className="text-[10px] text-(--text-muted) truncate">{user.email}</p>
                                         </div>
                                         <button
                                             onClick={handleLogout}
@@ -194,7 +200,7 @@ export default function Navbar() {
 
                     {/* Mobile hamburger */}
                     <button
-                        className="md:hidden p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-section)] transition-colors"
+                        className="md:hidden p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
                         onClick={() => setMobileOpen(!mobileOpen)}
                         aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
                         aria-expanded={mobileOpen}
@@ -218,15 +224,15 @@ export default function Navbar() {
                     className="md:hidden border-t"
                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                 >
-                    <nav className="max-w-[1400px] mx-auto px-4 py-3 flex flex-col gap-0.5" aria-label="Mobile navigation">
+                    <nav className="max-w-350 mx-auto px-4 py-3 flex flex-col gap-0.5" aria-label="Mobile navigation">
                         {allLinks.map(link => (
                             <Link
                                 key={link.href}
                                 href={link.href}
                                 className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                                     isActive(link.href)
-                                        ? 'bg-[var(--navy)] text-white'
-                                        : 'text-[var(--text-secondary)] hover:bg-[var(--navy-xlight)] hover:text-[var(--navy)]'
+                                        ? 'bg-(--navy) text-white'
+                                        : 'text-(--text-secondary) hover:bg-(--navy-xlight) hover:text-(--navy)'
                                 }`}
                                 onClick={() => setMobileOpen(false)}
                             >
@@ -247,8 +253,8 @@ export default function Navbar() {
                         {user ? (
                             <>
                                 <div className="px-3 py-2">
-                                    <p className="text-xs font-semibold text-[var(--text-primary)]">{user.name}</p>
-                                    <p className="text-[10px] text-[var(--text-muted)]">{user.email}</p>
+                                    <p className="text-xs font-semibold text-(--text-primary)">{user.name}</p>
+                                    <p className="text-[10px] text-(--text-muted)">{user.email}</p>
                                 </div>
                                 <button
                                     onClick={() => { handleLogout(); setMobileOpen(false); }}
@@ -278,7 +284,7 @@ export default function Navbar() {
 function BrandLogo() {
     return (
         <div className="flex items-center gap-2.5 cursor-pointer group">
-            <div className="flex-shrink-0 transition-transform group-hover:scale-105 duration-200">
+            <div className="shrink-0 transition-transform group-hover:scale-105 duration-200">
                 <AshokaPillar size={36} />
             </div>
             <div className="flex flex-col leading-none">

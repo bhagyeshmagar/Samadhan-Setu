@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { departmentAPI, aiAPI } from '@/lib/api';
@@ -36,13 +36,7 @@ export default function DepartmentDashboard() {
         }
     }, [user, authLoading, router]);
 
-    useEffect(() => {
-        if (user && (user.role === 'officer' || user.role === 'admin')) {
-            fetchData();
-        }
-    }, [user, statusFilter]);
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
             const [tasksData, metricsData] = await Promise.all([
                 departmentAPI.getTasks(statusFilter || undefined),
@@ -55,7 +49,13 @@ export default function DepartmentDashboard() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [statusFilter]);
+
+    useEffect(() => {
+        if (user && (user.role === 'officer' || user.role === 'admin')) {
+            fetchData();
+        }
+    }, [user, fetchData]);
 
     const fetchAiQueue = async () => {
         setAiQueueLoading(true);
@@ -422,7 +422,7 @@ export default function DepartmentDashboard() {
                                                         Previous Officer Remarks
                                                     </h4>
                                                     <p className="text-xs text-gray-600 italic">
-                                                        "{task.notes}"
+                                                        &quot;{task.notes}&quot;
                                                     </p>
                                                 </div>
                                             )}

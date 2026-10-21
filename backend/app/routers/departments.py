@@ -1,521 +1,569 @@
 """
-Department/Officer Router for Samadhan Setu Phase 1.
-Handles officer task workflows: viewing tasks, updating task/complaint status,
+Department / Officer Router — PostgreSQL edition.
+Handles officer task workflows: viewing complaints, updating status,
 resolution proofs, and complaint history.
 """
-from typing import List, Optional, Any
-from datetime import datetime
+import io
 import os
-import shutil
 import uuid
+from typing import List, Optional
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
+from PIL import Image, UnidentifiedImageError
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
+from ..db.session import get_async_session
 from ..auth import get_current_user, require_officer
-from ..models import (
-    User, UserRole, Complaint, ComplaintStatus, ComplaintPriority,
-    ComplaintStatusLog, Department, Task, TaskStatus, TaskStatusLog,
-)
-from ..schemas import (
-    ComplaintResponse, ComplaintUpdate, StatusLogResponse,
-    TaskResponse, TaskUpdate,
-)
-from ..services.state_machine import is_valid_transition
-from ..services.task_state_machine import is_valid_task_transition
-from ..services.audit_service import write_audit_log
+from ..models.orm import User, Complaint, Department, Officer
+from ..models.orm.enums import ComplaintStatus, UserRole, MediaType
+from ..repositories.complaint_repo import ComplaintRepository
+from ..repositories.department_repo import DepartmentRepository
+from ..repositories.user_repo import UserRepository
+from ..schemas import ComplaintResponse, ComplaintUpdate, StatusLogResponse
+from ..config import settings
 
-UPLOAD_DIR = os.path.join(
+PROOF_UPLOAD_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "proof"
 )
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(PROOF_UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter(prefix="/api/department", tags=["Department"])
 
 
-# ==================== TASK ENDPOINTS ====================
+def _complaint_to_response(c: Complaint) -> ComplaintResponse:
+    return ComplaintResponse(
+        id=str(c.id),
+        user_id=str(c.citizen_id),
+        title=c.title,
+        category=c.category,
+        subcategory=c.sub_category,
+        description=c.description,
+        location=c.address or "",
+        ward=c.ward,
+        latitude=c.latitude,
+        longitude=c.longitude,
+        is_public=c.is_public,
+        priority=c.priority,
+        priority_score=c.priority_score,
+        urgency_score=c.urgency_score,
+        ai_confidence=int(c.ai_confidence * 100) if c.ai_confidence else None,
+        status=c.status,
+        department_id=str(c.department_id) if c.department_id else None,
+        assigned_officer_id=str(c.assigned_officer_id) if c.assigned_officer_id else None,
+        upvotes=c.vote_count,
+        attachments=[m.s3_key for m in c.media] if c.media else [],
+        resolution_remarks=c.resolution_remarks,
+        created_at=c.created_at,
+        updated_at=c.updated_at,
+        resolved_at=c.resolved_at,
+        deadline=c.sla_deadline,
+        status_history=[
+            StatusLogResponse(
+                id=str(t.id),
+                complaint_id=str(t.complaint_id),
+                from_status=t.status_from,
+                to_status=t.status_to,
+                remarks=t.notes,
+                updated_by=str(t.changed_by) if t.changed_by else None,
+                created_at=t.created_at,
+            )
+            for t in sorted(c.timeline or [], key=lambda x: x.created_at)
+        ],
+    )
 
-@router.get("/tasks", response_model=List[TaskResponse])
-async def get_officer_tasks(
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Department complaint queue
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/complaints", response_model=List[ComplaintResponse])
+async def get_department_complaints(
     status_filter: Optional[str] = None,
+    priority_filter: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
     current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Get tasks assigned to the officer's department."""
-    if current_user.role == UserRole.OFFICER and current_user.department_id:
-        query = db.collection("tasks").where("department_id", "==", current_user.department_id)
-    else:
-        query = db.collection("tasks")
+    """Get complaints assigned to the current officer's department."""
+    repo = ComplaintRepository(session)
+    user_repo = UserRepository(session)
 
+    # Resolve officer's department
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
+    department_id = officer.department_id if officer else None
+
+    # Admins/super-admins see all
+    if current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        department_id = None
+
+    status_enum = None
     if status_filter:
-        query = query.where("status", "==", status_filter)
+        try:
+            status_enum = ComplaintStatus(status_filter)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
 
-    docs = query.get()
-    tasks = [Task.from_firestore(doc) for doc in docs]
-    tasks.sort(key=lambda x: x.created_at, reverse=True)
-
-    # Enrich with complaint context
-    result = []
-    for task in tasks:
-        resp = TaskResponse.model_validate(task)
-        comp_doc = db.collection("complaints").document(task.complaint_id).get()
-        if comp_doc.exists:
-            comp = comp_doc.to_dict()
-            resp.complaint_title = comp.get("title", "")
-            resp.complaint_description = comp.get("description", "")[:200]
-            resp.complaint_status = comp.get("status", "")
-            resp.complaint_priority = comp.get("priority", "")
-            resp.complaint_location = comp.get("location", "")
-        result.append(resp)
-
-    return result
+    offset = (page - 1) * per_page
+    complaints, _ = await repo.list_complaints(
+        department_id=department_id,
+        status=status_enum,
+        limit=per_page,
+        offset=offset,
+    )
+    return [_complaint_to_response(c) for c in complaints]
 
 
-@router.get("/tasks/{task_id}", response_model=TaskResponse)
-async def get_task_detail(
-    task_id: str,
+# ──────────────────────────────────────────────────────────────────────────────
+# Complaint detail for officers
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/complaints/{complaint_id}", response_model=ComplaintResponse)
+async def get_complaint_detail(
+    complaint_id: str,
     current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Get detailed view of a task with complaint context."""
-    doc = db.collection("tasks").document(task_id).get()
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    """Detailed complaint view for officers — includes timeline and media."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    task = Task.from_firestore(doc)
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    # Department access check
+    # Department-scoped access check
+    user_repo = UserRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
     if (
-        current_user.role == UserRole.OFFICER
-        and current_user.department_id
-        and task.department_id != current_user.department_id
+        officer
+        and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+        and complaint.department_id != officer.department_id
     ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied - task belongs to another department")
+        raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
-    resp = TaskResponse.model_validate(task)
-    comp_doc = db.collection("complaints").document(task.complaint_id).get()
-    if comp_doc.exists:
-        comp = comp_doc.to_dict()
-        resp.complaint_title = comp.get("title", "")
-        resp.complaint_description = comp.get("description", "")
-        resp.complaint_status = comp.get("status", "")
-        resp.complaint_priority = comp.get("priority", "")
-        resp.complaint_location = comp.get("location", "")
+    return _complaint_to_response(complaint)
 
-    return resp
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Update complaint status
+# ──────────────────────────────────────────────────────────────────────────────
+@router.put("/complaints/{complaint_id}/status", response_model=ComplaintResponse)
+async def update_complaint_status(
+    complaint_id: str,
+    update_data: ComplaintUpdate,
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Transition a complaint to a new status. Officers are department-scoped."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    # Department-scoped access
+    user_repo = UserRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
+    if (
+        officer
+        and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+        and complaint.department_id != officer.department_id
+    ):
+        raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
+
+    if update_data.status:
+        try:
+            new_status = ComplaintStatus(update_data.status.value if hasattr(update_data.status, 'value') else update_data.status)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {update_data.status}")
+
+        await repo.add_status_transition(
+            complaint,
+            new_status,
+            changed_by=current_user.id,
+            actor_role=current_user.role.value,
+            notes=update_data.remarks,
+            remarks=update_data.remarks,
+        )
+
+    if update_data.assigned_officer_id:
+        try:
+            officer_id = uuid.UUID(update_data.assigned_officer_id)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid officer ID")
+        complaint.assigned_officer_id = officer_id
+
+    await session.commit()
+    await session.refresh(complaint)
+    return _complaint_to_response(complaint)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Upload resolution proof
+# ──────────────────────────────────────────────────────────────────────────────
+@router.post("/complaints/{complaint_id}/resolution-proof")
+async def upload_resolution_proof(
+    complaint_id: str,
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Upload resolution proof images for a complaint (officers only)."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    uploaded, rejected = [], []
+    for file in files[:5]:
+        if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
+            rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
+            continue
+
+        content = await file.read()
+        if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
+            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
+            continue
+
+        try:
+            img = Image.open(io.BytesIO(content))
+            img.verify()
+        except Exception:
+            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
+            continue
+
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        safe_ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
+        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
+        file_path = os.path.join(PROOF_UPLOAD_DIR, unique_name)
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        local_key = f"proof/{unique_name}"
+        await repo.add_media_proof(
+            complaint_id=complaint.id,
+            media_type=MediaType.RESOLUTION_PHOTO,
+            s3_key=local_key,
+            file_name=unique_name,
+            file_size_bytes=len(content),
+            mime_type=file.content_type or "image/jpeg",
+            uploaded_by=current_user.id,
+        )
+        uploaded.append(f"/uploads/{local_key}")
+
+    await session.commit()
+    return {"message": f"Uploaded {len(uploaded)} proof image(s).", "uploaded": uploaded, "rejected": rejected}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Department stats (officer-facing)
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/stats")
+async def get_department_stats(
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Summary stats for the officer's department."""
+    user_repo = UserRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
+    dept_id = officer.department_id if officer else None
+
+    base_q = select(Complaint)
+    if dept_id and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        base_q = base_q.where(Complaint.department_id == dept_id)
+
+    total_res = await session.execute(select(func.count()).select_from(base_q.subquery()))
+    total = total_res.scalar() or 0
+
+    stats = {}
+    for s in ComplaintStatus:
+        q = select(func.count()).where(Complaint.status == s)
+        if dept_id and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            q = q.where(Complaint.department_id == dept_id)
+        res = await session.execute(q)
+        stats[s.value] = res.scalar() or 0
+
+    return {"total": total, "by_status": stats, "department_id": str(dept_id) if dept_id else None}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dashboard metrics (alias used by the Officer Task Desk frontend)
+# Returns task-centric counts that map to complaint statuses.
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/dashboard/metrics")
+async def get_dashboard_metrics(
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Dashboard summary counts for the officer's department task desk."""
+    user_repo = UserRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
+    dept_id = officer.department_id if officer else None
+
+    def _count_q(st: ComplaintStatus):
+        q = select(func.count()).where(Complaint.status == st)
+        if dept_id and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            q = q.where(Complaint.department_id == dept_id)
+        return q
+
+    total_q = select(func.count(Complaint.id))
+    if dept_id and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        total_q = total_q.where(Complaint.department_id == dept_id)
+
+    total = (await session.execute(total_q)).scalar() or 0
+    # "Pending" = SUBMITTED + VERIFIED + REOPENED + PENDING_INFO
+    submitted = (await session.execute(_count_q(ComplaintStatus.SUBMITTED))).scalar() or 0
+    verified = (await session.execute(_count_q(ComplaintStatus.VERIFIED))).scalar() or 0
+    reopened = (await session.execute(_count_q(ComplaintStatus.REOPENED))).scalar() or 0
+    pending_info = (await session.execute(_count_q(ComplaintStatus.PENDING_INFO))).scalar() or 0
+    pending = submitted + verified + reopened + pending_info
+    assigned = (await session.execute(_count_q(ComplaintStatus.ASSIGNED))).scalar() or 0
+    in_progress = (await session.execute(_count_q(ComplaintStatus.IN_PROGRESS))).scalar() or 0
+    resolved = (await session.execute(_count_q(ComplaintStatus.RESOLVED))).scalar() or 0
+    closed = (await session.execute(_count_q(ComplaintStatus.CLOSED))).scalar() or 0
+
+    return {
+        "total_tasks": total,
+        "pending": pending,
+        "assigned": assigned,
+        "in_progress": in_progress,
+        "completed": resolved + closed,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Task aliases — the Officer Task Desk frontend uses /tasks instead of
+# /complaints. These endpoints adapt the existing complaint data into a
+# task-shaped response the UI expects.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
+    """Map a Complaint ORM object to the task-shaped dict the frontend needs."""
+    # Map frontend filter labels → ComplaintStatus values
+    status_label_map = {
+        ComplaintStatus.SUBMITTED: "Pending",
+        ComplaintStatus.VERIFIED: "Pending",
+        ComplaintStatus.ASSIGNED: "Assigned",
+        ComplaintStatus.IN_PROGRESS: "In Progress",
+        ComplaintStatus.RESOLVED: "Completed",
+        ComplaintStatus.CLOSED: "Completed",
+        ComplaintStatus.REJECTED: "Rejected",
+        ComplaintStatus.ESCALATED: "In Progress",
+        ComplaintStatus.REOPENED: "Pending",
+        ComplaintStatus.PENDING_INFO: "Pending",
+    }
+    return {
+        "id": str(c.id),
+        "status": status_label_map.get(c.status, c.status.value),
+        "complaint_title": c.title,
+        "complaint_description": c.description,
+        "complaint_location": c.address or (f"{c.latitude},{c.longitude}" if c.latitude else ""),
+        "complaint_priority": c.priority.value.capitalize() if c.priority else "Low",
+        "department_name": dept_name,
+        "notes": c.resolution_remarks or "",
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "completed_at": c.resolved_at.isoformat() if c.resolved_at else None,
+        "priority_score": c.priority_score,
+        "sla_deadline": c.sla_deadline.isoformat() if c.sla_deadline else None,
+    }
+
+
+# Status label → ComplaintStatus enum mapping for incoming filter values
+# "Pending" maps to SUBMITTED (primary entry state); VERIFIED/REOPENED/PENDING_INFO
+# are also surfaced as pending but filtered separately if needed.
+_TASK_STATUS_TO_COMPLAINT = {
+    "pending": ComplaintStatus.SUBMITTED,
+    "assigned": ComplaintStatus.ASSIGNED,
+    "in progress": ComplaintStatus.IN_PROGRESS,
+    "completed": None,  # handled specially (RESOLVED + CLOSED)
+    "rejected": ComplaintStatus.REJECTED,
+}
+
+
+@router.get("/tasks")
+async def get_tasks(
+    status_filter: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Task queue for the Officer Task Desk.
+    Wraps /complaints with a task-shaped response and frontend-compatible
+    status label filtering (Pending, Assigned, In Progress, Completed, Rejected).
+    """
+    user_repo = UserRepository(session)
+    dept_repo = DepartmentRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
+    department_id = officer.department_id if officer else None
+
+    if current_user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        department_id = None
+
+    # Resolve department name once
+    dept_name = ""
+    if department_id:
+        dept = await dept_repo.get_by_id(department_id)
+        dept_name = dept.name if dept else ""
+
+    repo = ComplaintRepository(session)
+    offset = (page - 1) * per_page
+
+    # Map frontend status label to DB enum(s)
+    status_enum = None
+    extra_statuses = None
+    if status_filter:
+        key = status_filter.lower()
+        if key == "completed":
+            # "Completed" covers both RESOLVED and CLOSED
+            complaints_resolved, _ = await repo.list_complaints(
+                department_id=department_id,
+                status=ComplaintStatus.RESOLVED,
+                limit=per_page,
+                offset=offset,
+            )
+            complaints_closed, _ = await repo.list_complaints(
+                department_id=department_id,
+                status=ComplaintStatus.CLOSED,
+                limit=per_page,
+                offset=offset,
+            )
+            all_complaints = complaints_resolved + complaints_closed
+            return [_complaint_to_task(c, dept_name) for c in all_complaints]
+        elif key in _TASK_STATUS_TO_COMPLAINT:
+            status_enum = _TASK_STATUS_TO_COMPLAINT[key]
+
+    complaints, _ = await repo.list_complaints(
+        department_id=department_id,
+        status=status_enum,
+        limit=per_page,
+        offset=offset,
+    )
+    return [_complaint_to_task(c, dept_name) for c in complaints]
 
 
 @router.put("/tasks/{task_id}/status")
 async def update_task_status(
     task_id: str,
-    update_data: TaskUpdate,
+    update_data: ComplaintUpdate,
     current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Update task status with state machine validation."""
-    doc_ref = db.collection("tasks").document(task_id)
-    doc = doc_ref.get()
+    """
+    Update task status from the Officer Task Desk.
+    Translates task-UI status labels back to ComplaintStatus enums.
+    """
+    # Label → enum mapping (frontend sends label strings like "In Progress")
+    label_to_enum = {
+        "pending": ComplaintStatus.SUBMITTED,
+        "assigned": ComplaintStatus.ASSIGNED,
+        "in progress": ComplaintStatus.IN_PROGRESS,
+        "completed": ComplaintStatus.RESOLVED,
+        "rejected": ComplaintStatus.REJECTED,
+    }
 
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    try:
+        cid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Task not found")
 
-    task = Task.from_firestore(doc)
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Task not found")
 
+    # Department-scoped access
+    user_repo = UserRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
     if (
-        current_user.role == UserRole.OFFICER
-        and current_user.department_id
-        and task.department_id != current_user.department_id
+        officer
+        and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+        and complaint.department_id != officer.department_id
     ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-
-    updates = {"updated_at": datetime.utcnow()}
+        raise HTTPException(status_code=403, detail="Access denied — task belongs to another department")
 
     if update_data.status:
-        new_status = TaskStatus(update_data.status)
-        if not is_valid_task_transition(task.status, new_status):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid task status transition: {task.status.value} → {new_status.value}",
-            )
-        old_status = task.status
-        updates["status"] = new_status.value
+        raw = update_data.status.value if hasattr(update_data.status, "value") else str(update_data.status)
+        new_status = label_to_enum.get(raw.lower())
+        if new_status is None:
+            # Fallback: try direct enum lookup
+            try:
+                new_status = ComplaintStatus(raw)
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"Invalid status: {raw}")
 
-        if new_status == TaskStatus.COMPLETED:
-            updates["completed_at"] = datetime.utcnow()
-
-        # Log task status change
-        task_log = TaskStatusLog(
-            task_id=task_id,
-            from_status=old_status.value,
-            to_status=new_status.value,
-            remarks=update_data.notes or f"Status changed to {new_status.value}",
-            updated_by=current_user.id,
-        )
-        db.collection("task_status_logs").add(task_log.to_firestore())
-
-        write_audit_log(
-            db,
-            action="task_status_updated",
-            entity_type="task",
-            entity_id=task_id,
-            actor_id=current_user.id,
+        await repo.add_status_transition(
+            complaint,
+            new_status,
+            changed_by=current_user.id,
             actor_role=current_user.role.value,
-            details={
-                "from_status": old_status.value,
-                "to_status": new_status.value,
-                "complaint_id": task.complaint_id,
-            },
+            notes=update_data.remarks or f"Status updated to {raw}",
+            remarks=update_data.remarks,
         )
 
-        # Auto-sync complaint status when all tasks are complete
-        _sync_complaint_status(db, task.complaint_id, current_user)
+    await session.commit()
 
-    if update_data.notes:
-        updates["notes"] = update_data.notes
-    if update_data.resolution_notes:
-        updates["resolution_notes"] = update_data.resolution_notes
-    if update_data.assigned_officer_id:
-        updates["assigned_officer_id"] = update_data.assigned_officer_id
+    user_repo2 = UserRepository(session)
+    dept_repo = DepartmentRepository(session)
+    off2 = await user_repo2.get_officer_by_user_id(current_user.id)
+    dept_name = ""
+    if off2 and off2.department_id:
+        dept = await dept_repo.get_by_id(off2.department_id)
+        dept_name = dept.name if dept else ""
 
-    doc_ref.update(updates)
-
-    return {"message": "Task updated successfully", "task_id": task_id}
+    await session.refresh(complaint)
+    return _complaint_to_task(complaint, dept_name)
 
 
 @router.post("/tasks/{task_id}/assign")
 async def assign_task(
     task_id: str,
-    officer_id: str = Query(..., description="Officer user ID to assign to"),
+    officer_id: str = Query(...),
     current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Assign a task to a specific officer."""
-    doc_ref = db.collection("tasks").document(task_id)
-    doc = doc_ref.get()
+    """Assign a task (complaint) to a specific officer."""
+    try:
+        cid = uuid.UUID(task_id)
+        oid = uuid.UUID(officer_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid task or officer ID")
 
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Task not found")
 
-    task = Task.from_firestore(doc)
-
-    # Verify the target officer exists and belongs to the right department
-    officer_doc = db.collection("users").document(officer_id).get()
-    if not officer_doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Officer not found")
-
-    updates = {
-        "assigned_officer_id": officer_id,
-        "status": TaskStatus.ASSIGNED.value,
-        "updated_at": datetime.utcnow(),
-    }
-    doc_ref.update(updates)
-
-    task_log = TaskStatusLog(
-        task_id=task_id,
-        from_status=task.status.value,
-        to_status=TaskStatus.ASSIGNED.value,
-        remarks=f"Assigned to officer {officer_id}",
-        updated_by=current_user.id,
-    )
-    db.collection("task_status_logs").add(task_log.to_firestore())
-
-    write_audit_log(
-        db,
-        action="task_assigned",
-        entity_type="task",
-        entity_id=task_id,
-        actor_id=current_user.id,
-        actor_role=current_user.role.value,
-        details={"assigned_officer_id": officer_id, "complaint_id": task.complaint_id},
-    )
-
-    return {"message": "Task assigned successfully", "task_id": task_id, "assigned_to": officer_id}
+    complaint.assigned_officer_id = oid
+    await session.commit()
+    await session.refresh(complaint)
+    return {"message": "Task assigned successfully", "task_id": task_id, "officer_id": officer_id}
 
 
-# ==================== COMPLAINT ENDPOINTS ====================
-
-@router.get("/complaints", response_model=List[ComplaintResponse])
-async def get_department_complaints(
-    status_filter: Optional[str] = None,
-    priority_filter: Optional[str] = None,
-    sort_by: str = Query("priority", enum=["priority", "recent", "oldest"]),
-    current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
-):
-    """Get complaints assigned to the officer's department."""
-    query = db.collection("complaints")
-
-    if current_user.role == UserRole.OFFICER and current_user.department_id:
-        query = query.where("department_id", "==", current_user.department_id)
-
-    if status_filter:
-        query = query.where("status", "==", status_filter)
-    if priority_filter:
-        query = query.where("priority", "==", priority_filter)
-
-    docs = query.get()
-    complaints = [Complaint.from_firestore(doc) for doc in docs]
-
-    if sort_by == "priority":
-        priority_order = {"High": 3, "Medium": 2, "Low": 1}
-        complaints.sort(key=lambda x: (priority_order.get(x.priority.value, 0), x.created_at), reverse=True)
-    elif sort_by == "oldest":
-        complaints.sort(key=lambda x: x.created_at)
-    else:
-        complaints.sort(key=lambda x: x.created_at, reverse=True)
-
-    return [ComplaintResponse.model_validate(c) for c in complaints]
-
-
-@router.get("/complaints/{complaint_id}", response_model=ComplaintResponse)
-async def get_complaint_detail(
-    complaint_id: str,
-    current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
-):
-    """Get detailed view of a complaint with history and tasks."""
-    doc = db.collection("complaints").document(complaint_id).get()
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
-
-    complaint = Complaint.from_firestore(doc)
-
-    if (
-        current_user.role == UserRole.OFFICER
-        and current_user.department_id
-        and complaint.department_id != current_user.department_id
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-
-    response = ComplaintResponse.model_validate(complaint)
-
-    # Status history
-    history_docs = db.collection("complaint_status_logs").where("complaint_id", "==", complaint_id).get()
-    logs = [ComplaintStatusLog.from_firestore(d) for d in history_docs]
-    logs.sort(key=lambda x: x.created_at)
-    response.status_history = [StatusLogResponse.model_validate(l) for l in logs]
-
-    # Tasks
-    task_docs = db.collection("tasks").where("complaint_id", "==", complaint_id).get()
-    response.tasks = [{**td.to_dict(), "id": td.id} for td in task_docs]
-
-    return response
-
-
-@router.put("/complaints/{complaint_id}/status")
-async def update_complaint_status(
-    complaint_id: str,
-    update_data: ComplaintUpdate,
-    current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
-):
-    """Update complaint status with state machine validation."""
-    doc_ref = db.collection("complaints").document(complaint_id)
-    doc = doc_ref.get()
-
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
-
-    complaint = Complaint.from_firestore(doc)
-
-    if (
-        current_user.role == UserRole.OFFICER
-        and current_user.department_id
-        and complaint.department_id != current_user.department_id
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-
-    updates = {"updated_at": datetime.utcnow()}
-
-    if update_data.status:
-        if not is_valid_transition(complaint.status, update_data.status):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status transition: {complaint.status.value} → {update_data.status.value}",
-            )
-
-        old_status = complaint.status
-        updates["status"] = update_data.status.value
-
-        if update_data.status == ComplaintStatus.RESOLVED:
-            updates["resolved_at"] = datetime.utcnow()
-
-        status_log = ComplaintStatusLog(
-            complaint_id=complaint_id,
-            from_status=old_status.value,
-            to_status=update_data.status.value,
-            remarks=update_data.remarks or f"Status changed from {old_status.value} to {update_data.status.value}",
-            updated_by=current_user.id,
-        )
-        db.collection("complaint_status_logs").add(status_log.to_firestore())
-
-        write_audit_log(
-            db,
-            action="complaint_status_updated",
-            entity_type="complaint",
-            entity_id=complaint_id,
-            actor_id=current_user.id,
-            actor_role=current_user.role.value,
-            details={"from_status": old_status.value, "to_status": update_data.status.value},
-        )
-
-    if update_data.assigned_officer_id:
-        updates["assigned_officer_id"] = update_data.assigned_officer_id
-
-    doc_ref.update(updates)
-
-    return {"message": "Complaint updated successfully", "complaint_id": complaint_id}
-
-
-@router.get("/complaints/{complaint_id}/history", response_model=List[StatusLogResponse])
-async def get_complaint_history(
-    complaint_id: str,
-    current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
-):
-    """Get status history for a complaint."""
-    docs = db.collection("complaint_status_logs").where("complaint_id", "==", complaint_id).get()
-    logs = [ComplaintStatusLog.from_firestore(doc) for doc in docs]
-    logs.sort(key=lambda x: x.created_at)
-
-    return [StatusLogResponse.model_validate(l) for l in logs]
-
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Upload proof alias (frontend calls /tasks/{id}/upload-proof)
+# ──────────────────────────────────────────────────────────────────────────────
 @router.post("/complaints/{complaint_id}/upload-proof")
-async def upload_resolution_proof(
+async def upload_proof_alias(
     complaint_id: str,
     files: List[UploadFile] = File(...),
     current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Upload proof images for complaint resolution."""
-    doc_ref = db.collection("complaints").document(complaint_id)
-    doc = doc_ref.get()
+    """Alias for upload_resolution_proof — kept for frontend api.js compatibility."""
+    return await upload_resolution_proof(complaint_id, files, current_user, session)
 
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
-
-    complaint = Complaint.from_firestore(doc)
-
-    if (
-        current_user.role == UserRole.OFFICER
-        and current_user.department_id
-        and complaint.department_id != current_user.department_id
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-
-    if len(files) > 5:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Maximum 5 files allowed")
-
-    uploaded_files = []
-    for file in files:
-        if not file.content_type.startswith("image/"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File {file.filename} is not an image",
-            )
-
-        ext = os.path.splitext(file.filename)[1]
-        unique_name = f"{complaint_id}_{uuid.uuid4().hex}{ext}"
-        file_path = os.path.join(UPLOAD_DIR, unique_name)
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        uploaded_files.append({
-            "filename": unique_name,
-            "original_name": file.filename,
-            "path": f"/uploads/proof/{unique_name}",
-            "uploaded_at": datetime.utcnow().isoformat(),
-        })
-
-    existing_proof = complaint.resolution_proof or []
-    updated_proof = existing_proof + uploaded_files
-    doc_ref.update({"resolution_proof": updated_proof, "updated_at": datetime.utcnow()})
-
-    write_audit_log(
-        db,
-        action="file_uploaded",
-        entity_type="complaint",
-        entity_id=complaint_id,
-        actor_id=current_user.id,
-        actor_role=current_user.role.value,
-        details={"type": "resolution_proof", "files_count": len(uploaded_files)},
-    )
-
-    return {"message": f"Uploaded {len(uploaded_files)} proof image(s)", "files": uploaded_files}
-
-
-@router.get("/dashboard/metrics")
-async def get_officer_dashboard_metrics(
-    current_user: User = Depends(require_officer),
-    db: Any = Depends(get_db),
-):
-    """Get dashboard metrics for the officer's department."""
-    query = db.collection("tasks")
-    if current_user.role == UserRole.OFFICER and current_user.department_id:
-        query = query.where("department_id", "==", current_user.department_id)
-
-    docs = query.get()
-    tasks = [Task.from_firestore(doc) for doc in docs]
-
-    pending = sum(1 for t in tasks if t.status == TaskStatus.PENDING)
-    assigned = sum(1 for t in tasks if t.status == TaskStatus.ASSIGNED)
-    in_progress = sum(1 for t in tasks if t.status == TaskStatus.IN_PROGRESS)
-    completed = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED)
-    rejected = sum(1 for t in tasks if t.status == TaskStatus.REJECTED)
-
-    return {
-        "total_tasks": len(tasks),
-        "pending": pending,
-        "assigned": assigned,
-        "in_progress": in_progress,
-        "completed": completed,
-        "rejected": rejected,
-    }
-
-
-def _sync_complaint_status(db, complaint_id: str, current_user: User):
-    """
-    If all tasks for a complaint are COMPLETED, auto-transition complaint to RESOLVED.
-    """
-    task_docs = db.collection("tasks").where("complaint_id", "==", complaint_id).get()
-    if not task_docs:
-        return
-
-    tasks = [Task.from_firestore(d) for d in task_docs]
-    all_complete = all(t.status in [TaskStatus.COMPLETED, TaskStatus.REJECTED] for t in tasks)
-    any_completed = any(t.status == TaskStatus.COMPLETED for t in tasks)
-
-    if all_complete and any_completed:
-        comp_ref = db.collection("complaints").document(complaint_id)
-        comp_doc = comp_ref.get()
-        if not comp_doc.exists:
-            return
-
-        complaint = Complaint.from_firestore(comp_doc)
-        if complaint.status in [ComplaintStatus.ASSIGNED, ComplaintStatus.IN_PROGRESS]:
-            now = datetime.utcnow()
-            comp_ref.update({
-                "status": ComplaintStatus.RESOLVED.value,
-                "resolved_at": now,
-                "updated_at": now,
-            })
-
-            status_log = ComplaintStatusLog(
-                complaint_id=complaint_id,
-                from_status=complaint.status.value,
-                to_status=ComplaintStatus.RESOLVED.value,
-                remarks="All tasks completed — complaint auto-resolved",
-                updated_by="system",
-            )
-            db.collection("complaint_status_logs").add(status_log.to_firestore())
-
-            write_audit_log(
-                db,
-                action="complaint_status_updated",
-                entity_type="complaint",
-                entity_id=complaint_id,
-                actor_id="system",
-                actor_role="system",
-                details={"from_status": complaint.status.value, "to_status": ComplaintStatus.RESOLVED.value, "reason": "all_tasks_complete"},
-            )

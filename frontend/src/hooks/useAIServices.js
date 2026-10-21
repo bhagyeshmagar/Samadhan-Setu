@@ -13,9 +13,7 @@ export function useAIServices() {
         if (!description || description.length < 10) return [];
         setLoading(true);
         try {
-            const res = await apiRequest(`/api/complaints/check-similar?description=${encodeURIComponent(description)}`, {
-                method: 'POST'
-            });
+            const res = await apiRequest(`/api/complaints/check-similar?description=${encodeURIComponent(description)}`);
             setSimilarComplaints(res.similar_complaints || []);
             return res;
         } catch (error) {

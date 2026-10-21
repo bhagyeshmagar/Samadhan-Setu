@@ -1,31 +1,35 @@
 """
-Citizens Router for Samadhan Setu Phase 1+2.
-Handles complaint submission, tracking, status history, and uploads.
-Phase 2: Triggers AI pipeline as background task on submission.
+Citizens Router — PostgreSQL edition.
+Handles complaint submission, tracking, uploads, upvotes, and feedback.
+
+IMPORTANT: ALL fixed-path routes (e.g. /my, /public/feed, /preview-ai,
+/check-similar) MUST be declared BEFORE parameterised routes (/{complaint_id})
+otherwise Starlette's path-matching will match the fixed segments as a path
+parameter and return 405 Method Not Allowed for the wrong HTTP method.
 """
-from typing import List, Optional, Any
-from datetime import datetime, timedelta
 import io
 import os
 import uuid
-import shutil
-from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile, BackgroundTasks
-from PIL import Image, UnidentifiedImageError
+from typing import List, Optional, Any
+from datetime import datetime, timezone
 
-
-from ..database import get_db
-from ..auth import get_current_user, require_citizen
-from ..models import (
-    User, UserRole, Complaint, ComplaintStatus, ComplaintPriority,
-    ComplaintStatusLog, Department, CategoryMapping, SLARule
+from fastapi import (
+    APIRouter, Depends, HTTPException, status,
+    Query, File, UploadFile, BackgroundTasks,
 )
-from ..schemas import ComplaintCreate, ComplaintResponse, ComplaintAIResponse, StatusLogResponse, ComplaintFeedback
+from PIL import Image, UnidentifiedImageError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..db.session import get_async_session
+from ..auth import get_current_user, require_citizen
+from ..models.orm import User, Complaint, CitizenFeedback
+from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole, VoteType, MediaType
+from ..repositories.complaint_repo import ComplaintRepository
+from ..repositories.department_repo import DepartmentRepository
+from ..schemas import ComplaintCreate, ComplaintResponse, ComplaintAIResponse, StatusLogResponse, ComplaintFeedback as FeedbackSchema
+from ..config import settings
 from ..services.ai_bridge import ai_bridge
 from ..ai.priority import calculate_priority
-from ..services.task_router import generate_tasks_for_complaint
-from ..services.audit_service import write_audit_log
-from ..services.state_machine import is_valid_transition
 
 CITIZEN_UPLOAD_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "citizen"
@@ -35,431 +39,417 @@ os.makedirs(CITIZEN_UPLOAD_DIR, exist_ok=True)
 router = APIRouter(prefix="/api/complaints", tags=["Citizens"])
 
 
+def _complaint_to_response(c: Complaint) -> dict:
+    """Map ORM Complaint to ComplaintResponse-compatible dict."""
+    return ComplaintResponse(
+        id=str(c.id),
+        user_id=str(c.citizen_id),
+        title=c.title,
+        category=c.category,
+        subcategory=c.sub_category,
+        description=c.description,
+        location=c.address or f"{c.latitude},{c.longitude}" if c.latitude else c.address or "",
+        ward=c.ward,
+        latitude=c.latitude,
+        longitude=c.longitude,
+        is_public=c.is_public,
+        priority=c.priority,
+        priority_score=c.priority_score,
+        urgency_score=c.urgency_score,
+        ai_confidence=int(c.ai_confidence * 100) if c.ai_confidence else None,
+        status=c.status,
+        department_id=str(c.department_id) if c.department_id else None,
+        assigned_officer_id=str(c.assigned_officer_id) if c.assigned_officer_id else None,
+        upvotes=c.vote_count,
+        attachments=[m.s3_key for m in c.media] if c.media else [],
+        resolution_remarks=c.resolution_remarks,
+        created_at=c.created_at,
+        updated_at=c.updated_at,
+        resolved_at=c.resolved_at,
+        deadline=c.sla_deadline,
+        status_history=[
+            StatusLogResponse(
+                id=str(t.id),
+                complaint_id=str(t.complaint_id),
+                from_status=t.status_from,
+                to_status=t.status_to,
+                remarks=t.notes,
+                updated_by=str(t.changed_by) if t.changed_by else None,
+                created_at=t.created_at,
+            )
+            for t in (c.timeline or [])
+        ],
+    )
+
+
+# POST /
 @router.post("/", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED)
 async def submit_complaint(
     complaint_data: ComplaintCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """
-    Submit a new complaint.
-    System classifies category, calculates priority, generates tasks, and logs everything.
-    """
-    # AI classification
+    """Submit a new complaint. Category and priority are system-assigned via AI."""
+    complaint_repo = ComplaintRepository(session)
+    dept_repo = DepartmentRepository(session)
+
     classification = ai_bridge.classify_complaint(complaint_data.description)
     category = complaint_data.category or classification["category"]
 
-    # Priority calculation using 6-factor formula
-    priority_result = calculate_priority(
-        complaint_data.description, category, upvotes=0
-    )
+    priority_result = calculate_priority(complaint_data.description, category, upvotes=0)
+    priority_map = {
+        "Low": ComplaintPriority.LOW,
+        "Medium": ComplaintPriority.MEDIUM,
+        "High": ComplaintPriority.HIGH,
+        "Critical": ComplaintPriority.CRITICAL,
+    }
+    priority_enum = priority_map.get(priority_result["priority"], ComplaintPriority.LOW)
 
-    # Resolve department from category mapping
-    cat_docs = (
-        db.collection("category_mappings")
-        .where("category", "==", category)
-        .limit(1)
-        .get()
-    )
-    department_id = None
-    if cat_docs:
-        cat_map = CategoryMapping.from_firestore(cat_docs[0])
-        department_id = cat_map.department_id
+    department = await dept_repo.get_by_category(category)
+    department_id = department.id if department else None
+    sla_hours = await dept_repo.get_sla_hours(category, priority_result["priority"])
 
-    priority_map = {"Low": ComplaintPriority.LOW, "Medium": ComplaintPriority.MEDIUM, "High": ComplaintPriority.HIGH}
-
-    # SLA calculation
-    default_hours = {"High": 24, "Medium": 72, "Low": 168}
-    sla_hours = priority_result.get("sla_hours", default_hours.get(priority_result["priority"], 72))
-
-    now = datetime.utcnow()
-    new_complaint = Complaint(
-        user_id=current_user.id,
+    complaint = await complaint_repo.create(
+        citizen_id=current_user.id,
         title=complaint_data.title,
-        category=category,
         description=complaint_data.description,
-        location=complaint_data.location,
+        category=category,
+        address=complaint_data.location,
         ward=complaint_data.ward,
         latitude=complaint_data.latitude,
         longitude=complaint_data.longitude,
-        priority=priority_map.get(priority_result["priority"], ComplaintPriority.LOW),
+        priority=priority_enum,
         priority_score=priority_result["score"],
-        urgency_score=priority_result["breakdown"]["urgency"],
-        ai_confidence=classification["confidence"],
-        status=ComplaintStatus.SUBMITTED,
+        urgency_score=priority_result["breakdown"].get("urgency", 0),
         department_id=department_id,
-        is_public=complaint_data.is_public,
-        upvotes=0,
-        attachments=[],
-        created_at=now,
-        updated_at=now,
-        deadline=now + timedelta(hours=sla_hours),
+        sla_hours=sla_hours,
+        is_public=complaint_data.is_public if complaint_data.is_public is not None else True,
     )
 
-    # Save complaint
-    comp_ref = db.collection("complaints").document()
-    new_complaint.id = comp_ref.id
-    comp_ref.set(new_complaint.to_firestore())
-
-    # Status history entry
-    status_log = ComplaintStatusLog(
-        complaint_id=new_complaint.id,
-        from_status=None,
-        to_status=ComplaintStatus.SUBMITTED.value,
-        remarks="Complaint submitted and auto-classified by system",
-        updated_by=current_user.id,
-    )
-    db.collection("complaint_status_logs").add(status_log.to_firestore())
-
-    # Audit log
-    write_audit_log(
-        db,
-        action="complaint_created",
-        entity_type="complaint",
-        entity_id=new_complaint.id,
-        actor_id=current_user.id,
-        actor_role=current_user.role.value,
-        details={
-            "category": category,
-            "priority": priority_result["priority"],
-            "priority_score": priority_result["score"],
-            "ai_confidence": classification["confidence"],
-        },
-    )
-
-    # Generate tasks based on category routing
-    tasks = generate_tasks_for_complaint(
-        db,
-        complaint_id=new_complaint.id,
-        primary_category=category,
-        description=complaint_data.description,
-        actor_id=current_user.id,
-        actor_role=current_user.role.value,
-    )
-
-    # If tasks were created, transition to ASSIGNED
-    if tasks:
-        new_complaint.status = ComplaintStatus.ASSIGNED
-        comp_ref.update({"status": ComplaintStatus.ASSIGNED.value, "updated_at": datetime.utcnow()})
-
-        assign_log = ComplaintStatusLog(
-            complaint_id=new_complaint.id,
-            from_status=ComplaintStatus.SUBMITTED.value,
-            to_status=ComplaintStatus.ASSIGNED.value,
-            remarks=f"Auto-assigned to {len(tasks)} department(s)",
-            updated_by="system",
-        )
-        db.collection("complaint_status_logs").add(assign_log.to_firestore())
-
-    # Phase 2: Trigger AI pipeline as background task
-    try:
-        from ..services.ai_pipeline import run_ai_pipeline
-        background_tasks.add_task(run_ai_pipeline, new_complaint.id, db)
-    except Exception:
-        pass  # AI pipeline failure must not block complaint submission
-
-    return ComplaintResponse.model_validate(new_complaint)
-
-
-@router.post("/{complaint_id}/upload-images")
-async def upload_complaint_images(
-    complaint_id: str,
-    files: List[UploadFile] = File(...),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db),
-):
-    """Upload evidence images for a complaint. Only the complaint owner can upload."""
-    from ..config import settings as cfg
-
-    doc_ref = db.collection("complaints").document(complaint_id)
-    doc = doc_ref.get()
-
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
-
-    complaint = Complaint.from_firestore(doc)
-
-    if complaint.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the complaint owner can upload images"
-        )
-
-    existing = complaint.attachments or []
-    if len(existing) >= cfg.MAX_ATTACHMENTS_PER_COMPLAINT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Maximum {cfg.MAX_ATTACHMENTS_PER_COMPLAINT} attachments allowed.",
-        )
-    remaining_slots = cfg.MAX_ATTACHMENTS_PER_COMPLAINT - len(existing)
-    files = files[:remaining_slots]  # silently cap to remaining slots
-
-    uploaded_files = []
-    rejected = []
-
-    for file in files:
-        # 1. MIME type allowlist check
-        if file.content_type not in cfg.ALLOWED_IMAGE_TYPES:
-            rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
-            continue
-
-        # 2. Read content + enforce size limit
-        content = await file.read()
-        if len(content) > cfg.MAX_UPLOAD_SIZE_BYTES:
-            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
-            continue
-
-        # 3. Decode with Pillow — rejects corrupt files, polyglots, and non-images
-        try:
-            img = Image.open(io.BytesIO(content))
-            img.verify()  # raises on corrupt/invalid images
-        except (UnidentifiedImageError, Exception):
-            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
-            continue
-
-        # 4. Sanitized filename — UUID + validated extension (no path traversal)
-        original_ext = os.path.splitext(file.filename or "")[1].lower()
-        safe_ext = original_ext if original_ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
-        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
-        file_path = os.path.join(CITIZEN_UPLOAD_DIR, unique_name)
-
-        with open(file_path, "wb") as f:
-            f.write(content)
-
-        uploaded_files.append(f"/uploads/citizen/{unique_name}")
-
-    if uploaded_files:
-        updated_attachments = existing + uploaded_files
-        doc_ref.update({"attachments": updated_attachments})
-
-        write_audit_log(
-            db,
-            action="file_uploaded",
-            entity_type="complaint",
-            entity_id=complaint_id,
-            actor_id=current_user.id,
+    if department_id:
+        await complaint_repo.add_status_transition(
+            complaint,
+            ComplaintStatus.ASSIGNED,
+            changed_by=current_user.id,
             actor_role=current_user.role.value,
-            details={
-                "files_uploaded": len(uploaded_files),
-                "files_rejected": len(rejected),
-                "total_attachments": len(updated_attachments),
-            },
+            notes=f"Auto-assigned to {department.name} department",
         )
-    else:
-        updated_attachments = existing
 
-    return {
-        "message": f"Uploaded {len(uploaded_files)} image(s).",
-        "attachments": updated_attachments,
-        "rejected": rejected,
-    }
+    await session.commit()
+    # Re-fetch with ALL relations eagerly loaded (avoids MissingGreenlet on async sessions)
+    loaded = await complaint_repo.get_by_id(complaint.id)
+    if loaded is None:
+        raise HTTPException(status_code=500, detail="Complaint saved but could not be retrieved.")
+
+    return _complaint_to_response(loaded)
 
 
+# GET /preview-ai
 @router.get("/preview-ai", response_model=ComplaintAIResponse)
 async def preview_ai_classification(
-    description: str = Query(..., min_length=10, description="Complaint description"),
+    description: str = Query(..., min_length=10),
     current_user: User = Depends(get_current_user),
 ):
-    """Preview AI classification before submission."""
+    """Preview AI category + priority before submitting a complaint."""
     classification = ai_bridge.classify_complaint(description)
     priority_result = calculate_priority(description, classification["category"], 0)
-
     return ComplaintAIResponse(
         category=classification["category"],
         priority=priority_result["priority"],
         priority_score=priority_result["score"],
-        urgency_score=priority_result["breakdown"]["urgency"],
+        urgency_score=priority_result["breakdown"].get("urgency", 0),
         confidence=classification["confidence"],
         department_id=None,
     )
 
 
+# GET /check-similar
+# NOTE: MUST be declared before /{complaint_id} routes to prevent Starlette
+# from matching "check-similar" as a path parameter and returning 405.
+# Using GET (not POST) avoids CORS preflight (OPTIONS) which Starlette
+# incorrectly 405s when a parameterised route /{complaint_id} exists below.
+@router.get("/check-similar")
+async def check_similar_complaints(
+    description: str = Query(..., min_length=10),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Return similar public complaints for the given description text."""
+    repo = ComplaintRepository(session)
+    recent, _ = await repo.list_complaints(is_public_only=True, limit=50, offset=0)
+
+    similar = []
+    try:
+        candidates = [
+            {"id": str(c.id), "text": c.description}
+            for c in recent
+        ]
+        matches = ai_bridge.get_similar_complaints(description, candidates, threshold=0.70)
+        matched_ids = {m["complaint_id"] for m in matches}
+        similar = [
+            {
+                "id": str(c.id),
+                "complaint_number": c.complaint_number,
+                "title": c.title,
+                "category": c.category,
+                "status": c.status.value,
+                "created_at": c.created_at.isoformat(),
+            }
+            for c in recent
+            if str(c.id) in matched_ids
+        ]
+    except Exception:
+        similar = []
+
+    return {
+        "has_similar": len(similar) > 0,
+        "similar_complaints": similar,
+        "description_processed": description[:100],
+    }
+
+
+# GET /my
 @router.get("/my", response_model=List[ComplaintResponse])
 async def get_my_complaints(
     status_filter: Optional[str] = None,
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Get complaints submitted by the current citizen."""
-    query = db.collection("complaints").where("user_id", "==", current_user.id)
+    """All complaints by the current citizen, newest first."""
+    repo = ComplaintRepository(session)
+    status_enum = None
     if status_filter:
-        query = query.where("status", "==", status_filter)
+        try:
+            status_enum = ComplaintStatus(status_filter)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
 
-    docs = query.get()
-    raw_complaints = [Complaint.from_firestore(doc) for doc in docs]
-    complaints = [c for c in raw_complaints if c is not None]
-    complaints.sort(key=lambda x: x.created_at, reverse=True)
-
-    return [ComplaintResponse.model_validate(c) for c in complaints]
+    complaints, _ = await repo.list_complaints(citizen_id=current_user.id, status=status_enum, limit=100)
+    return [_complaint_to_response(c) for c in complaints]
 
 
+# GET /public/feed
 @router.get("/public/feed", response_model=List[ComplaintResponse])
 async def get_public_complaints(
     category: Optional[str] = None,
+    ward: Optional[str] = None,
     sort_by: str = Query("recent", enum=["recent", "priority"]),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Public feed of complaints. No auth required."""
-    query = db.collection("complaints").where("is_public", "==", True)
-    if category:
-        query = query.where("category", "==", category)
-
-    docs = query.get()
-    raw_complaints = [Complaint.from_firestore(doc) for doc in docs]
-    complaints = [c for c in raw_complaints if c is not None]
-
-    if sort_by == "priority":
-        priority_order = {"High": 3, "Medium": 2, "Low": 1}
-        complaints.sort(key=lambda x: (priority_order.get(x.priority.value, 0), x.created_at), reverse=True)
-    else:
-        complaints.sort(key=lambda x: x.created_at, reverse=True)
-
+    """Public complaint feed. No authentication required."""
+    repo = ComplaintRepository(session)
     offset = (page - 1) * per_page
-    paginated = complaints[offset : offset + per_page]
+    complaints, _ = await repo.list_complaints(
+        category=category,
+        ward=ward,
+        is_public_only=True,
+        limit=per_page,
+        offset=offset,
+    )
+    return [_complaint_to_response(c) for c in complaints]
 
-    return [ComplaintResponse.model_validate(c) for c in paginated]
 
-
+# GET /{complaint_id}
 @router.get("/{complaint_id}", response_model=ComplaintResponse)
 async def get_complaint(
     complaint_id: str,
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Get complaint detail with status history and tasks."""
-    doc = db.collection("complaints").document(complaint_id).get()
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
+    """Complaint detail with full timeline. Owner, officers, and admins can access."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    complaint = Complaint.from_firestore(doc)
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    # Access check: owner, public, officer, or admin
-    if not (
-        complaint.user_id == current_user.id
-        or complaint.is_public
-        or current_user.role in [UserRole.OFFICER, UserRole.ADMIN]
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    is_owner = complaint.citizen_id == current_user.id
+    is_staff = current_user.role in (UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    if not (is_owner or complaint.is_public or is_staff):
+        raise HTTPException(status_code=403, detail="Access denied")
 
-    response = ComplaintResponse.model_validate(complaint)
-
-    # Attach status history
-    history_docs = db.collection("complaint_status_logs").where("complaint_id", "==", complaint_id).get()
-    logs = [ComplaintStatusLog.from_firestore(d) for d in history_docs]
-    logs.sort(key=lambda x: x.created_at)
-    response.status_history = [StatusLogResponse.model_validate(l) for l in logs]
-
-    # Attach tasks
-    task_docs = db.collection("tasks").where("complaint_id", "==", complaint_id).get()
-    tasks = []
-    for td in task_docs:
-        task_data = td.to_dict()
-        task_data["id"] = td.id
-        tasks.append(task_data)
-    response.tasks = tasks
-
-    return response
+    return _complaint_to_response(complaint)
 
 
+# GET /{complaint_id}/history
 @router.get("/{complaint_id}/history", response_model=List[StatusLogResponse])
 async def get_complaint_history(
     complaint_id: str,
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Get status timeline for a complaint. Available to owner, officers, and admins."""
-    # Verify complaint exists and user has access
-    doc = db.collection("complaints").document(complaint_id).get()
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
+    """Status timeline for a complaint."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    complaint = Complaint.from_firestore(doc)
-    if not (
-        complaint.user_id == current_user.id
-        or current_user.role in [UserRole.OFFICER, UserRole.ADMIN]
-    ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    docs = db.collection("complaint_status_logs").where("complaint_id", "==", complaint_id).get()
-    logs = [ComplaintStatusLog.from_firestore(d) for d in docs]
-    logs.sort(key=lambda x: x.created_at)
+    is_owner = complaint.citizen_id == current_user.id
+    is_staff = current_user.role in (UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+    if not (is_owner or is_staff):
+        raise HTTPException(status_code=403, detail="Access denied")
 
-    return [StatusLogResponse.model_validate(l) for l in logs]
+    return [
+        StatusLogResponse(
+            id=str(t.id),
+            complaint_id=str(t.complaint_id),
+            from_status=t.status_from,
+            to_status=t.status_to,
+            remarks=t.notes,
+            updated_by=str(t.changed_by) if t.changed_by else None,
+            created_at=t.created_at,
+        )
+        for t in sorted(complaint.timeline or [], key=lambda x: x.created_at)
+    ]
 
 
-@router.post("/{complaint_id}/feedback", response_model=ComplaintResponse)
-async def submit_feedback(
+# POST /{complaint_id}/upload-images
+@router.post("/{complaint_id}/upload-images")
+async def upload_complaint_images(
     complaint_id: str,
-    feedback_data: ComplaintFeedback,
+    files: List[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """Submit rating and feedback for a resolved complaint."""
-    doc_ref = db.collection("complaints").document(complaint_id)
-    doc = doc_ref.get()
-    
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
-        
-    complaint = Complaint.from_firestore(doc)
-    if complaint.user_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-        
-    if complaint.status not in [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feedback can only be submitted for resolved complaints")
-        
-    # Update firestore
-    updates = {
-        "citizen_rating": feedback_data.rating,
-        "feedback_text": feedback_data.feedback_text,
-        "updated_at": datetime.utcnow()
+    """Upload evidence images for a complaint. Only the complaint owner can upload."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    if complaint.citizen_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the complaint owner can upload images")
+
+    existing_count = len(complaint.media or [])
+    if existing_count >= settings.MAX_ATTACHMENTS_PER_COMPLAINT:
+        raise HTTPException(status_code=400, detail=f"Maximum {settings.MAX_ATTACHMENTS_PER_COMPLAINT} attachments allowed.")
+
+    remaining = settings.MAX_ATTACHMENTS_PER_COMPLAINT - existing_count
+    files = files[:remaining]
+
+    uploaded, rejected = [], []
+    for file in files:
+        if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
+            rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
+            continue
+
+        content = await file.read()
+        if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
+            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
+            continue
+
+        try:
+            img = Image.open(io.BytesIO(content))
+            img.verify()
+        except Exception:
+            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
+            continue
+
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        safe_ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
+        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
+        file_path = os.path.join(CITIZEN_UPLOAD_DIR, unique_name)
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        local_key = f"citizen/{unique_name}"
+        await repo.add_media_proof(
+            complaint_id=complaint.id,
+            media_type=MediaType.PROOF_PHOTO,
+            s3_key=local_key,
+            file_name=unique_name,
+            file_size_bytes=len(content),
+            mime_type=file.content_type or "image/jpeg",
+            uploaded_by=current_user.id,
+        )
+        uploaded.append(f"/uploads/{local_key}")
+
+    await session.commit()
+    return {
+        "message": f"Uploaded {len(uploaded)} image(s).",
+        "uploaded": uploaded,
+        "rejected": rejected,
     }
-    doc_ref.update(updates)
-    
-    # Reload and return
-    updated_doc = doc_ref.get()
-    updated_complaint = Complaint.from_firestore(updated_doc)
-    
-    # Log audit
-    write_audit_log(
-        db,
-        action="SUBMIT_FEEDBACK",
-        entity_type="complaint",
-        entity_id=complaint_id,
-        actor_id=current_user.id,
-        actor_role=current_user.role.value if hasattr(current_user.role, 'value') else current_user.role,
-        details={"rating": feedback_data.rating, "feedback_text": feedback_data.feedback_text},
-    )
-    
-    return ComplaintResponse.model_validate(updated_complaint)
 
 
-
-
+# POST /{complaint_id}/upvote
 @router.post("/{complaint_id}/upvote")
 async def upvote_complaint(
     complaint_id: str,
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """
-    Upvote a public complaint. Increments count but does NOT change priority.
-    Priority is system-computed and independent of upvotes.
-    """
-    doc_ref = db.collection("complaints").document(complaint_id)
-    doc = doc_ref.get()
+    """Upvote a public complaint. One vote per user per complaint."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    if not doc.exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
-
-    complaint = Complaint.from_firestore(doc)
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
     if not complaint.is_public:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not public")
+        raise HTTPException(status_code=404, detail="Complaint not public")
 
-    new_upvotes = complaint.upvotes + 1
-    doc_ref.update({"upvotes": new_upvotes})
+    voted = await repo.upvote(complaint.id, current_user.id, VoteType.UPVOTE)
+    await session.commit()
 
-    return {"message": "Upvoted successfully", "upvotes": new_upvotes}
+    if not voted:
+        return {"message": "Already upvoted", "upvotes": complaint.vote_count}
+    return {"message": "Upvoted successfully", "upvotes": complaint.vote_count + 1}
+
+
+# POST /{complaint_id}/feedback
+@router.post("/{complaint_id}/feedback")
+async def submit_feedback(
+    complaint_id: str,
+    feedback_data: FeedbackSchema,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Submit a 1-5 star rating for a resolved complaint."""
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    if complaint.citizen_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if complaint.status not in (ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED):
+        raise HTTPException(status_code=400, detail="Feedback only allowed for resolved complaints")
+
+    if not (1 <= feedback_data.rating <= 5):
+        raise HTTPException(status_code=422, detail="Rating must be between 1 and 5")
+
+    feedback = CitizenFeedback(
+        id=uuid.uuid4(),
+        complaint_id=complaint.id,
+        citizen_id=current_user.id,
+        rating=feedback_data.rating,
+        comment=feedback_data.feedback_text,
+    )
+    session.add(feedback)
+    await session.commit()
+
+    return {"message": "Feedback submitted. Thank you!", "rating": feedback_data.rating}

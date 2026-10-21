@@ -229,6 +229,26 @@ export const adminAPI = {
         const params = departmentId ? `?department_id=${departmentId}` : '';
         return apiRequest(`/api/admin/officers${params}`);
     },
+    createOfficer: (data) => apiRequest('/api/admin/officers', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    }),
+    updateOfficer: (officerId, params) => {
+        const qs = new URLSearchParams();
+        if (params.department_id) qs.append('department_id', params.department_id);
+        if (params.designation !== undefined) qs.append('designation', params.designation);
+        if (params.is_active !== undefined) qs.append('is_active', params.is_active);
+        return apiRequest(`/api/admin/officers/${officerId}?${qs}`, { method: 'PUT' });
+    },
+    deleteOfficer: (officerId) => apiRequest(`/api/admin/officers/${officerId}`, { method: 'DELETE' }),
+
+    updateDepartment: (deptId, data) => apiRequest(`/api/admin/departments/${deptId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+    }),
+    deleteDepartment: (deptId) => apiRequest(`/api/admin/departments/${deptId}`, { method: 'DELETE' }),
+
+    deleteMapping: (mappingId) => apiRequest(`/api/admin/mappings/${mappingId}`, { method: 'DELETE' }),
 };
 
 // Analytics API

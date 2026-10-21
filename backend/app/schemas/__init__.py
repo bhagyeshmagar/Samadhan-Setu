@@ -1,6 +1,7 @@
 from .user import (
     UserBase, UserCreate, UserLogin, UserResponse,
-    UserWithToken, Token, TokenData
+    UserWithToken, Token, TokenData,
+    OfficerCreate, OfficerResponse,
 )
 from .complaint import (
     ComplaintBase, ComplaintCreate, ComplaintUpdate,
@@ -17,6 +18,7 @@ from .department import (
 __all__ = [
     "UserBase", "UserCreate", "UserLogin", "UserResponse",
     "UserWithToken", "Token", "TokenData",
+    "OfficerCreate", "OfficerResponse",
     "ComplaintBase", "ComplaintCreate", "ComplaintUpdate",
     "ComplaintAIResponse", "ComplaintResponse", "ComplaintListResponse",
     "ComplaintStats", "StatusLogResponse", "ComplaintFeedback",

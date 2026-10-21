@@ -1,7 +1,8 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
+import uuid
 from datetime import datetime
-from ..models.user import UserRole
+from ..models.orm.enums import UserRole
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -37,3 +38,40 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None
+
+
+# ── Officer schemas ──────────────────────────────────────────────────────────
+
+class OfficerCreate(BaseModel):
+    """Schema for creating a new officer account from the admin dashboard.
+    Creates both the User record and Officer profile in one call.
+    """
+    email: EmailStr
+    name: str
+    password: str
+    phone: Optional[str] = None
+    department_id: str       # UUID string of the target department
+    employee_id: str         # Unique employee / badge ID
+    designation: Optional[str] = None
+    jurisdiction_wards: Optional[List[str]] = None
+
+
+class OfficerResponse(BaseModel):
+    """Officer profile enriched with user details."""
+    id: str                  # officer.id
+    user_id: str
+    email: str
+    name: str
+    phone: Optional[str] = None
+    department_id: str
+    department_name: Optional[str] = None
+    employee_id: str
+    designation: Optional[str] = None
+    is_active: bool
+    total_resolved: int = 0
+    avg_resolution_hours: float = 0.0
+    rating: float = 0.0
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

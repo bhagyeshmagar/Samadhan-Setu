@@ -306,7 +306,14 @@ export default function AdminDashboard() {
             </div>
 
             {/* ── Departments Table ── */}
-            <Section title={`Active Departments (${departments.length})`} icon={<Users size={12} />}>
+            <Section title={`Active Departments (${departments.length})`} icon={<Users size={12} />}
+                action={
+                    <a href="/admin/departments"
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg"
+                        style={{ background: 'var(--navy-light)', color: 'var(--navy)' }}>
+                        <ChevronRight size={12} /> Manage
+                    </a>
+                }>
                 {departments.length > 0 ? (
                     <div className="overflow-x-auto rounded-lg overflow-hidden">
                         <table className="gov-table">
@@ -340,6 +347,45 @@ export default function AdminDashboard() {
                     </p>
                 )}
             </Section>
+            {/* ── Management Shortcuts ── */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+                {[
+                    {
+                        href: '/admin/officers',
+                        title: 'Officer Management',
+                        desc: 'Add, edit, and deactivate field officers',
+                        icon: <Users size={20} />,
+                        color: 'var(--navy)',
+                        bg: 'var(--navy-light)',
+                    },
+                    {
+                        href: '/admin/departments',
+                        title: 'Department Management',
+                        desc: 'Create and manage government departments',
+                        icon: <TrendingUp size={20} />,
+                        color: 'var(--india-green)',
+                        bg: 'var(--india-green-light)',
+                    },
+                ].map(card => (
+                    <a key={card.href} href={card.href}
+                        className="gov-card p-5 flex items-center gap-4 hover:shadow-lg transition-shadow group">
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                            style={{ background: card.bg, color: card.color }}>
+                            {card.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                                {card.title}
+                            </div>
+                            <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                {card.desc}
+                            </div>
+                        </div>
+                        <ChevronRight size={16} style={{ color: 'var(--text-muted)' }}
+                            className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                    </a>
+                ))}
+            </div>
 
             {/* ── AI Model Health + Override Stats ── */}
             {(modelHealth || overrideStats) && (

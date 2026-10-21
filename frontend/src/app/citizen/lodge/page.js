@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { complaintsAPI } from '@/lib/api';
 import { useAIServices } from '@/hooks/useAIServices';
@@ -183,7 +184,7 @@ export default function LodgeGrievance() {
             {/* ── Page Header ── */}
             <div className="mb-6">
                 <div className="breadcrumb mb-2">
-                    <a href="/">Home</a>
+                    <Link href="/">Home</Link>
                     <ChevronRight size={10} className="breadcrumb-sep" />
                     <span className="breadcrumb-current">Lodge Grievance</span>
                 </div>

@@ -11,11 +11,14 @@ export function AuthProvider({ children }) {
 
     useEffect(() => {
         // Check for stored user on mount
-        const storedUser = getStoredUser();
-        if (storedUser) {
-            setUser(storedUser);
-        }
-        setLoading(false);
+        const timer = setTimeout(() => {
+            const storedUser = getStoredUser();
+            if (storedUser) {
+                setUser(storedUser);
+            }
+            setLoading(false);
+        }, 0);
+        return () => clearTimeout(timer);
     }, []);
 
     const login = (userData, token) => {

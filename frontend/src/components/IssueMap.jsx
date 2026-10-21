@@ -58,7 +58,7 @@ export default function IssueMap({ complaints = [], colorBy = 'priority', center
                 mapInstanceRef.current = null;
             }
         };
-    }, []);
+    }, [center, zoom]);
 
     useEffect(() => {
         if (!mapInstanceRef.current) return;
@@ -119,7 +119,7 @@ export default function IssueMap({ complaints = [], colorBy = 'priority', center
             <div ref={mapRef} className="w-full h-full" style={{ minHeight: '500px' }} />
 
             {/* Legend */}
-            <div className="absolute bottom-4 left-4 bg-theme-secondary border border-theme rounded-lg shadow-lg p-3 z-[1000]">
+            <div className="absolute bottom-4 left-4 bg-theme-secondary border border-theme rounded-lg shadow-lg p-3 z-1000">
                 <div className="text-xs font-semibold text-theme-muted mb-2">
                     {colorBy === 'priority' ? 'Priority' : 'Category'}
                 </div>
@@ -145,7 +145,7 @@ export default function IssueMap({ complaints = [], colorBy = 'priority', center
             </div>
 
             {/* Stats overlay */}
-            <div className="absolute top-4 right-4 bg-theme-secondary border border-theme rounded-lg shadow-lg px-4 py-2 z-[1000]">
+            <div className="absolute top-4 right-4 bg-theme-secondary border border-theme rounded-lg shadow-lg px-4 py-2 z-1000">
                 <span className="text-sm font-bold text-theme">
                     {complaints.length} Issues
                 </span>

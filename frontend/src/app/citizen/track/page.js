@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { complaintsAPI, aiAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
@@ -114,7 +115,7 @@ export default function TrackGrievance() {
             <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <div className="breadcrumb mb-2">
-                        <a href="/">Home</a>
+                        <Link href="/">Home</Link>
                         <ChevronDown size={10} className="breadcrumb-sep -rotate-90" />
                         <span className="breadcrumb-current">My Grievances</span>
                     </div>
@@ -383,7 +384,7 @@ export default function TrackGrievance() {
                                                                         <span key={star} className={star <= complaint.citizen_rating ? 'text-amber-400' : 'text-gray-200 dark:text-gray-700'}>★</span>
                                                                     ))}
                                                                 </div>
-                                                                {complaint.feedback_text && <p className="text-sm font-medium text-theme-secondary italic bg-gray-50 dark:bg-theme-tertiary p-3 rounded-lg">"{complaint.feedback_text}"</p>}
+                                                                {complaint.feedback_text && <p className="text-sm font-medium text-theme-secondary italic bg-gray-50 dark:bg-theme-tertiary p-3 rounded-lg">&quot;{complaint.feedback_text}&quot;</p>}
                                                             </div>
                                                         ) : feedbackForm[complaint.id]?.submitted ? (
                                                             <div className="gov-alert success text-sm">

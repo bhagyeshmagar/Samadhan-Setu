@@ -1,15 +1,14 @@
-'use client';
+    'use client';
 
 import { useTheme } from '@/lib/theme';
 import { Sun, Moon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
+
+const emptySubscribe = () => () => {};
 
 export default function ThemeToggle() {
     const { theme, toggleTheme } = useTheme();
-    const [mounted, setMounted] = useState(false);
-
-    // Prevent hydration mismatch
-    useEffect(() => setMounted(true), []);
+    const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
     if (!mounted) {
         return <div className="w-7 h-7" aria-hidden="true" />;

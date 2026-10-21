@@ -1,48 +1,60 @@
 """
-Samadhan Setu - AI-Powered Grievance Redressal Platform
-Main FastAPI Application Entry Point
+Samadhan Setu — AI-Powered Grievance Redressal Platform
+Main FastAPI Application Entry Point (PostgreSQL edition)
 """
 import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from contextlib import asynccontextmanager
 
 from .config import settings
-from .database import init_db
-from .routers import auth_router, citizens_router, departments_router, admin_router, assignments_router, analytics_router, ai_insights_router
+from .db.session import async_engine
+from .routers import (
+    auth_router, citizens_router, departments_router,
+    admin_router, assignments_router, analytics_router, ai_insights_router,
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database on startup"""
-    init_db()
+    """Startup: verify DB connectivity. Shutdown: dispose connection pool."""
+    # Quick connectivity check — will raise if PG is unreachable
+    async with async_engine.connect() as conn:
+        await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+    print("[OK] PostgreSQL connection verified.")
     yield
+    await async_engine.dispose()
+    print("[OK] PostgreSQL connection pool closed.")
 
-# Initialize FastAPI app
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description=settings.PROJECT_DESCRIPTION,
     version=settings.VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# CORS middleware
+# ── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600,
 )
 
-# Mount uploads directory for static file serving
+# ── Static uploads (local disk — Phase 4 will swap to S3) ────────────────────
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
-# Include routers
+# ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(citizens_router)
 app.include_router(departments_router)
@@ -52,51 +64,51 @@ app.include_router(analytics_router)
 app.include_router(ai_insights_router)
 
 
-
-@app.get("/")
+@app.get("/", tags=["Root"])
 async def root():
-    """Root endpoint - API information"""
     return {
         "name": settings.PROJECT_NAME,
         "tagline": "Bridging Citizens and Government through AI",
         "version": settings.VERSION,
+        "database": "PostgreSQL",
         "docs": "/docs",
-        "status": "operational"
+        "status": "operational",
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["Root"])
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
+    return {"status": "healthy", "database": "postgresql"}
 
 
-# API info endpoint
-@app.get("/api")
+@app.get("/api", tags=["Root"])
 async def api_info():
-    """API overview"""
     return {
         "endpoints": {
             "auth": {
                 "register": "POST /api/auth/register",
                 "login": "POST /api/auth/login",
-                "profile": "GET /api/auth/me"
+                "login_json": "POST /api/auth/login/json",
+                "profile": "GET /api/auth/me",
             },
             "citizens": {
-                "submit": "POST /api/complaints",
+                "submit": "POST /api/complaints/",
                 "my_complaints": "GET /api/complaints/my",
                 "public_feed": "GET /api/complaints/public",
-                "upvote": "POST /api/complaints/{id}/upvote"
+                "detail": "GET /api/complaints/{id}",
+                "upvote": "POST /api/complaints/{id}/upvote",
+                "upload": "POST /api/complaints/{id}/upload",
             },
             "department": {
                 "complaints": "GET /api/department/complaints",
-                "update_status": "PUT /api/department/complaints/{id}/status"
+                "update_status": "PUT /api/department/complaints/{id}/status",
+                "stats": "GET /api/department/stats",
             },
             "admin": {
                 "stats": "GET /api/admin/stats",
                 "departments": "GET/POST /api/admin/departments",
-                "mappings": "GET/POST /api/admin/mappings",
-                "sla": "GET/POST /api/admin/sla"
-            }
+                "users": "GET /api/admin/users",
+                "sla": "GET/POST /api/admin/sla",
+            },
         }
     }

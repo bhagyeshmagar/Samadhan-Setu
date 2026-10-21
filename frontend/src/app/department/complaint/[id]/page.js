@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { departmentAPI, complaintsAPI } from '@/lib/api';
@@ -46,13 +46,7 @@ export default function HandleComplaint() {
         }
     }, [user, authLoading, router]);
 
-    useEffect(() => {
-        if (user && complaintId) {
-            fetchComplaint();
-        }
-    }, [user, complaintId]);
-
-    const fetchComplaint = async () => {
+    const fetchComplaint = useCallback(async () => {
         try {
             const data = await complaintsAPI.getById(complaintId);
             setComplaint(data);
@@ -62,7 +56,13 @@ export default function HandleComplaint() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [complaintId]);
+
+    useEffect(() => {
+        if (user && complaintId) {
+            fetchComplaint();
+        }
+    }, [user, complaintId, fetchComplaint]);
 
     const handleProofUpload = (e) => {
         const files = Array.from(e.target.files);
@@ -130,7 +130,7 @@ export default function HandleComplaint() {
     if (authLoading || loading) {
         return (
             <div className="flex justify-center items-center min-h-[60vh] flex-col gap-3">
-                <Loader2 className="animate-spin text-[var(--navy)]" size={36} />
+                <Loader2 className="animate-spin text-(--navy)" size={36} />
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Retrieving Official Grievance Dossier…
                 </p>
@@ -270,7 +270,7 @@ export default function HandleComplaint() {
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                                 <div className="flex items-start gap-2.5 p-3 rounded border border-gray-200 bg-white">
-                                    <MapPin className="text-[var(--navy)] mt-0.5 flex-shrink-0" size={16} />
+                                    <MapPin className="text-(--navy) mt-0.5 shrink-0" size={16} />
                                     <div className="min-w-0">
                                         <p className="text-[10px] font-bold uppercase text-gray-500">Location / Ward</p>
                                         <p className="text-xs font-semibold text-gray-900 truncate">{complaint.location || 'Not Specified'}</p>
@@ -278,7 +278,7 @@ export default function HandleComplaint() {
                                     </div>
                                 </div>
                                 <div className="flex items-start gap-2.5 p-3 rounded border border-gray-200 bg-white">
-                                    <Calendar className="text-[var(--navy)] mt-0.5 flex-shrink-0" size={16} />
+                                    <Calendar className="text-(--navy) mt-0.5 shrink-0" size={16} />
                                     <div>
                                         <p className="text-[10px] font-bold uppercase text-gray-500">Registration Timestamp</p>
                                         <p className="text-xs font-semibold text-gray-900">
@@ -306,7 +306,7 @@ export default function HandleComplaint() {
                                                 <img
                                                     src={getImageUrl(img)}
                                                     alt={`Evidence ${idx + 1}`}
-                                                    className="w-28 h-28 object-cover rounded border border-gray-300 hover:border-[var(--navy)] shadow-sm transition hover:scale-105"
+                                                    className="w-28 h-28 object-cover rounded border border-gray-300 hover:border-(--navy) shadow-sm transition hover:scale-105"
                                                     onError={(e) => { e.target.src = 'https://via.placeholder.com/128?text=Evidence'; }}
                                                 />
                                             </a>

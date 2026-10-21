@@ -149,6 +149,7 @@ class ComplaintRepository:
         query = select(Complaint).options(
             selectinload(Complaint.department),
             selectinload(Complaint.media),
+            selectinload(Complaint.timeline),
             selectinload(Complaint.assigned_officer).selectinload(Officer.user),
         )
 

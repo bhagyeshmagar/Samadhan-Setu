@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { analyticsAPI } from '@/lib/api';
@@ -37,13 +37,7 @@ export default function AdminMapPage() {
         }
     }, [user, authLoading, router]);
 
-    useEffect(() => {
-        if (user) {
-            fetchMapData();
-        }
-    }, [user, selectedDepartment]);
-
-    const fetchMapData = async () => {
+    const fetchMapData = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
@@ -55,7 +49,13 @@ export default function AdminMapPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [selectedDepartment]);
+
+    useEffect(() => {
+        if (user) {
+            fetchMapData();
+        }
+    }, [user, fetchMapData]);
 
     if (authLoading) {
         return (

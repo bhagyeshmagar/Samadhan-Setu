@@ -1,24 +1,26 @@
 """
-Assignments Router
-==================
-API endpoints for managing AI-driven task assignments.
-Provides visibility and override capabilities for department heads.
+Assignments Router — PostgreSQL edition.
+Task assignment management: teams, load balancing, manual overrides.
 """
-from typing import List, Optional, Any
-from datetime import datetime
+import uuid
+from typing import List, Optional
+from datetime import datetime, timezone, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
-from google.cloud.firestore import Query as FirestoreQuery
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from fastapi import HTTPException, status
-from ..database import get_db
-from ..auth import get_current_user, require_role
-from ..models import User, UserRole, Team, TaskAssignment, AssignmentLog, Complaint
+from ..db.session import get_async_session
+from ..auth import get_current_user, require_officer, require_admin
+from ..models.orm import User, Complaint
+from ..models.orm.team import Team, TaskAssignment
+from ..models.orm.enums import UserRole, ComplaintStatus
+from ..repositories.user_repo import UserRepository
 
 router = APIRouter(prefix="/api/assignments", tags=["Assignments"])
 
-
-# ========== Pydantic Schemas ==========
 
 class TeamResponse(BaseModel):
     id: str
@@ -28,9 +30,8 @@ class TeamResponse(BaseModel):
     daily_capacity: int
     active_tasks: int
     load_ratio: float
-    ward_coverage: Optional[List[str]] = None
     is_active: bool
-    
+
     class Config:
         from_attributes = True
 
@@ -39,287 +40,159 @@ class AssignmentResponse(BaseModel):
     id: str
     complaint_id: str
     team_id: str
-    team_name: Optional[str] = None
     assigned_at: datetime
     deadline: datetime
     load_score: Optional[float] = None
     reason: Optional[str] = None
-    is_reassigned: bool
-    reassigned_from_team_id: Optional[str] = None
-    reassignment_reason: Optional[str] = None
     is_active: bool
-    
+    is_reassigned: bool
+
     class Config:
         from_attributes = True
 
 
-class OverrideRequest(BaseModel):
-    new_team_id: str
+class ReassignRequest(BaseModel):
+    team_id: str
     reason: str
 
 
-class ReassignmentCheckResponse(BaseModel):
-    checked_at: str
-    sla_risk_checked: int
-    overload_checked: int
-    reassignments: List[dict]
-
-
-# ========== Endpoints ==========
-
+# ──────────────────────────────────────────────────────────────────────────────
+# List teams
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/teams", response_model=List[TeamResponse])
-async def get_teams(
-    department_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
+async def list_teams(
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """
-    Get all teams.
-    - Officers: silently scoped to their own department (department_id param ignored).
-    - Admins: all teams, optionally filtered by department_id.
-    - Citizens: 403.
-    """
-    if current_user.role == UserRole.CITIZEN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
+    """List all active teams with their current load."""
+    user_repo = UserRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
 
-    query = db.collection('teams')
+    query = select(Team).where(Team.is_active == True)
+    if officer and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        query = query.where(Team.department_id == officer.department_id)
 
-    if current_user.role == UserRole.OFFICER:
-        # Scope strictly to officer's own department — ignore any department_id param
-        if not current_user.department_id:
-            return []
-        query = query.where('department_id', '==', current_user.department_id)
-    elif department_id:
-        # Admin filtering by department
-        query = query.where('department_id', '==', department_id)
-
-    docs = query.get()
-    teams = [Team.from_firestore(doc) for doc in docs if doc]
+    res = await session.execute(query.order_by(Team.name))
+    teams = res.scalars().all()
 
     return [
         TeamResponse(
-            id=t.id,
+            id=str(t.id),
             name=t.name,
             code=t.code,
-            department_id=t.department_id,
+            department_id=str(t.department_id),
             daily_capacity=t.daily_capacity,
             active_tasks=t.active_tasks,
-            load_ratio=t.load_ratio,
-            ward_coverage=t.ward_coverage,
-            is_active=t.is_active
+            load_ratio=round(t.active_tasks / max(t.daily_capacity, 1), 2),
+            is_active=t.is_active,
         )
-        for t in teams if t
+        for t in teams
     ]
 
 
-@router.get("/team/{team_id}", response_model=List[AssignmentResponse])
-async def get_team_assignments(
-    team_id: str,
+# ──────────────────────────────────────────────────────────────────────────────
+# List assignments for officer's department
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/", response_model=List[AssignmentResponse])
+async def list_assignments(
     active_only: bool = True,
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """
-    Get all assignments for a specific team.
-    """
-    team_doc = db.collection('teams').document(team_id).get()
-    if not team_doc.exists:
-        raise HTTPException(status_code=404, detail="Team not found")
-        
-    team = Team.from_firestore(team_doc)
-    
-    # Check access
-    if current_user.role == UserRole.OFFICER:
-        if current_user.department_id != team.department_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-            
-    query = db.collection('task_assignments').where('team_id', '==', team_id)
+    """List task assignments for the officer's department."""
+    user_repo = UserRepository(session)
+    officer = await user_repo.get_officer_by_user_id(current_user.id)
+
+    query = select(TaskAssignment)
     if active_only:
-        query = query.where('is_active', '==', True)
-        
-    docs = query.get()
-    assignments = [TaskAssignment.from_firestore(doc) for doc in docs]
-    assignments.sort(key=lambda x: x.deadline)
-    
+        query = query.where(TaskAssignment.is_active == True)
+
+    if officer and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        query = query.join(Team, TaskAssignment.team_id == Team.id).where(
+            Team.department_id == officer.department_id
+        )
+
+    offset = (page - 1) * per_page
+    query = query.order_by(TaskAssignment.assigned_at.desc()).limit(per_page).offset(offset)
+
+    res = await session.execute(query)
+    assignments = res.scalars().all()
+
     return [
         AssignmentResponse(
-            id=a.id,
-            complaint_id=a.complaint_id,
-            team_id=a.team_id,
-            team_name=team.name,
+            id=str(a.id),
+            complaint_id=str(a.complaint_id),
+            team_id=str(a.team_id),
             assigned_at=a.assigned_at,
             deadline=a.deadline,
             load_score=a.load_score,
             reason=a.reason,
+            is_active=a.is_active,
             is_reassigned=a.is_reassigned,
-            reassigned_from_team_id=a.reassigned_from_team_id,
-            reassignment_reason=a.reassignment_reason,
-            is_active=a.is_active
         )
         for a in assignments
     ]
 
 
-@router.get("/{assignment_id}", response_model=AssignmentResponse)
-async def get_assignment(
+# ──────────────────────────────────────────────────────────────────────────────
+# Manual reassign
+# ──────────────────────────────────────────────────────────────────────────────
+@router.post("/{assignment_id}/reassign", response_model=AssignmentResponse)
+async def reassign_complaint(
     assignment_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
+    body: ReassignRequest,
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    """
-    Get details of a specific assignment.
-    Officers may only view assignments belonging to their department.
-    """
-    if current_user.role == UserRole.CITIZEN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
+    """Manually reassign a complaint to a different team."""
+    try:
+        aid = uuid.UUID(assignment_id)
+        new_team_id = uuid.UUID(body.team_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid UUID")
 
-    doc = db.collection('task_assignments').document(assignment_id).get()
-    if not doc.exists:
+    res = await session.execute(select(TaskAssignment).where(TaskAssignment.id == aid))
+    assignment = res.scalar_one_or_none()
+    if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    if not assignment.is_active:
+        raise HTTPException(status_code=400, detail="Assignment is no longer active")
 
-    assignment = TaskAssignment.from_firestore(doc)
-
-    # Department scope check for officers
-    if current_user.role == UserRole.OFFICER:
-        team_doc = db.collection('teams').document(assignment.team_id).get()
-        if team_doc.exists:
-            team_dept = team_doc.to_dict().get('department_id')
-            if team_dept != current_user.department_id:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-
-    team_doc = db.collection('teams').document(assignment.team_id).get()
-    team_name = None
-    if team_doc.exists:
-        team_name = team_doc.to_dict().get('name')
-        
-    return AssignmentResponse(
-        id=assignment.id,
-        complaint_id=assignment.complaint_id,
-        team_id=assignment.team_id,
-        team_name=team_name,
-        assigned_at=assignment.assigned_at,
-        deadline=assignment.deadline,
-        load_score=assignment.load_score,
-        reason=assignment.reason,
-        is_reassigned=assignment.is_reassigned,
-        reassigned_from_team_id=assignment.reassigned_from_team_id,
-        reassignment_reason=assignment.reassignment_reason,
-        is_active=assignment.is_active
-    )
-
-
-@router.post("/{assignment_id}/override", response_model=AssignmentResponse)
-async def override_assignment(
-    assignment_id: str,
-    override: OverrideRequest,
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    """
-    Manually override an AI assignment (Admin/Officer only).
-    """
-    if current_user.role not in [UserRole.ADMIN, UserRole.OFFICER]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Override requires admin or officer role")
-        
-    assignment_ref = db.collection('task_assignments').document(assignment_id)
-    assignment_doc = assignment_ref.get()
-    
-    if not assignment_doc.exists:
-        raise HTTPException(status_code=404, detail="Assignment not found")
-    assignment = TaskAssignment.from_firestore(assignment_doc)
-    
-    new_team_ref = db.collection('teams').document(override.new_team_id)
-    new_team_doc = new_team_ref.get()
-    if not new_team_doc.exists:
-        raise HTTPException(status_code=404, detail="New team not found")
-    new_team = Team.from_firestore(new_team_doc)
-
-    # Officers can only reassign within their own department
-    if current_user.role == UserRole.OFFICER:
-        old_team_dept = db.collection('teams').document(assignment.team_id).get().to_dict().get('department_id')
-        new_team_dept = new_team_doc.to_dict().get('department_id')
-        if old_team_dept != current_user.department_id or new_team_dept != current_user.department_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Officers can only reassign within their own department"
-            )
-
-    old_team_ref = db.collection('teams').document(assignment.team_id)
-    old_team_doc = old_team_ref.get()
-    old_team = Team.from_firestore(old_team_doc) if old_team_doc.exists else None
-    
+    # Deactivate old assignment
     old_team_id = assignment.team_id
-    reassigned_at = datetime.utcnow()
-    reason_str = f"Manual override by {current_user.name}: {override.reason}"
-    
-    # Update assignment
-    assignment_ref.update({
-        'team_id': new_team.id,
-        'is_reassigned': True,
-        'reassigned_from_team_id': old_team_id,
-        'reassignment_reason': reason_str,
-        'reassigned_at': reassigned_at
-    })
-    
-    # Update complaint
-    complaint_ref = db.collection('complaints').document(assignment.complaint_id)
-    if complaint_ref.get().exists:
-        complaint_ref.update({'assigned_team_id': new_team.id})
-        
-    # Update team task counts
-    if old_team:
-        old_team_ref.update({'active_tasks': max(0, old_team.active_tasks - 1)})
-    
-    new_team_ref.update({'active_tasks': new_team.active_tasks + 1})
-        
-    # Log the override
-    log = AssignmentLog(
-        assignment_id=assignment.id,
-        event_type="OVERRIDDEN",
-        details={
-            "from_team_id": old_team_id,
-            "to_team_id": new_team.id,
-            "reason": override.reason,
-            "overridden_by": current_user.id
-        },
-        triggered_by="ADMIN"
-    )
-    db.collection('assignment_logs').add(log.to_firestore())
-    
-    return AssignmentResponse(
-        id=assignment.id,
+    assignment.is_active = False
+    assignment.is_reassigned = True
+    assignment.reassigned_at = datetime.now(timezone.utc)
+    assignment.reassignment_reason = body.reason
+
+    # Create new assignment
+    new_assignment = TaskAssignment(
+        id=uuid.uuid4(),
         complaint_id=assignment.complaint_id,
-        team_id=new_team.id,
-        team_name=new_team.name,
-        assigned_at=assignment.assigned_at,
+        team_id=new_team_id,
+        assigned_at=datetime.now(timezone.utc),
         deadline=assignment.deadline,
-        load_score=assignment.load_score,
-        reason=assignment.reason,
+        reason=body.reason,
         is_reassigned=True,
         reassigned_from_team_id=old_team_id,
-        reassignment_reason=reason_str,
-        is_active=assignment.is_active
+        reassigned_at=datetime.now(timezone.utc),
+        reassignment_reason=body.reason,
+        is_active=True,
     )
+    session.add(new_assignment)
+    await session.commit()
+    await session.refresh(new_assignment)
 
-
-@router.post("/check-reassignments", response_model=ReassignmentCheckResponse)
-async def trigger_reassignment_check(
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    """
-    Manually trigger the AI reassignment check.
-    """
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin only")
-        
-    from ..services.auto_reassigner import run_reassignment_check
-    
-    results = run_reassignment_check(db)
-    
-    return ReassignmentCheckResponse(
-        checked_at=results["checked_at"],
-        sla_risk_checked=results["sla_risk_checked"],
-        overload_checked=results["overload_checked"],
-        reassignments=results["reassignments"]
+    return AssignmentResponse(
+        id=str(new_assignment.id),
+        complaint_id=str(new_assignment.complaint_id),
+        team_id=str(new_assignment.team_id),
+        assigned_at=new_assignment.assigned_at,
+        deadline=new_assignment.deadline,
+        load_score=new_assignment.load_score,
+        reason=new_assignment.reason,
+        is_active=new_assignment.is_active,
+        is_reassigned=new_assignment.is_reassigned,
     )

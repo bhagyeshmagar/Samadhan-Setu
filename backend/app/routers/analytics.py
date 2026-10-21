@@ -1,35 +1,25 @@
 """
-Analytics Router
-================
-API endpoints for AI-powered analytics including heatmaps and clustering.
-Provides visibility into issue patterns for proactive governance.
+Analytics Router — PostgreSQL edition.
+Provides complaint heatmaps, category trends, and ward-level analytics.
+All queries run directly against PostgreSQL — no Firestore.
 """
-from typing import List, Optional, Any
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from typing import List, Optional
+from datetime import datetime, timedelta, timezone
 
-from ..database import get_db
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy import select, func, and_
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..db.session import get_async_session
 from ..auth import get_current_user
-from ..models import User, UserRole, Complaint, Department
-from ..services.heatmap_generator import (
-    generate_category_heatmap,
-    generate_locality_heatmap,
-    generate_category_by_locality_heatmap,
-    generate_time_trend_heatmap,
-    get_top_problem_areas
-)
-from ..services.complaint_clustering import (
-    get_clustered_complaints,
-    identify_recurring_issues
-)
+from ..models.orm import User, Complaint, Department
+from ..models.orm.enums import ComplaintStatus, ComplaintPriority
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
 
-# ========== Pydantic Schemas ==========
-
-class HeatmapDataPoint(BaseModel):
+class HeatmapPoint(BaseModel):
     category: Optional[str] = None
     ward: Optional[str] = None
     count: int
@@ -38,271 +28,188 @@ class HeatmapDataPoint(BaseModel):
 
 
 class CategoryHeatmapResponse(BaseModel):
-    type: str
-    period_days: int
-    generated_at: str
+    data: List[HeatmapPoint]
     total_complaints: int
-    data: List[dict]
+    generated_at: datetime
 
 
-class LocalityHeatmapResponse(BaseModel):
-    type: str
-    period_days: int
-    generated_at: str
-    category_filter: Optional[str] = None
-    total_locations: int
-    data: List[dict]
-
-
-class ClusterResponse(BaseModel):
-    period_days: int
-    category_filter: Optional[str] = None
-    ward_filter: Optional[str] = None
-    total_complaints: int
-    total_clusters: int
-    significant_clusters: int
-    clusters: List[dict]
-    generated_at: str
-
-
-class RecurringIssueResponse(BaseModel):
-    ward: str
-    category: str
-    total_count: int
-    unique_issues: int
-    recurring_patterns: int
-    severity: str
-    sample_complaints: List[str]  # Changed to str since Firestore IDs are strings
-
-
-class DepartmentPerformanceResponse(BaseModel):
-    department_id: str
-    department_name: str
-    total_complaints: int
-    resolved_complaints: int
-    avg_response_time_hours: float
-    avg_resolution_time_hours: float
-    sla_breach_rate: float
-    avg_citizen_rating: float
-    feedback_count: int
-
-
-class SmartAlertResponse(BaseModel):
-    alert_id: str
-    type: str  # e.g., "SPIKE", "ESCALATION_RISK"
-    severity: str  # "HIGH", "CRITICAL"
-    title: str
-    message: str
-    ward: Optional[str] = None
+class TrendPoint(BaseModel):
+    date: str
+    count: int
     category: Optional[str] = None
-    related_complaint_ids: List[str] = []
-    generated_at: str
 
-# ========== Endpoints ==========
 
+class WardSummary(BaseModel):
+    ward: str
+    count: int
+    open_count: int
+    avg_priority_score: float
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Category heatmap
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/heatmap/category", response_model=CategoryHeatmapResponse)
-async def get_category_heatmap(
-    category: Optional[str] = None,
+async def category_heatmap(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
+    session: AsyncSession = Depends(get_async_session),
 ):
-    result = generate_category_heatmap(db, category, days)
-    return CategoryHeatmapResponse(**result)
+    """Category distribution of complaints for the last N days."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
+    res = await session.execute(
+        select(Complaint.category, func.count().label("n"))
+        .where(Complaint.created_at >= since)
+        .group_by(Complaint.category)
+        .order_by(func.count().desc())
+    )
+    rows = res.all()
+    total = sum(r.n for r in rows)
 
-@router.get("/heatmap/locality", response_model=LocalityHeatmapResponse)
-async def get_locality_heatmap(
-    category: Optional[str] = None,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    result = generate_locality_heatmap(db, category, days)
-    return LocalityHeatmapResponse(**result)
-
-
-@router.get("/departments/performance", response_model=List[DepartmentPerformanceResponse])
-async def get_department_performance_metrics(
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    """Admin: all departments. Officer: own department only."""
-    if current_user.role == UserRole.CITIZEN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
-
-    from ..services.performance_analytics import get_department_performance
-    results = get_department_performance(db, days)
-
-    # Officers see only their own department
-    if current_user.role == UserRole.OFFICER and current_user.department_id:
-        results = [r for r in results if r.get("department_id") == current_user.department_id]
-
-    return results
-
-
-@router.get("/smart-alerts", response_model=List[SmartAlertResponse])
-async def get_smart_alerts_api(
-    days: int = Query(7, ge=1, le=30),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    """Retrieve anomaly alerts. Officers and admins only."""
-    if current_user.role == UserRole.CITIZEN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
-
-    from ..services.smart_alerts import generate_smart_alerts
-    return generate_smart_alerts(db, days)
-
-
-@router.get("/heatmap/matrix")
-async def get_matrix_heatmap(
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    return generate_category_by_locality_heatmap(db, days)
-
-
-@router.get("/heatmap/trends")
-async def get_trend_heatmap(
-    category: Optional[str] = None,
-    days: int = Query(30, ge=1, le=365),
-    group_by: str = Query("day", regex="^(day|week)$"),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    return generate_time_trend_heatmap(db, category, days, group_by)
-
-
-@router.get("/top-problem-areas")
-async def get_problem_areas(
-    limit: int = Query(10, ge=1, le=50),
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    return get_top_problem_areas(db, limit, days)
-
-
-@router.get("/clusters", response_model=ClusterResponse)
-async def get_complaint_clusters(
-    category: Optional[str] = None,
-    ward: Optional[str] = None,
-    days: int = Query(30, ge=1, le=365),
-    min_size: int = Query(2, ge=2, le=20),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    result = get_clustered_complaints(db, category, ward, days, min_size)
-    return ClusterResponse(**result)
-
-
-@router.get("/recurring-issues", response_model=List[RecurringIssueResponse])
-async def get_recurring_issues(
-    days: int = Query(30, ge=1, le=365),
-    threshold: int = Query(3, ge=2, le=20),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    """Officers and admins only."""
-    if current_user.role == UserRole.CITIZEN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
-    return identify_recurring_issues(db, days, threshold)
-
-
-@router.get("/summary")
-async def get_analytics_summary(
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
-):
-    """Officers and admins only."""
-    if current_user.role == UserRole.CITIZEN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Officers and admins only")
-
-    category_heatmap = generate_category_heatmap(db, None, days)
-    locality_heatmap = generate_locality_heatmap(db, None, days)
-    top_areas = get_top_problem_areas(db, 5, days)
-    recurring = identify_recurring_issues(db, days, 3)
-
-    return {
-        "period_days": days,
-        "total_complaints": category_heatmap["total_complaints"],
-        "top_categories": category_heatmap["data"][:5],
-        "top_localities": locality_heatmap["data"][:5],
-        "top_problem_areas": top_areas,
-        "recurring_issues_count": len(recurring),
-        "high_severity_areas": [r for r in recurring if r["severity"] == "high"][:5]
+    COLOR_MAP = {
+        "Road": "#FF6B00",
+        "Water": "#1E90FF",
+        "Electricity": "#FFD700",
+        "Sanitation": "#228B22",
+        "Public Health": "#DC143C",
     }
 
+    def intensity(count: int, max_count: int) -> str:
+        ratio = count / max(max_count, 1)
+        if ratio > 0.6:
+            return "high"
+        elif ratio > 0.3:
+            return "medium"
+        return "low"
 
-@router.get("/map-data")
-async def get_map_data(
-    department_id: Optional[str] = None,
+    max_count = max((r.n for r in rows), default=1)
+    data = [
+        HeatmapPoint(
+            category=r.category,
+            count=r.n,
+            intensity=intensity(r.n, max_count),
+            color=COLOR_MAP.get(r.category, "#6B7280"),
+        )
+        for r in rows
+    ]
+
+    return CategoryHeatmapResponse(data=data, total_complaints=total, generated_at=datetime.now(timezone.utc))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ward heatmap
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/heatmap/ward", response_model=List[WardSummary])
+async def ward_heatmap(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: Any = Depends(get_db)
+    session: AsyncSession = Depends(get_async_session),
 ):
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    
-    query = db.collection('complaints').where('created_at', '>=', cutoff)
-    docs = query.get()
-    
-    all_complaints = []
-    for doc in docs:
-        try:
-            c = Complaint.from_firestore(doc)
-            if c and c.latitude is not None and c.longitude is not None:
-                all_complaints.append(c)
-        except Exception as e:
-            # Skip malformed/legacy complaints
-            continue
-            
-    # Filter by department
-    filtered_complaints = []
-    dept_name = None
-    
-    if current_user.role == UserRole.OFFICER:
-        filtered_complaints = [c for c in all_complaints if c.department_id == current_user.department_id]
-        if current_user.department_id:
-            dept_doc = db.collection('departments').document(current_user.department_id).get()
-            if dept_doc.exists:
-                dept_name = dept_doc.to_dict().get('name')
-    elif department_id:
-        filtered_complaints = [c for c in all_complaints if c.department_id == department_id]
-        dept_doc = db.collection('departments').document(department_id).get()
-        if dept_doc.exists:
-            dept_name = dept_doc.to_dict().get('name')
-    else:
-        filtered_complaints = all_complaints
-        
-    filtered_complaints.sort(key=lambda x: x.created_at, reverse=True)
-    
-    # Get all departments for the filter dropdown (admin only)
-    departments = []
-    if current_user.role == UserRole.ADMIN:
-        dept_docs = db.collection('departments').get()
-        departments = [{"id": d.id, "name": d.to_dict().get('name')} for d in dept_docs]
-    
-    return {
-        "complaints": [
-            {
-                "id": c.id,
-                "lat": c.latitude,
-                "lng": c.longitude,
-                "category": c.category,
-                "priority": getattr(c.priority, 'value', c.priority) if c.priority else "Low",
-                "status": getattr(c.status, 'value', c.status) if c.status else "Pending",
-                "description": c.description[:100] + "..." if c.description and len(c.description) > 100 else (c.description or ""),
-                "location": c.location,
-                "created_at": c.created_at.isoformat() if hasattr(c.created_at, 'isoformat') else str(c.created_at)
-            }
-            for c in filtered_complaints
-        ],
-        "department_filter": dept_name,
-        "departments": departments,
-        "total": len(filtered_complaints),
-        "period_days": days
-    }
+    """Per-ward complaint counts and open complaint counts."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    res = await session.execute(
+        select(
+            Complaint.ward,
+            func.count().label("total"),
+            func.count().filter(Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED])).label("open"),
+            func.avg(Complaint.priority_score).label("avg_priority"),
+        )
+        .where(Complaint.created_at >= since, Complaint.ward.is_not(None))
+        .group_by(Complaint.ward)
+        .order_by(func.count().desc())
+    )
+    rows = res.all()
+
+    return [
+        WardSummary(
+            ward=r.ward,
+            count=r.total,
+            open_count=r.open or 0,
+            avg_priority_score=round(float(r.avg_priority or 0), 2),
+        )
+        for r in rows
+    ]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Time trend
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/trends/daily", response_model=List[TrendPoint])
+async def daily_trends(
+    days: int = Query(30, ge=1, le=90),
+    category: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Daily complaint submission count for the last N days."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    query = (
+        select(
+            func.date(Complaint.created_at).label("day"),
+            func.count().label("n"),
+        )
+        .where(Complaint.created_at >= since)
+        .group_by(func.date(Complaint.created_at))
+        .order_by(func.date(Complaint.created_at))
+    )
+    if category:
+        query = query.where(Complaint.category.ilike(category))
+
+    res = await session.execute(query)
+    return [TrendPoint(date=str(r.day), count=r.n, category=category) for r in res.all()]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SLA breach summary
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/sla/breaches")
+async def sla_breach_summary(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Count of active SLA breaches by department."""
+    res = await session.execute(
+        select(
+            Complaint.department_id,
+            func.count().label("breached_count"),
+        )
+        .where(
+            Complaint.sla_breached == True,
+            Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]),
+        )
+        .group_by(Complaint.department_id)
+    )
+    rows = res.all()
+
+    # Resolve department names
+    dept_res = await session.execute(select(Department))
+    dept_map = {d.id: d.name for d in dept_res.scalars().all()}
+
+    return [
+        {
+            "department_id": str(r.department_id) if r.department_id else None,
+            "department_name": dept_map.get(r.department_id, "Unknown"),
+            "breached_count": r.breached_count,
+        }
+        for r in rows
+    ]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Priority distribution
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/priority/distribution")
+async def priority_distribution(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Count of open complaints by priority level."""
+    res = await session.execute(
+        select(Complaint.priority, func.count().label("n"))
+        .where(Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]))
+        .group_by(Complaint.priority)
+    )
+    return {r.priority.value: r.n for r in res.all()}

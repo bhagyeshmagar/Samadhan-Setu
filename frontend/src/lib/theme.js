@@ -1,22 +1,25 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useSyncExternalStore } from 'react';
 
+const emptySubscribe = () => () => {};
 const ThemeContext = createContext({ theme: 'light', toggleTheme: () => { } });
 
 export function ThemeProvider({ children }) {
     const [theme, setTheme] = useState('light');
-    const [mounted, setMounted] = useState(false);
+    const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
     // Load theme from localStorage on mount
     useEffect(() => {
-        setMounted(true);
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme) {
-            setTheme(savedTheme);
-        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            setTheme('dark');
-        }
+        const timer = setTimeout(() => {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                setTheme(savedTheme);
+            } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                setTheme('dark');
+            }
+        }, 0);
+        return () => clearTimeout(timer);
     }, []);
 
     // Apply theme class to document

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { complaintsAPI } from '@/lib/api';
@@ -25,11 +25,7 @@ export default function CommunityFeed() {
         'Sanitation & Waste', 'Health & Safety', 'General'
     ];
 
-    useEffect(() => {
-        fetchComplaints();
-    }, [sortBy,category]);
-
-    const fetchComplaints = async () => {
+    const fetchComplaints = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
@@ -45,7 +41,11 @@ export default function CommunityFeed() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [category, sortBy]);
+
+    useEffect(() => {
+        fetchComplaints();
+    }, [fetchComplaints]);
 
     const handleUpvote = async (id) => {
         if (!user) {
