@@ -1,7 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 import { Clock, AlertTriangle, CheckCircle2, ShieldAlert } from 'lucide-react';
+
+const subscribeToClock = (callback) => {
+    const timer = setInterval(callback, 1000);
+    return () => clearInterval(timer);
+};
+const getClockSnapshot = () => Date.now();
+const getClockServerSnapshot = () => 0;
 
 const STATUTORY_HOURS = {
     critical: 72,   // 3 days
@@ -20,15 +27,7 @@ export default function DeadlineTimer({
     showProgressBar = false,
     className = '',
 }) {
-    const [now, setNow] = useState(Date.now());
-
-    // 1-second interval ticker
-    useEffect(() => {
-        const timer = setInterval(() => {
-            setNow(Date.now());
-        }, 1000);
-        return () => clearInterval(timer);
-    }, []);
+    const now = useSyncExternalStore(subscribeToClock, getClockSnapshot, getClockServerSnapshot);
 
     // Resolve target deadline date
     const priorityKey = (priority || 'medium').toLowerCase();

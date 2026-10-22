@@ -46,9 +46,33 @@ VALID_TRANSITIONS: dict[ComplaintStatus, list[ComplaintStatus]] = {
         ComplaintStatus.CLOSED,
         ComplaintStatus.REOPENED,
         ComplaintStatus.ESCALATED,
+        ComplaintStatus.APPEALED,
+        ComplaintStatus.APPEALED_L1,
     ],
     ComplaintStatus.CLOSED: [
         ComplaintStatus.REOPENED,
+        ComplaintStatus.APPEALED,
+        ComplaintStatus.APPEALED_L1,
+    ],
+    ComplaintStatus.APPEALED: [
+        ComplaintStatus.IN_PROGRESS,
+        ComplaintStatus.ASSIGNED,
+        ComplaintStatus.RESOLVED,
+        ComplaintStatus.APPEALED_L2,
+        ComplaintStatus.CLOSED,
+    ],
+    ComplaintStatus.APPEALED_L1: [
+        ComplaintStatus.IN_PROGRESS,
+        ComplaintStatus.ASSIGNED,
+        ComplaintStatus.RESOLVED,
+        ComplaintStatus.APPEALED_L2,
+        ComplaintStatus.CLOSED,
+    ],
+    ComplaintStatus.APPEALED_L2: [
+        ComplaintStatus.IN_PROGRESS,
+        ComplaintStatus.ASSIGNED,
+        ComplaintStatus.RESOLVED,
+        ComplaintStatus.CLOSED,
     ],
     ComplaintStatus.REOPENED: [
         ComplaintStatus.ASSIGNED,
@@ -57,6 +81,8 @@ VALID_TRANSITIONS: dict[ComplaintStatus, list[ComplaintStatus]] = {
     ],
     ComplaintStatus.REJECTED: [
         ComplaintStatus.REOPENED,
+        ComplaintStatus.APPEALED,
+        ComplaintStatus.APPEALED_L1,
     ],
 }
 

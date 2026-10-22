@@ -19,7 +19,9 @@ class ComplaintStatus(str, Enum):
     REOPENED = "reopened"
     REJECTED = "rejected"
     ESCALATED = "escalated"
-    APPEALED = "escalated"
+    APPEALED = "appealed"
+    APPEALED_L1 = "appealed_l1"
+    APPEALED_L2 = "appealed_l2"
 
 class ComplaintPriority(str, Enum):
     LOW = "low"
@@ -33,6 +35,7 @@ class VoteType(str, Enum):
 
 class MediaType(str, Enum):
     PROOF_PHOTO = "proof_photo"
+    INSPECTION_PHOTO = "inspection_photo"
     RESOLUTION_PHOTO = "resolution_photo"
     ADDITIONAL_DOC = "additional_doc"
 

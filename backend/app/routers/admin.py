@@ -531,12 +531,16 @@ async def deactivate_officer(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid officer_id UUID")
 
-    officer_res = await session.execute(select(Officer).where(Officer.id == oid))
+    officer_res = await session.execute(
+        select(Officer).options(selectinload(Officer.user)).where(Officer.id == oid)
+    )
     officer = officer_res.scalar_one_or_none()
     if not officer:
         raise HTTPException(status_code=404, detail="Officer not found")
 
     officer.is_active = False
+    if officer.user:
+        officer.user.is_active = False
     await session.commit()
     return {"message": f"Officer {officer_id} deactivated"}
 

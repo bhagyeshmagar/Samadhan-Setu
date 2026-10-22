@@ -3,10 +3,10 @@ from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from sqlalchemy import (
     String, Boolean, Integer, Float, BigInteger, DateTime, Text,
-    ForeignKey, UniqueConstraint, func
+    ForeignKey, UniqueConstraint, Index, func
 )
 from sqlalchemy.dialects.postgresql import UUID, ENUM
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 from app.db.base import Base
 from .enums import (
     ComplaintStatus,
@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 
 class Complaint(Base):
     __tablename__ = "complaints"
+    __table_args__ = (
+        Index("ix_complaints_dept_status_pri", "department_id", "status", "priority_score"),
+        Index("ix_complaints_ward_cat_created", "ward", "category", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -110,6 +114,13 @@ class Complaint(Base):
     # Resolution Details
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution_remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    citizen_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    feedback_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    action_taken_report: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    atr_submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    satisfaction_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    appeal_level: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    appeal_remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Flags & Counts
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
@@ -211,6 +222,7 @@ class ComplaintTimeline(Base):
     changed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    updated_by = synonym("changed_by")
     actor_role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -260,6 +272,9 @@ class ComplaintVote(Base):
 
 class CitizenFeedback(Base):
     __tablename__ = "citizen_feedback"
+    __table_args__ = (
+        UniqueConstraint("complaint_id", "citizen_id", name="uq_complaint_citizen_feedback"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

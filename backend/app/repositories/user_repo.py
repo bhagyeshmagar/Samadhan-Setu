@@ -83,7 +83,23 @@ class UserRepository:
 
     async def get_officer_by_user_id(self, user_id: uuid.UUID) -> Optional[Officer]:
         res = await self.session.execute(
-            select(Officer).where(Officer.user_id == user_id)
+            select(Officer)
+            .options(selectinload(Officer.user), selectinload(Officer.department))
+            .where(Officer.user_id == user_id)
+        )
+        return res.scalar_one_or_none()
+
+    async def get_active_officer(self, user_id: uuid.UUID) -> Optional[Officer]:
+        """Fetch officer profile only if both officer and user account are active."""
+        res = await self.session.execute(
+            select(Officer)
+            .join(Officer.user)
+            .options(selectinload(Officer.user), selectinload(Officer.department))
+            .where(
+                Officer.user_id == user_id,
+                Officer.is_active == True,
+                User.is_active == True,
+            )
         )
         return res.scalar_one_or_none()
 

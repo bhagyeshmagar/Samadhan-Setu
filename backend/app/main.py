@@ -52,19 +52,26 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    import logging, traceback
-    logging.error(f"Unhandled server error on {request.method} {request.url}: {exc}")
+    import logging, traceback, uuid
+    req_id = str(uuid.uuid4())
+    logging.error(f"[{req_id}] Unhandled server error on {request.method} {request.url}: {exc}")
     traceback.print_exc()
-    origin = request.headers.get("origin") or "*"
+
+    headers = {}
+    origin = request.headers.get("origin")
+    if origin and (origin in settings.CORS_ORIGINS or "*" in settings.CORS_ORIGINS):
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        headers["Access-Control-Allow-Headers"] = "*"
+
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal Server Error: {str(exc)}"},
-        headers={
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
+        content={
+            "detail": "An internal server error occurred. Please try again later.",
+            "request_id": req_id,
         },
+        headers=headers,
     )
 
 # ── Static uploads (local disk — Phase 4 will swap to S3) ────────────────────

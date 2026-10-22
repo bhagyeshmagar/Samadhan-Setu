@@ -31,25 +31,16 @@ class DepartmentRepository:
         )
         return res.scalar_one_or_none()
 
-    async def get_by_category(self, category_name: str) -> Optional[Department]:
-        """Resolve department using category mapping with fallback to General mapping."""
-        res = await self.session.execute(
-            select(CategoryMapping)
-            .options(selectinload(CategoryMapping.department))
-            .where(CategoryMapping.category.ilike(category_name.strip()))
-        )
-        mapping = res.scalar_one_or_none()
-        if mapping:
-            return mapping.department
-
-        # Fallback to General
-        fallback = await self.session.execute(
-            select(CategoryMapping)
-            .options(selectinload(CategoryMapping.department))
-            .where(CategoryMapping.category == "General")
-        )
-        general_mapping = fallback.scalar_one_or_none()
-        return general_mapping.department if general_mapping else None
+    async def get_by_category(self, category: str) -> Optional[Department]:
+        stmt = select(Department).where(Department.is_active == True)
+        result = await self.session.execute(stmt)
+        departments = result.scalars().all()
+        cat_lower = category.lower().strip()
+        for dept in departments:
+            handled = [c.lower().strip() for c in (dept.categories_handled or [])]
+            if cat_lower in handled:
+                return dept
+        return None
 
     async def get_sla_hours(self, category: Optional[str], priority: str) -> int:
         """Resolve SLA resolution hours based on rules or defaults."""

@@ -4,6 +4,7 @@ Provides AI classification preview, duplicate detection, priority explanation,
 and officer AI-ranked queue. All AI outputs are advisory — officers decide.
 """
 import uuid
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
@@ -353,7 +354,6 @@ async def get_complaint_sla_risk(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Get detailed SLA risk breakdown for a complaint."""
-    from datetime import timezone
     try:
         cid = uuid.UUID(complaint_id)
     except ValueError:
@@ -463,7 +463,6 @@ async def get_admin_hotspots(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Administrative overview of geographic complaint clusters and recurring hotspots."""
-    from datetime import timezone, timedelta
     since = datetime.now(timezone.utc) - timedelta(days=days)
     res = await session.execute(
         select(

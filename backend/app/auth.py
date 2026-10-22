@@ -83,6 +83,14 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise credentials_exception
 
+    if user.role in (UserRole.OFFICER, UserRole.SUPERVISOR):
+        officer = await repo.get_officer_by_user_id(user.id)
+        if officer is None or not officer.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Officer account or profile is deactivated",
+            )
+
     return user
 
 

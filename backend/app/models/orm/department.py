@@ -62,6 +62,35 @@ class Department(Base):
         "CategoryMapping", back_populates="department", cascade="all, delete-orphan"
     )
 
+    @property
+    def categories_handled(self) -> List[str]:
+        if hasattr(self, "_categories_handled") and self._categories_handled is not None:
+            return self._categories_handled
+
+        cats = [self.name]
+        name_lower = self.name.lower()
+        if "road" in name_lower or "transport" in name_lower:
+            cats.extend(["roads", "transport", "roads & transport", "roads and transport", "potholes", "traffic", "general"])
+        elif "water" in name_lower:
+            cats.extend(["water", "water supply", "drainage", "sewage", "leakage"])
+        elif "electr" in name_lower or "power" in name_lower:
+            cats.extend(["electricity", "power", "lighting", "streetlight"])
+        elif "sanitat" in name_lower or "waste" in name_lower:
+            cats.extend(["sanitation", "waste", "sanitation & waste", "garbage", "cleaning"])
+        elif "health" in name_lower or "safety" in name_lower:
+            cats.extend(["health", "safety", "health & safety", "medical", "hospital"])
+
+        if "category_mappings" in self.__dict__ and self.category_mappings:
+            for cm in self.category_mappings:
+                if cm.category not in cats:
+                    cats.append(cm.category)
+
+        return cats
+
+    @categories_handled.setter
+    def categories_handled(self, val: List[str]):
+        self._categories_handled = val
+
 
 class CategoryMapping(Base):
     __tablename__ = "category_mappings"

@@ -18,6 +18,7 @@ from fastapi import (
     Query, File, UploadFile, BackgroundTasks,
 )
 from PIL import Image, UnidentifiedImageError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session
@@ -85,8 +86,8 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
         attachments=[f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key for m in c.media] if c.media else [],
         resolution_proof=[f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key for m in c.media if m.media_type == MediaType.RESOLUTION_PHOTO] if c.media else [],
         resolution_remarks=c.resolution_remarks,
-        citizen_rating=c.citizen_rating,
-        feedback_text=c.feedback.feedback_text if getattr(c, 'feedback', None) else None,
+        citizen_rating=getattr(c, 'citizen_rating', None) if getattr(c, 'citizen_rating', None) is not None else (c.feedback[-1].rating if getattr(c, 'feedback', None) and len(c.feedback) > 0 else None),
+        feedback_text=getattr(c, 'feedback_text', None) if getattr(c, 'feedback_text', None) else (c.feedback[-1].comment if getattr(c, 'feedback', None) and len(c.feedback) > 0 else None),
         created_at=c.created_at,
         updated_at=c.updated_at,
         resolved_at=c.resolved_at,

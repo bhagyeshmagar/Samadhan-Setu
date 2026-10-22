@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 from sqlalchemy import select, update, func, desc, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,9 @@ from app.models.orm import (
     User,
     Department,
     Officer,
+    AuditLog,
+    Notification,
+    NotificationType,
 )
 
 class ComplaintRepository:
@@ -120,18 +123,90 @@ class ComplaintRepository:
         res = await self.session.execute(
             select(Complaint)
             .options(
-                selectinload(Complaint.citizen),
-                selectinload(Complaint.department),
-                selectinload(Complaint.assigned_officer).selectinload(Officer.user),
                 selectinload(Complaint.media),
                 selectinload(Complaint.timeline).selectinload(ComplaintTimeline.actor),
-                selectinload(Complaint.votes),
+                selectinload(Complaint.ai_results),
+                selectinload(Complaint.department),
+                selectinload(Complaint.citizen),
                 selectinload(Complaint.feedback),
+                selectinload(Complaint.assigned_officer).selectinload(Officer.user),
+                selectinload(Complaint.votes),
                 selectinload(Complaint.ai_analysis),
             )
             .where(Complaint.id == complaint_id)
         )
         return res.scalar_one_or_none()
+
+    async def get_by_citizen(
+        self,
+        citizen_id: uuid.UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Complaint]:
+        stmt = (
+            select(Complaint)
+            .options(
+                selectinload(Complaint.media),
+                selectinload(Complaint.timeline),
+                selectinload(Complaint.ai_results),
+                selectinload(Complaint.department),
+                selectinload(Complaint.citizen),
+                selectinload(Complaint.feedback),
+            )
+            .where(Complaint.citizen_id == citizen_id)
+            .order_by(desc(Complaint.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_public_feed(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Complaint]:
+        stmt = (
+            select(Complaint)
+            .options(
+                selectinload(Complaint.media),
+                selectinload(Complaint.timeline),
+                selectinload(Complaint.ai_results),
+                selectinload(Complaint.department),
+                selectinload(Complaint.citizen),
+                selectinload(Complaint.feedback),
+            )
+            .where(Complaint.is_public == True)
+            .order_by(desc(Complaint.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_by_department(
+        self,
+        department_id: uuid.UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Complaint]:
+        stmt = (
+            select(Complaint)
+            .options(
+                selectinload(Complaint.media),
+                selectinload(Complaint.timeline),
+                selectinload(Complaint.ai_results),
+                selectinload(Complaint.department),
+                selectinload(Complaint.citizen),
+                selectinload(Complaint.feedback),
+            )
+            .where(Complaint.department_id == department_id)
+            .order_by(desc(Complaint.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())
 
     async def get_by_number(self, complaint_number: str) -> Optional[Complaint]:
         res = await self.session.execute(
@@ -159,9 +234,12 @@ class ComplaintRepository:
         offset: int = 0,
     ) -> Tuple[List[Complaint], int]:
         query = select(Complaint).options(
-            selectinload(Complaint.department),
             selectinload(Complaint.media),
             selectinload(Complaint.timeline),
+            selectinload(Complaint.ai_results),
+            selectinload(Complaint.department),
+            selectinload(Complaint.citizen),
+            selectinload(Complaint.feedback),
             selectinload(Complaint.assigned_officer).selectinload(Officer.user),
         )
 
@@ -234,35 +312,141 @@ class ComplaintRepository:
 
     async def add_status_transition(
         self,
-        complaint: Complaint,
-        new_status: ComplaintStatus,
-        changed_by: Optional[uuid.UUID] = None,
+        complaint_id: Optional[Union[uuid.UUID, Complaint]] = None,
+        from_status: Optional[Union[ComplaintStatus, str]] = None,
+        to_status: Optional[Union[ComplaintStatus, str]] = None,
+        actor_id: Optional[uuid.UUID] = None,
         actor_role: Optional[str] = None,
         notes: Optional[str] = None,
+        *,
+        complaint: Optional[Complaint] = None,
+        new_status: Optional[ComplaintStatus] = None,
+        changed_by: Optional[uuid.UUID] = None,
         remarks: Optional[str] = None,
-    ) -> None:
-        old_status = complaint.status.value if complaint.status else None
+        action_taken_report: Optional[str] = None,
+        satisfaction_status: Optional[str] = None,
+        appeal_level: Optional[int] = None,
+        appeal_remarks: Optional[str] = None,
+        **kwargs,
+    ) -> ComplaintTimeline:
+        target_complaint: Optional[Complaint] = None
+        target_id: Optional[uuid.UUID] = None
+
+        if isinstance(complaint_id, Complaint):
+            target_complaint = complaint_id
+            target_id = complaint_id.id
+        elif complaint is not None:
+            target_complaint = complaint
+            target_id = complaint.id
+        elif isinstance(complaint_id, uuid.UUID):
+            target_id = complaint_id
+        elif isinstance(complaint_id, str):
+            try:
+                target_id = uuid.UUID(complaint_id)
+            except ValueError:
+                target_id = None
+
+        target_to: Optional[Union[ComplaintStatus, str]] = None
+        target_from: Optional[Union[ComplaintStatus, str]] = None
+
+        if new_status is not None:
+            target_to = new_status
+            target_from = from_status
+        elif to_status is not None:
+            target_to = to_status
+            target_from = from_status
+        else:
+            target_to = from_status
+            target_from = target_complaint.status if target_complaint else None
+
+        if target_complaint is None and target_id is not None:
+            target_complaint = await self.get_by_id(target_id)
+        elif target_complaint is not None and target_id is None:
+            target_id = target_complaint.id
+
+        if target_complaint and target_from is None:
+            target_from = target_complaint.status
+
+        effective_actor = actor_id if actor_id is not None else changed_by
+        effective_notes = remarks or notes
         now = datetime.now(timezone.utc)
 
-        complaint.status = new_status
-        complaint.updated_at = now
-        effective_remarks = remarks or notes
-        if new_status in (ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED):
-            complaint.resolved_at = now
-            if effective_remarks:
-                complaint.resolution_remarks = effective_remarks
+        if target_complaint and target_to is not None:
+            target_complaint.status = target_to
+            target_complaint.updated_at = now
+            # Only set resolved_at on first entry to RESOLVED (never overwrite on CLOSED)
+            if target_to == ComplaintStatus.RESOLVED and target_complaint.resolved_at is None:
+                target_complaint.resolved_at = now
 
-        timeline = ComplaintTimeline(
-            complaint_id=complaint.id,
-            status_from=old_status,
-            status_to=new_status.value,
-            changed_by=changed_by,
+            if effective_notes and target_to == ComplaintStatus.RESOLVED:
+                target_complaint.resolution_remarks = effective_notes
+            if action_taken_report:
+                target_complaint.action_taken_report = action_taken_report
+                target_complaint.atr_submitted_at = now
+            if satisfaction_status:
+                target_complaint.satisfaction_status = satisfaction_status
+            if appeal_level is not None:
+                target_complaint.appeal_level = appeal_level
+            if appeal_remarks:
+                target_complaint.appeal_remarks = appeal_remarks
+
+        from_val = target_from.value if hasattr(target_from, "value") else (str(target_from) if target_from is not None else None)
+        to_val = target_to.value if hasattr(target_to, "value") else (str(target_to) if target_to is not None else None)
+
+        entry = ComplaintTimeline(
+            complaint_id=target_id,
+            status_from=from_val,
+            status_to=to_val,
+            updated_by=effective_actor,
             actor_role=actor_role,
-            notes=notes or remarks,
+            notes=effective_notes,
+        )
+        self.session.add(entry)
+
+        # Audit Log
+        audit = AuditLog(
+            action="STATUS_CHANGE",
+            entity_type="complaint",
+            entity_id=str(target_id) if target_id else "",
+            actor_id=effective_actor,
+            actor_role=actor_role,
+            details={
+                "from": from_val,
+                "to": to_val,
+                "notes": effective_notes,
+                "action_taken_report": action_taken_report,
+                "appeal_level": appeal_level,
+            },
             created_at=now,
         )
-        self.session.add(timeline)
+        self.session.add(audit)
+
+        # Notification to citizen
+        if target_complaint and target_complaint.citizen_id:
+            notif_type = NotificationType.STATUS_CHANGE
+            notif_title = f"Grievance #{target_complaint.complaint_number} Updated"
+            status_display = to_val.replace("_", " ").title() if to_val else "Updated"
+            notif_body = f"Your grievance has moved to {status_display}."
+            if effective_notes:
+                notif_body += f" Officer note: {effective_notes}"
+
+            if target_to == ComplaintStatus.RESOLVED:
+                notif_type = NotificationType.FEEDBACK_REQUEST
+                notif_title = f"Action Taken Report Filed: #{target_complaint.complaint_number}"
+                notif_body = f"The department has resolved grievance #{target_complaint.complaint_number}. Review the ATR and let us know if you are satisfied or wish to appeal."
+
+            notif = Notification(
+                user_id=target_complaint.citizen_id,
+                complaint_id=target_complaint.id,
+                type=notif_type,
+                title=notif_title,
+                body=notif_body,
+                created_at=now,
+            )
+            self.session.add(notif)
+
         await self.session.flush()
+        return entry
 
     async def upvote(self, complaint_id: uuid.UUID, user_id: uuid.UUID, vote_type: VoteType = VoteType.UPVOTE) -> bool:
         """Vote on a complaint, incrementing denormalized vote_count."""
