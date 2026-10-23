@@ -3,12 +3,33 @@
 import { useSyncExternalStore } from 'react';
 import { Clock, AlertTriangle, CheckCircle2, ShieldAlert } from 'lucide-react';
 
+let currentClockTime = typeof window !== 'undefined' ? Date.now() : 0;
+const clockListeners = new Set();
+let clockIntervalId = null;
+
 const subscribeToClock = (callback) => {
-    const timer = setInterval(callback, 1000);
-    return () => clearInterval(timer);
+    clockListeners.add(callback);
+    if (clockIntervalId === null && typeof window !== 'undefined') {
+        currentClockTime = Date.now();
+        clockIntervalId = setInterval(() => {
+            currentClockTime = Date.now();
+            clockListeners.forEach(cb => {
+                try { cb(); } catch {}
+            });
+        }, 1000);
+    }
+    return () => {
+        clockListeners.delete(callback);
+        if (clockListeners.size === 0 && clockIntervalId !== null) {
+            clearInterval(clockIntervalId);
+            clockIntervalId = null;
+        }
+    };
 };
-const getClockSnapshot = () => Date.now();
+
+const getClockSnapshot = () => currentClockTime;
 const getClockServerSnapshot = () => 0;
+
 
 const STATUTORY_HOURS = {
     critical: 72,   // 3 days
