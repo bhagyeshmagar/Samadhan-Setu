@@ -208,12 +208,12 @@ export default function AdminDashboard() {
                                 <div key={idx} className="gov-card p-4">
                                     <div className="flex items-start justify-between gap-2 mb-2">
                                         <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                                            {insight.insight_name}
+                                            {insight.insight_name || insight.title}
                                         </h4>
                                         <span className="badge badge-progress shrink-0">{insight.category}</span>
                                     </div>
                                     <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                                        <strong>{insight.support_count}</strong> parallel anomalies across{' '}
+                                        <strong>{insight.support_count ?? insight.count ?? 0}</strong> parallel anomalies across{' '}
                                         {insight.locations?.join(', ')}.
                                     </p>
                                     {insight.top_keywords?.length > 0 && (
@@ -462,14 +462,14 @@ export default function AdminDashboard() {
                         <Section title="AI Model Health" icon={<Cpu size={12} />}>
                             <div className="space-y-3">
                                 {[
-                                    { name: 'DistilBERT (Classification)', key: 'distilbert_available' },
-                                    { name: 'SBERT (Similarity)',          key: 'sbert_available' },
-                                    { name: 'YOLOv8 (Image Analysis)',     key: 'yolo_available' },
+                                    { name: 'DistilBERT (Classification)', key: 'distilbert_available', compKey: 'classifier' },
+                                    { name: 'SBERT (Similarity)',          key: 'sbert_available', compKey: 'sbert' },
+                                    { name: 'YOLOv8 (Image Analysis)',     key: 'yolo_available', compKey: 'yolo' },
                                 ].map(m => (
                                     <div key={m.key} className="flex items-center justify-between py-2 border-b last:border-0"
                                         style={{ borderColor: 'var(--border)' }}>
                                         <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{m.name}</span>
-                                        <ModelBadge available={modelHealth[m.key]} />
+                                        <ModelBadge available={modelHealth[m.key] ?? modelHealth.components?.[m.compKey]} />
                                     </div>
                                 ))}
                                 <div className="flex justify-between text-xs pt-2" style={{ color: 'var(--text-muted)' }}>
@@ -503,7 +503,7 @@ export default function AdminDashboard() {
                             </div>
                             <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
                                 <RefreshCw size={11} />
-                                Override rate: {(overrideStats.override_rate * 100).toFixed(1)}%
+                                Override rate: {Number(overrideStats.override_rate ?? 0).toFixed(1)}%
                             </div>
                         </Section>
                     )}

@@ -6,6 +6,13 @@ Designed to be easily replaceable with ML models (DistilBERT) in production
 from typing import Tuple, Optional, Dict, List
 from .text_processor import TextProcessor
 
+def _matches_kw(kw: str, cleaned_text: str, tokens: set[str]) -> bool:
+    kw = kw.strip().lower()
+    if not kw:
+        return False
+    return (f" {kw} " in f" {cleaned_text} ") if (" " in kw) else (kw in tokens)
+
+
 class CategoryClassifier:
     """
     Rule-based complaint category classifier
@@ -74,11 +81,13 @@ class CategoryClassifier:
         if not text or len(text.strip()) < 3:
             return (self.DEFAULT_CATEGORY, 0)
         
+        cleaned = self.text_processor.clean_text(text)
+        tokens = set(cleaned.split())
+
         # Count matches for each category
         category_scores: Dict[str, int] = {}
-        
         for category, keywords in self.CATEGORY_KEYWORDS.items():
-            score = self.text_processor.count_keyword_matches(text, keywords)
+            score = sum(1 for kw in keywords if _matches_kw(kw, cleaned, tokens))
             if score > 0:
                 category_scores[category] = score
         
@@ -98,27 +107,21 @@ class CategoryClassifier:
     def classify_with_details(self, text: str) -> Dict:
         """
         Classify with detailed information for debugging/display
-        
-        Returns dict with:
-        - category: detected category
-        - confidence: confidence score
-        - all_scores: scores for all categories
-        - matched_keywords: keywords that matched
         """
         category, confidence = self.classify(text)
         
-        # Get all scores
+        cleaned = self.text_processor.clean_text(text)
+        tokens = set(cleaned.split())
+
         all_scores = {}
         matched_keywords = []
         
         for cat, keywords in self.CATEGORY_KEYWORDS.items():
-            score = self.text_processor.count_keyword_matches(text, keywords)
+            score = sum(1 for kw in keywords if _matches_kw(kw, cleaned, tokens))
             all_scores[cat] = score
             
             if cat == category:
-                # Find which keywords matched
-                cleaned = self.text_processor.clean_text(text)
-                matched_keywords = [kw for kw in keywords if kw.lower() in cleaned]
+                matched_keywords = [kw for kw in keywords if _matches_kw(kw, cleaned, tokens)]
         
         return {
             'category': category,

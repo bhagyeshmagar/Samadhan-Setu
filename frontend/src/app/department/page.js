@@ -270,7 +270,7 @@ export default function DepartmentDashboard() {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                     <div className="gov-card p-4 border-l-4 border-l-[var(--navy)]">
                         <div className="text-2xl font-black text-gray-900 leading-none">
-                            {metrics.total_assigned ?? 0}
+                            {metrics.total_assigned ?? metrics.total_tasks ?? 0}
                         </div>
                         <div className="text-[11px] font-bold uppercase tracking-wider text-gray-600 mt-1.5">
                             Total Assigned
@@ -280,7 +280,7 @@ export default function DepartmentDashboard() {
 
                     <div className="gov-card p-4 border-l-4 border-l-red-600">
                         <div className="text-2xl font-black text-red-700 leading-none">
-                            {metrics.pending_action ?? 0}
+                            {metrics.pending_action ?? metrics.pending ?? 0}
                         </div>
                         <div className="text-[11px] font-bold uppercase tracking-wider text-gray-600 mt-1.5">
                             Pending Action
@@ -310,7 +310,7 @@ export default function DepartmentDashboard() {
 
                     <div className="gov-card p-4 border-l-4 border-l-emerald-600">
                         <div className="text-2xl font-black text-emerald-700 leading-none">
-                            {metrics.resolved_count ?? 0}
+                            {metrics.resolved_count ?? metrics.completed ?? 0}
                         </div>
                         <div className="text-[11px] font-bold uppercase tracking-wider text-gray-600 mt-1.5">
                             Resolved / Done
@@ -349,7 +349,7 @@ export default function DepartmentDashboard() {
                     ) : (
                         <div className="space-y-2">
                             {aiQueue.slice(0, 5).map((q, idx) => (
-                                <div key={q.id || idx} className="bg-white p-3 rounded-lg border border-purple-100 flex items-center justify-between gap-3 shadow-sm">
+                                <div key={q.id || q.complaint_id || idx} className="bg-white p-3 rounded-lg border border-purple-100 flex items-center justify-between gap-3 shadow-sm">
                                     <div className="flex items-center gap-3">
                                         <span className="font-mono text-xs font-black text-purple-900 w-6">#{idx + 1}</span>
                                         <div>
@@ -364,7 +364,7 @@ export default function DepartmentDashboard() {
                                     <button
                                         onClick={() => {
                                             setShowAiQueue(false);
-                                            setExpandedTaskId(q.id);
+                                            setExpandedTaskId(q.id || q.complaint_id);
                                         }}
                                         className="text-xs font-bold text-purple-800 hover:text-purple-950 px-2.5 py-1 rounded bg-purple-50"
                                     >

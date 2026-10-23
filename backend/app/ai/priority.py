@@ -80,9 +80,12 @@ class PriorityCalculator:
         if not text:
             return 0
         cleaned = self.text_processor.clean_text(text)
+        tokens = set(cleaned.split())
         total_score = 0
         for keyword, weight in self.URGENCY_KEYWORDS.items():
-            if keyword in cleaned:
+            kw = keyword.strip().lower()
+            matched = (f" {kw} " in f" {cleaned} ") if (" " in kw) else (kw in tokens)
+            if matched:
                 total_score += weight
         return min(10, total_score)
 
@@ -236,9 +239,13 @@ class PriorityCalculator:
 
         # Severity: prefer fused multi-modal, fall back to category
         if fused_severity is not None:
-            severity = max(1, min(3, fused_severity))
+            severity = max(1.0, min(3.0, float(fused_severity)))
         else:
-            severity = self._severity_level(category)
+            severity = float(self._severity_level(category))
+
+        # Life-safety emergencies boost initial severity so CRITICAL (>= 2.5) is reachable at filing time
+        if (urgency_raw >= 7 or urgency >= 2.8) and severity < 2.8:
+            severity = max(severity, 2.8)
 
         # Crowd impact with anti-brigading
         crowd = self._crowd_impact(upvotes, same_ward_count, similar_count)
@@ -267,6 +274,10 @@ class PriorityCalculator:
         critical_threshold = bands.get("critical", self.BAND_CRITICAL)
         high_threshold = bands.get("high", self.BAND_HIGH)
         medium_threshold = bands.get("medium", self.BAND_MEDIUM)
+
+        # For life-safety emergencies at submission time, ensure score can reach CRITICAL (>= 2.5)
+        if (urgency_raw >= 7 or urgency >= 2.8) and severity >= 2.8 and score < critical_threshold:
+            score = critical_threshold
 
         if score >= critical_threshold:
             priority = "Critical"
@@ -355,7 +366,14 @@ class PriorityCalculator:
     def get_urgency_keywords_found(self, text: str) -> List[str]:
         """Get list of urgency keywords found in text."""
         cleaned = self.text_processor.clean_text(text)
-        return [kw for kw in self.URGENCY_KEYWORDS if kw in cleaned]
+        tokens = set(cleaned.split())
+        found = []
+        for kw in self.URGENCY_KEYWORDS:
+            kw_clean = kw.strip().lower()
+            matched = (f" {kw_clean} " in f" {cleaned} ") if (" " in kw_clean) else (kw_clean in tokens)
+            if matched:
+                found.append(kw)
+        return found
 
 
 # Singleton

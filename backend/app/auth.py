@@ -116,5 +116,6 @@ def require_role(*roles: UserRole):
 # Convenience role-guard dependencies
 require_citizen = require_role(UserRole.CITIZEN)
 require_officer = require_role(UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+require_officer_or_admin = require_officer
 require_supervisor = require_role(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPER_ADMIN)

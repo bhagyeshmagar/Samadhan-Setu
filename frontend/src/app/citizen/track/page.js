@@ -51,6 +51,9 @@ export default function TrackGrievance() {
     const [aiData, setAiData] = useState({});
     const [feedbackForm, setFeedbackForm] = useState({});
     const [feedbackLoading, setFeedbackLoading] = useState(false);
+    const [appealReasons, setAppealReasons] = useState({});
+    const [showAppealBoxes, setShowAppealBoxes] = useState({});
+    const [appealLoading, setAppealLoading] = useState(false);
 
     useEffect(() => {
         if (!authLoading && !user) router.push('/login');
@@ -96,21 +99,42 @@ export default function TrackGrievance() {
         }
     };
 
-    const handleFeedbackSubmit = async (id) => {
-        if (!feedbackForm[id]?.rating) return;
+    const handleFeedbackSubmit = async (id, satisfied = true) => {
+        const rating = feedbackForm[id]?.rating || (satisfied ? 5 : 1);
         setFeedbackLoading(true);
         try {
             await complaintsAPI.submitFeedback(id, {
-                rating: feedbackForm[id].rating,
-                feedback_text: feedbackForm[id].text || ''
+                rating: rating,
+                feedback_text: feedbackForm[id]?.text || (satisfied ? 'Citizen confirmed resolution.' : 'Unsatisfied with resolution.'),
+                satisfied: satisfied,
             });
             fetchComplaints(); // refresh the list
             setFeedbackForm(prev => ({ ...prev, [id]: { ...prev[id], submitted: true } }));
         } catch (err) {
             console.error('Feedback error:', err);
-            alert('Failed to submit feedback.');
+            alert(err.message || 'Failed to submit feedback.');
         } finally {
             setFeedbackLoading(false);
+        }
+    };
+
+    const handleAppealSubmit = async (id) => {
+        const reason = (appealReasons[id] || '').trim();
+        if (reason.length < 10) {
+            alert('Please provide a clear appeal reason (at least 10 characters).');
+            return;
+        }
+        setAppealLoading(true);
+        try {
+            await complaintsAPI.appealComplaint(id, reason);
+            setShowAppealBoxes(prev => ({ ...prev, [id]: false }));
+            setAppealReasons(prev => ({ ...prev, [id]: '' }));
+            fetchComplaints();
+        } catch (err) {
+            console.error('Appeal error:', err);
+            alert(err.message || 'Failed to file appeal.');
+        } finally {
+            setAppealLoading(false);
         }
     };
 
@@ -425,63 +449,105 @@ export default function TrackGrievance() {
                                                     </div>
                                                 )}
 
-                                                {/* Resolution & Feedback */}
-                                                {isTerminal && complaint.resolution_remarks && (
-                                                    <div className="space-y-3">
-                                                        <div className="gov-alert success">
-                                                            <CheckCircle size={14} />
-                                                            <div>
-                                                                <p className="text-[10px] font-bold uppercase tracking-wider mb-1">Resolution Summary</p>
-                                                                <p className="text-sm leading-relaxed">{complaint.resolution_remarks}</p>
+                                                {/* CPGRAMS Action Taken Report (ATR) & Citizen Satisfaction Gate */}
+                                                {['resolved'].includes(sNorm) && (
+                                                    <div className="mt-4 p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                                                                Action Taken Report (ATR) Filed by Department
+                                                            </span>
+                                                            <span className="text-[11px] text-gray-500">Auto-closes in 7 days if no reply</span>
+                                                        </div>
+                                                        <p className="text-sm text-gray-800 dark:text-gray-200 mb-3">
+                                                            {complaint.resolution_remarks || complaint.resolution_notes || 'Field inspection completed and resolution proof uploaded by the nodal team.'}
+                                                        </p>
+
+                                                        {/* Optional Rating stars before deciding */}
+                                                        <div className="mb-3">
+                                                            <span className="text-xs text-gray-600 block mb-1">Rate the resolution quality:</span>
+                                                            <div className="flex gap-1.5 text-2xl cursor-pointer">
+                                                                {[1, 2, 3, 4, 5].map(star => (
+                                                                    <span 
+                                                                        key={star} 
+                                                                        onClick={() => setFeedbackForm(prev => ({ ...prev, [complaint.id]: { ...prev[complaint.id], rating: star } }))}
+                                                                        className={(feedbackForm[complaint.id]?.rating || 0) >= star ? 'text-amber-400 hover:scale-110 transition-transform' : 'text-gray-300 hover:text-amber-200'}
+                                                                    >
+                                                                        ★
+                                                                    </span>
+                                                                ))}
                                                             </div>
                                                         </div>
 
-                                                        {/* Feedback Form */}
-                                                        {complaint.citizen_rating ? (
+                                                        <div className="flex flex-wrap gap-3 mt-3">
+                                                            <button
+                                                                onClick={() => handleFeedbackSubmit(complaint.id, true)}
+                                                                disabled={feedbackLoading}
+                                                                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2"
+                                                            >
+                                                                {feedbackLoading && <Loader2 size={12} className="animate-spin" />}
+                                                                ✓ Satisfied — Close Grievance
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setShowAppealBoxes(prev => ({ ...prev, [complaint.id]: !prev[complaint.id] }))}
+                                                                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold"
+                                                            >
+                                                                ✗ Not Satisfied — File Appeal (L1 / L2)
+                                                            </button>
+                                                        </div>
+
+                                                        {showAppealBoxes[complaint.id] && (
+                                                            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700">
+                                                                <textarea
+                                                                    value={appealReasons[complaint.id] || ''}
+                                                                    onChange={(e) => setAppealReasons(prev => ({ ...prev, [complaint.id]: e.target.value }))}
+                                                                    placeholder="Explain why the resolution is incomplete or unsatisfactory (routes to Nodal / Appellate Authority)..."
+                                                                    className="w-full p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-sm text-gray-900 dark:text-white"
+                                                                    rows={3}
+                                                                />
+                                                                <button
+                                                                    onClick={() => handleAppealSubmit(complaint.id)}
+                                                                    disabled={appealLoading}
+                                                                    className="mt-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-2"
+                                                                >
+                                                                    {appealLoading && <Loader2 size={12} className="animate-spin" />}
+                                                                    Submit Official Appeal
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Appeal Active Notice */}
+                                                {sNorm === 'appealed' && (
+                                                    <div className="mt-4 p-4 rounded-xl border border-rose-500/30 bg-rose-500/10">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <AlertTriangle size={15} className="text-rose-500" />
+                                                            <span className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                                                                CPGRAMS Appeal Under Review
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xs text-rose-800 dark:text-rose-200">
+                                                            Your grievance has been officially escalated to the Appellate Authority with an expedited SLA deadline for re-investigation.
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Resolution & Rating Display (when Closed) */}
+                                                {sNorm === 'closed' && (
+                                                    <div className="space-y-3 mt-4">
+                                                        {complaint.citizen_rating && (
                                                             <div className="gov-card p-4">
                                                                 <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>
                                                                     Citizen Satisfaction Rating
                                                                 </p>
-                                                                <div className="flex items-center gap-1 mb-3 text-xl">
+                                                                <div className="flex items-center gap-1 mb-2 text-xl">
                                                                     {[1, 2, 3, 4, 5].map(star => (
-                                                                        <span key={star} className={star <= complaint.citizen_rating ? 'text-amber-400' : 'text-gray-200 dark:text-gray-700'}>★</span>
+                                                                        <span key={star} className={star <= complaint.citizen_rating ? 'text-amber-400' : 'text-gray-300'}>★</span>
                                                                     ))}
                                                                 </div>
-                                                                {complaint.feedback_text && <p className="text-sm font-medium text-theme-secondary italic bg-gray-50 dark:bg-theme-tertiary p-3 rounded-lg">&quot;{complaint.feedback_text}&quot;</p>}
-                                                            </div>
-                                                        ) : feedbackForm[complaint.id]?.submitted ? (
-                                                            <div className="gov-alert success text-sm">
-                                                                <CheckCircle size={16} />
-                                                                Thank you for verifying the resolution!
-                                                            </div>
-                                                        ) : (
-                                                            <div className="gov-card p-4">
-                                                                <h4 className="text-[10px] uppercase tracking-widest font-bold mb-3" style={{ color: 'var(--navy)' }}>Verify & Rate Resolution</h4>
-                                                                <div className="flex gap-2 mb-4 text-3xl cursor-pointer justify-center">
-                                                                    {[1, 2, 3, 4, 5].map(star => (
-                                                                        <span 
-                                                                            key={star} 
-                                                                            onClick={() => setFeedbackForm(prev => ({ ...prev, [complaint.id]: { ...prev[complaint.id], rating: star } }))}
-                                                                            className={(feedbackForm[complaint.id]?.rating || 0) >= star ? 'text-amber-400 hover:scale-110 transition-transform drop-shadow-sm' : 'text-gray-200 hover:text-amber-200 hover:scale-110 transition-transform'}
-                                                                        >
-                                                                            ★
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                                <textarea
-                                                                    placeholder="Optional: describe your experience…"
-                                                                    className="gov-input resize-none mb-3"
-                                                                    rows={3}
-                                                                    value={feedbackForm[complaint.id]?.text || ''}
-                                                                    onChange={e => setFeedbackForm(prev => ({ ...prev, [complaint.id]: { ...prev[complaint.id], text: e.target.value } }))}
-                                                                />
-                                                                <button
-                                                                    onClick={() => handleFeedbackSubmit(complaint.id)}
-                                                                    disabled={!feedbackForm[complaint.id]?.rating || feedbackLoading}
-                                                                    className="btn-primary w-full justify-center py-2.5 text-sm disabled:opacity-50"
-                                                                >
-                                                                    {feedbackLoading ? <Loader2 size={14} className="animate-spin" /> : 'Submit Feedback'}
-                                                                </button>
+                                                                {complaint.feedback_text && (
+                                                                    <p className="text-sm font-medium italic text-gray-700 bg-gray-50 p-2.5 rounded-lg">&quot;{complaint.feedback_text}&quot;</p>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </div>

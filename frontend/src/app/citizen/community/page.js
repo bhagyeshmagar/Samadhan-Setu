@@ -78,7 +78,7 @@ export default function CommunityFeed() {
         }, {});
         trendingCategory = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'General';
         
-        const resolvedCount = complaints.filter(c => c.status === 'Resolved' || c.status === 'Closed').length;
+        const resolvedCount = complaints.filter(c => ['resolved', 'closed'].includes((c.status || '').toLowerCase())).length;
         resolutionRate = Math.round((resolvedCount / complaints.length) * 100);
     }
 
@@ -252,7 +252,7 @@ export default function CommunityFeed() {
                                                     <span className="badge badge-normal font-semibold">
                                                         {complaint.category || 'General Civic'}
                                                     </span>
-                                                    {complaint.priority === 'HIGH' && (
+                                                    {['critical', 'high'].includes((complaint.priority || '').toLowerCase()) && (
                                                         <span className="badge badge-critical flex items-center gap-1">
                                                             <AlertTriangle size={12} /> Critical Priority
                                                         </span>

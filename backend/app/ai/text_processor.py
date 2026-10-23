@@ -29,25 +29,15 @@ class TextProcessor:
     
     @staticmethod
     def clean_text(text: str) -> str:
-        """
-        Clean and normalize text for processing
-        - Lowercase
-        - Remove special punctuation but keep Unicode alphanumeric (Devanagari, English, numbers) and spaces
-        - Remove extra whitespace
-        """
         if not text:
             return ""
-        
-        # Convert to lowercase
-        text = text.lower()
-        
-        # Remove punctuation but preserve Unicode letters/numbers/spaces (supports Hindi/Marathi)
-        text = re.sub(r'[^\w\s]', ' ', text, flags=re.UNICODE)
-        
-        # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        return text
+        import unicodedata
+        text = unicodedata.normalize("NFC", text.lower().strip())
+        text = re.sub(r"https?://\S+|www\.\S+", " ", text)
+        text = re.sub(r"\S+@\S+", " ", text)
+        # Preserve ASCII alphanumeric + full Devanagari Unicode block (\u0900-\u097F)
+        text = re.sub(r"[^a-z0-9\u0900-\u097f\s]", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
     
     @staticmethod
     def tokenize(text: str, remove_stopwords: bool = True) -> List[str]:

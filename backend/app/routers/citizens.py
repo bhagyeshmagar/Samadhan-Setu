@@ -11,7 +11,7 @@ import io
 import os
 import uuid
 from typing import List, Optional, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import (
     APIRouter, Depends, HTTPException, status,
@@ -21,7 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.session import get_async_session
+from ..db.session import get_async_session, get_db_session
 from ..auth import get_current_user, require_citizen
 from ..models.orm import User, Complaint, CitizenFeedback
 from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole, VoteType, MediaType
@@ -40,7 +40,11 @@ os.makedirs(CITIZEN_UPLOAD_DIR, exist_ok=True)
 router = APIRouter(prefix="/api/complaints", tags=["Citizens"])
 
 
-def _complaint_to_response(c: Complaint) -> ComplaintResponse:
+def _complaint_to_response(
+    c: Complaint,
+    viewer_id: Optional[str] = None,
+    viewer_role: Optional[str] = None,
+) -> ComplaintResponse:
     """Map ORM Complaint to ComplaintResponse-compatible dict."""
     status_logs = [
         StatusLogResponse(
@@ -63,6 +67,16 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
             "phone": c.citizen.phone,
         }
 
+    resolution_images = [
+        f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+        for m in (c.media or [])
+        if m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" not in (m.s3_key or "").lower()
+    ]
+    all_attachments = [
+        f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+        for m in (c.media or [])
+    ]
+
     return ComplaintResponse(
         id=str(c.id),
         user_id=str(c.citizen_id),
@@ -83,8 +97,8 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
         status=c.status,
         department_id=str(c.department_id) if c.department_id else None,
         upvotes=c.vote_count,
-        attachments=[f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key for m in c.media] if c.media else [],
-        resolution_proof=[f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key for m in c.media if m.media_type == MediaType.RESOLUTION_PHOTO] if c.media else [],
+        attachments=all_attachments,
+        resolution_proof=resolution_images,
         resolution_remarks=c.resolution_remarks,
         citizen_rating=getattr(c, 'citizen_rating', None) if getattr(c, 'citizen_rating', None) is not None else (c.feedback[-1].rating if getattr(c, 'feedback', None) and len(c.feedback) > 0 else None),
         feedback_text=getattr(c, 'feedback_text', None) if getattr(c, 'feedback_text', None) else (c.feedback[-1].comment if getattr(c, 'feedback', None) and len(c.feedback) > 0 else None),
@@ -449,58 +463,152 @@ async def upvote_complaint(
 @router.post("/{complaint_id}/feedback")
 async def submit_feedback(
     complaint_id: str,
-    feedback_data: FeedbackSchema,
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
+    payload: dict,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
 ):
-    """Submit a 1-5 star rating for a resolved complaint."""
+    """
+    CPGRAMS Citizen Decision Gate:
+    - If satisfied=True (default when rating >= 3): stores rating/comment and closes complaint.
+    - If satisfied=False: redirects citizen to Appeal Level 1 flow.
+    """
+    repo = ComplaintRepository(session)
     try:
         cid = uuid.UUID(complaint_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
+        raise HTTPException(status_code=400, detail="Invalid complaint ID")
 
-    repo = ComplaintRepository(session)
     complaint = await repo.get_by_id(cid)
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
-    if complaint.citizen_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    if complaint.status not in (ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED):
-        raise HTTPException(status_code=400, detail="Feedback only allowed for resolved complaints")
 
-    if not (1 <= feedback_data.rating <= 5):
-        raise HTTPException(status_code=422, detail="Rating must be between 1 and 5")
+    user_id_str = str(user.id) if hasattr(user, "id") else str(user.get("id"))
+    user_role_str = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
 
-    # Prevent duplicate feedback submissions
-    existing = await session.execute(
-        select(CitizenFeedback).where(
-            CitizenFeedback.complaint_id == complaint.id,
-            CitizenFeedback.citizen_id == current_user.id,
+    if str(complaint.citizen_id) != user_id_str:
+        raise HTTPException(status_code=403, detail="Only the complainant can submit resolution feedback")
+
+    status_val = complaint.status.value if hasattr(complaint.status, "value") else str(complaint.status)
+    if status_val not in ("resolved", "closed"):
+        raise HTTPException(status_code=400, detail="Feedback can only be submitted after resolution (ATR)")
+
+    rating = int(payload.get("rating", 5))
+    if rating < 1 or rating > 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+    comment = (payload.get("feedback_text") or payload.get("comment") or "").strip()
+    satisfied = payload.get("satisfied", rating >= 3)
+
+    # Save on both Complaint columns (added in migration a1b2c3d4e5f6) and CitizenFeedback table
+    complaint.citizen_rating = rating
+    complaint.feedback_text = comment
+
+    existing_fb = (
+        await session.execute(
+            select(CitizenFeedback).where(
+                CitizenFeedback.complaint_id == cid,
+                CitizenFeedback.citizen_id == uuid.UUID(user_id_str),
+            )
         )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Feedback already submitted for this complaint")
+    ).scalar_one_or_none()
 
-    feedback = CitizenFeedback(
-        id=uuid.uuid4(),
-        complaint_id=complaint.id,
-        citizen_id=current_user.id,
-        rating=feedback_data.rating,
-        comment=feedback_data.feedback_text,
-    )
-    session.add(feedback)
+    if existing_fb:
+        existing_fb.rating = rating
+        existing_fb.comment = comment
+    else:
+        session.add(
+            CitizenFeedback(
+                complaint_id=cid,
+                citizen_id=uuid.UUID(user_id_str),
+                rating=rating,
+                comment=comment,
+            )
+        )
 
-    # Set citizen_rating and feedback_text on the complaint
-    complaint.citizen_rating = feedback_data.rating
-    complaint.feedback_text = feedback_data.feedback_text
+    if satisfied and status_val == "resolved":
+        await repo.add_status_transition(
+            complaint_id=cid,
+            from_status=complaint.status,
+            to_status=ComplaintStatus.CLOSED,
+            actor_id=uuid.UUID(user_id_str),
+            actor_role="citizen",
+            notes=f"Citizen verified ATR & closed complaint (Rating: {rating}/5). {comment}",
+        )
+    elif not satisfied:
+        await repo.add_status_transition(
+            complaint_id=cid,
+            from_status=complaint.status,
+            to_status=ComplaintStatus.APPEALED,
+            actor_id=uuid.UUID(user_id_str),
+            actor_role="citizen",
+            notes=f"Appeal Level 1 triggered (Citizen unsatisfied with ATR, Rating: {rating}/5): {comment}",
+        )
 
     await session.commit()
-
+    updated = await repo.get_by_id(cid)
     return {
-        "message": "Feedback submitted. Thank you!",
-        "rating": feedback_data.rating,
-        "citizen_rating": feedback_data.rating,
-        "feedback_text": feedback_data.feedback_text,
+        "message": "Complaint closed with citizen satisfaction" if satisfied else "Appeal Level 1 registered",
+        "complaint": _complaint_to_response(updated, viewer_id=user_id_str, viewer_role=user_role_str),
+    }
+
+
+@router.post("/{complaint_id}/appeal")
+async def file_citizen_appeal(
+    complaint_id: str,
+    payload: dict,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Explicit CPGRAMS 2-Tier Appeal Endpoint:
+    - Level 1: Nodal Appellate Authority
+    - Level 2: Sub / Appellate Authority
+    """
+    repo = ComplaintRepository(session)
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid complaint ID")
+
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    user_id_str = str(user.id) if hasattr(user, "id") else str(user.get("id"))
+    user_role_str = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+
+    if str(complaint.citizen_id) != user_id_str:
+        raise HTTPException(status_code=403, detail="Only the filing citizen can lodge an appeal")
+
+    reason = (payload.get("reason") or "").strip()
+    if len(reason) < 10:
+        raise HTTPException(status_code=400, detail="Please provide a clear appeal reason (at least 10 characters)")
+
+    # Determine Appeal Level (L1 vs L2) from existing timeline entries
+    prev_appeals = sum(
+        1 for t in (complaint.timeline or [])
+        if (t.status_to or "").lower() in ("appealed", "escalated") and "appeal" in (t.notes or "").lower()
+    )
+    appeal_level = 2 if prev_appeals >= 1 else 1
+    authority_name = "Appellate Authority (Level 2)" if appeal_level == 2 else "Nodal Authority (Level 1)"
+
+    await repo.add_status_transition(
+        complaint_id=cid,
+        from_status=complaint.status,
+        to_status=ComplaintStatus.APPEALED,
+        actor_id=uuid.UUID(user_id_str),
+        actor_role="citizen",
+        notes=f"[APPEAL LEVEL {appeal_level} -> {authority_name}] Citizen Appeal Reason: {reason}",
+    )
+    complaint.sla_breached = False
+    complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=48 if appeal_level == 1 else 24)
+
+    await session.commit()
+    updated = await repo.get_by_id(cid)
+    return {
+        "message": f"Appeal Level {appeal_level} filed with {authority_name}",
+        "appeal_level": appeal_level,
+        "authority": authority_name,
+        "complaint": _complaint_to_response(updated, viewer_id=user_id_str, viewer_role=user_role_str),
     }
 
 

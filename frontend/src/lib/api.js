@@ -131,8 +131,16 @@ export const complaintsAPI = {
         body: JSON.stringify(data)
     }),
 
+    appealComplaint: (id, reason) => apiRequest(`/api/complaints/${id}/appeal`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+    }),
+
     previewAI: (description) => apiRequest(`/api/complaints/preview-ai?description=${encodeURIComponent(description)}`),
 };
+
+export const citizenApi = complaintsAPI;
+
 
 // Department/Officer API
 export const departmentAPI = {
@@ -173,6 +181,11 @@ export const departmentAPI = {
     updateStatus: (id, data) => departmentAPI.updateComplaintStatus(id, data),
 
     getComplaintHistory: (id) => apiRequest(`/api/department/complaints/${id}/history`),
+
+    confirmTriage: (complaintId, data) => apiRequest(`/api/department/complaints/${complaintId}/confirm-triage`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+    }),
 
     uploadProof: async (complaintId, files) => {
         const token = localStorage.getItem('token');

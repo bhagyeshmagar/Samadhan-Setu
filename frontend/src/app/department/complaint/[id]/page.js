@@ -10,7 +10,7 @@ import DeadlineTimer from '@/components/DeadlineTimer';
 import {
     MapPin, Clock, User, Phone, Mail, FileText, Upload, CheckCircle,
     AlertTriangle, ArrowLeft, Loader2, ImagePlus, X,
-    Calendar, Activity, ChevronRight, CheckCircle2
+    Calendar, Activity, ChevronRight, CheckCircle2, Brain
 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
@@ -52,6 +52,14 @@ export default function HandleComplaint() {
     const [submitting, setSubmitting] = useState(false);
     const [success, setSuccess] = useState(false);
 
+    // Nodal Triage state
+    const [triageCategory, setTriageCategory] = useState('');
+    const [triagePriority, setTriagePriority] = useState('');
+    const [overrideReason, setOverrideReason] = useState('');
+    const [showOverride, setShowOverride] = useState(false);
+    const [triageSubmitting, setTriageSubmitting] = useState(false);
+    const [triageSuccess, setTriageSuccess] = useState('');
+
     const complaintId = params?.id;
 
     useEffect(() => {
@@ -77,6 +85,39 @@ export default function HandleComplaint() {
             fetchComplaint();
         }
     }, [user, complaintId, fetchComplaint]);
+
+    useEffect(() => {
+        if (complaint) {
+            setTriageCategory(complaint.category || '');
+            const p = complaint.priority;
+            setTriagePriority(typeof p === 'object' && p?.value ? p.value.toLowerCase() : String(p || 'medium').toLowerCase());
+        }
+    }, [complaint]);
+
+    const handleConfirmTriage = async (isOverride = false) => {
+        if (isOverride && !overrideReason.trim()) {
+            setError('An override reason is required by CPGRAMS policy when overriding AI triage.');
+            return;
+        }
+        setTriageSubmitting(true);
+        setError('');
+        try {
+            await departmentAPI.confirmTriage(complaintId, {
+                category: isOverride ? triageCategory : complaint.category,
+                priority: isOverride ? triagePriority : (typeof complaint.priority === 'object' ? complaint.priority.value : complaint.priority),
+                override_reason: isOverride ? overrideReason : '',
+            });
+            setTriageSuccess(isOverride ? 'Triage override successfully recorded.' : 'AI Triage confirmed by Nodal Officer.');
+            setShowOverride(false);
+            setOverrideReason('');
+            await fetchComplaint();
+            setTimeout(() => setTriageSuccess(''), 4000);
+        } catch (err) {
+            setError(err.message || 'Failed to confirm triage');
+        } finally {
+            setTriageSubmitting(false);
+        }
+    };
 
     const handleProofUpload = (e) => {
         const files = Array.from(e.target.files);
@@ -327,6 +368,121 @@ export default function HandleComplaint() {
                                             </a>
                                         ))}
                                     </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* CPGRAMS Nodal Triage Review */}
+                    <div className="gov-section border-t-4 border-t-purple-600 bg-purple-50/20">
+                        <div className="gov-section-header bg-purple-50/50 flex items-center justify-between">
+                            <span className="gov-section-title flex items-center gap-2 text-purple-950 font-bold">
+                                <Brain size={14} className="text-purple-700" />
+                                CPGRAMS Nodal Triage Confirmation / नोडल अधिकारी समीक्षा
+                            </span>
+                            <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded">
+                                Human-in-the-Loop
+                            </span>
+                        </div>
+
+                        <div className="p-5 space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="p-3 bg-white rounded border border-purple-100 shadow-sm">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
+                                        AI Recommended Category
+                                    </span>
+                                    <span className="text-sm font-bold text-gray-900">
+                                        {complaint.category || 'General Civic'}
+                                    </span>
+                                </div>
+                                <div className="p-3 bg-white rounded border border-purple-100 shadow-sm">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
+                                        AI Recommended Priority
+                                    </span>
+                                    <span className="text-sm font-bold uppercase text-purple-800">
+                                        {typeof complaint.priority === 'object' ? complaint.priority.value : (complaint.priority || 'Medium')}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {triageSuccess && (
+                                <div className="gov-alert success text-xs bg-emerald-50 border-emerald-300 text-emerald-800">
+                                    <CheckCircle size={14} className="text-emerald-600" />
+                                    <span>{triageSuccess}</span>
+                                </div>
+                            )}
+
+                            <div className="flex flex-wrap gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleConfirmTriage(false)}
+                                    disabled={triageSubmitting}
+                                    className="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold flex items-center gap-2"
+                                >
+                                    {triageSubmitting && <Loader2 size={12} className="animate-spin" />}
+                                    ✓ Confirm AI Triage Recommendation
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowOverride(!showOverride)}
+                                    className="px-4 py-2 rounded-lg border border-purple-300 text-purple-800 hover:bg-purple-50 text-xs font-semibold"
+                                >
+                                    {showOverride ? 'Cancel Override' : 'Override Category / Priority'}
+                                </button>
+                            </div>
+
+                            {showOverride && (
+                                <div className="mt-3 p-4 bg-white rounded-lg border border-purple-200 space-y-3">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-[11px] font-bold uppercase text-gray-600 block mb-1">
+                                                Adjusted Category
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={triageCategory}
+                                                onChange={(e) => setTriageCategory(e.target.value)}
+                                                className="gov-input w-full text-xs"
+                                                placeholder="e.g. Roads, Water Supply, Sanitation"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[11px] font-bold uppercase text-gray-600 block mb-1">
+                                                Adjusted Priority
+                                            </label>
+                                            <select
+                                                value={triagePriority}
+                                                onChange={(e) => setTriagePriority(e.target.value)}
+                                                className="gov-input w-full text-xs"
+                                            >
+                                                <option value="low">Low (14 Days)</option>
+                                                <option value="medium">Medium (7 Days)</option>
+                                                <option value="high">High (72 Hours)</option>
+                                                <option value="critical">Critical (24 Hours)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] font-bold uppercase text-gray-600 block mb-1">
+                                            Mandatory Reason for Override <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={overrideReason}
+                                            onChange={(e) => setOverrideReason(e.target.value)}
+                                            placeholder="Explain why AI classification is altered (logged for model retraining)..."
+                                            className="gov-input w-full text-xs"
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleConfirmTriage(true)}
+                                        disabled={triageSubmitting || !overrideReason.trim()}
+                                        className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold flex items-center gap-2"
+                                    >
+                                        {triageSubmitting && <Loader2 size={12} className="animate-spin" />}
+                                        Submit Official Triage Override
+                                    </button>
                                 </div>
                             )}
                         </div>

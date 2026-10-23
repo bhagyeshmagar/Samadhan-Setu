@@ -14,15 +14,16 @@ from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.session import get_async_session
-from ..auth import get_current_user, require_officer
+from ..db.session import get_async_session, get_db_session
+from ..auth import get_current_user, require_officer, require_officer_or_admin
 from ..models.orm import User, Complaint, Department, Officer
-from ..models.orm.enums import ComplaintStatus, UserRole, MediaType
+from ..models.orm.enums import ComplaintStatus, UserRole, MediaType, ComplaintPriority
 from ..repositories.complaint_repo import ComplaintRepository
 from ..repositories.department_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas import ComplaintResponse, ComplaintUpdate, StatusLogResponse
 from ..services.state_machine import is_valid_transition
+from ..services.media_service import process_and_store_image
 from ..config import settings
 
 PROOF_UPLOAD_DIR = os.path.join(
@@ -258,6 +259,7 @@ async def update_complaint_status(
 # Upload site inspection proof & resolution proof
 # ──────────────────────────────────────────────────────────────────────────────
 @router.post("/complaints/{complaint_id}/inspection-proof")
+@router.post("/complaints/{complaint_id}/upload-inspection")
 @router.post("/tasks/{complaint_id}/inspection-proof")
 async def upload_inspection_proof(
     complaint_id: str,
@@ -289,36 +291,24 @@ async def upload_inspection_proof(
             rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
             continue
 
-        content = await file.read()
-        if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
-            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
-            continue
-
         try:
-            img = Image.open(io.BytesIO(content))
-            img.verify()
-        except Exception:
-            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
-            continue
-
-        ext = os.path.splitext(file.filename or "")[1].lower()
-        safe_ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
-        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
-        file_path = os.path.join(PROOF_UPLOAD_DIR, unique_name)
-        with open(file_path, "wb") as f:
-            f.write(content)
-
-        local_key = f"proof/{unique_name}"
-        await repo.add_media_proof(
-            complaint_id=complaint.id,
-            media_type=MediaType.PROOF_PHOTO,
-            s3_key=local_key,
-            file_name=unique_name,
-            file_size_bytes=len(content),
-            mime_type=file.content_type or "image/jpeg",
-            uploaded_by=current_user.id,
-        )
-        uploaded.append(f"/uploads/{local_key}")
+            s3_key, file_url, file_size = await process_and_store_image(
+                file=file,
+                complaint_id=complaint.id,
+                media_type=MediaType.INSPECTION_PHOTO,
+            )
+            await repo.add_media_proof(
+                complaint_id=complaint.id,
+                media_type=MediaType.INSPECTION_PHOTO,
+                s3_key=s3_key,
+                file_name=os.path.basename(s3_key),
+                file_size_bytes=file_size,
+                mime_type=file.content_type or "image/jpeg",
+                uploaded_by=current_user.id,
+            )
+            uploaded.append(file_url)
+        except Exception as e:
+            rejected.append({"filename": file.filename, "reason": str(e)})
 
     await session.commit()
     return {"message": f"Uploaded {len(uploaded)} site inspection proof image(s).", "uploaded": uploaded, "rejected": rejected}
@@ -358,36 +348,24 @@ async def upload_resolution_proof(
             rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
             continue
 
-        content = await file.read()
-        if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
-            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
-            continue
-
         try:
-            img = Image.open(io.BytesIO(content))
-            img.verify()
-        except Exception:
-            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
-            continue
-
-        ext = os.path.splitext(file.filename or "")[1].lower()
-        safe_ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
-        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
-        file_path = os.path.join(PROOF_UPLOAD_DIR, unique_name)
-        with open(file_path, "wb") as f:
-            f.write(content)
-
-        local_key = f"proof/{unique_name}"
-        await repo.add_media_proof(
-            complaint_id=complaint.id,
-            media_type=MediaType.RESOLUTION_PHOTO,
-            s3_key=local_key,
-            file_name=unique_name,
-            file_size_bytes=len(content),
-            mime_type=file.content_type or "image/jpeg",
-            uploaded_by=current_user.id,
-        )
-        uploaded.append(f"/uploads/{local_key}")
+            s3_key, file_url, file_size = await process_and_store_image(
+                file=file,
+                complaint_id=complaint.id,
+                media_type=MediaType.RESOLUTION_PHOTO,
+            )
+            await repo.add_media_proof(
+                complaint_id=complaint.id,
+                media_type=MediaType.RESOLUTION_PHOTO,
+                s3_key=s3_key,
+                file_name=os.path.basename(s3_key),
+                file_size_bytes=file_size,
+                mime_type=file.content_type or "image/jpeg",
+                uploaded_by=current_user.id,
+            )
+            uploaded.append(file_url)
+        except Exception as e:
+            rejected.append({"filename": file.filename, "reason": str(e)})
 
     await session.commit()
     return {"message": f"Uploaded {len(uploaded)} proof image(s).", "uploaded": uploaded, "rejected": rejected}
@@ -505,7 +483,7 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
     attachments = []
     if getattr(c, "media", None):
         for m in c.media:
-            url = f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+            url = getattr(m, "file_url", None) or (f"/uploads/{m.s3_key}" if m.s3_key and not m.s3_key.startswith("http") else (m.s3_key or ""))
             media_item = {
                 "id": str(m.id),
                 "url": url,
@@ -513,10 +491,14 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
                 "media_type": m.media_type.value if hasattr(m.media_type, "value") else str(m.media_type),
                 "created_at": m.created_at.isoformat() if m.created_at else None,
             }
-            if m.media_type == MediaType.RESOLUTION_PHOTO:
-                proof_images.append(url)
-            elif m.media_type == MediaType.PROOF_PHOTO:
+            if (
+                m.media_type == MediaType.INSPECTION_PHOTO
+                or m.media_type == MediaType.PROOF_PHOTO
+                or (m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" in (url or "").lower())
+            ):
                 inspection_images.append(url)
+            elif m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" not in (url or "").lower():
+                proof_images.append(url)
             attachments.append(media_item)
 
     return {
@@ -538,6 +520,9 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
         "inspection_images": inspection_images,
         "attachments": attachments,
     }
+
+_complaint_to_dict = _complaint_to_task
+
 
 
 # Status label → ComplaintStatus enum mapping for incoming filter values
@@ -731,17 +716,75 @@ async def assign_task(
     return {"message": "Task assigned successfully", "task_id": task_id, "officer_id": officer_id}
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Upload proof alias (frontend calls /tasks/{id}/upload-proof)
-# ──────────────────────────────────────────────────────────────────────────────
-@router.post("/complaints/{complaint_id}/upload-proof")
-async def upload_proof_alias(
+@router.post("/complaints/{complaint_id}/confirm-triage")
+async def confirm_or_override_triage(
     complaint_id: str,
-    files: List[UploadFile] = File(...),
-    current_user: User = Depends(require_officer),
-    session: AsyncSession = Depends(get_async_session),
+    payload: dict,
+    user: User = Depends(require_officer_or_admin),
+    session: AsyncSession = Depends(get_db_session),
 ):
-    """Alias for upload_resolution_proof — kept for frontend api.js compatibility."""
-    return await upload_resolution_proof(complaint_id, files, current_user, session)
+    """
+    Nodal officer confirms AI triage or overrides Category / Priority / Department
+    with a mandatory reason (logged to AIResult for real Override Rate tracking).
+    """
+    repo = ComplaintRepository(session)
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid complaint ID")
+
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    new_category = payload.get("category", complaint.category)
+    curr_priority_val = complaint.priority.value if hasattr(complaint.priority, "value") else str(complaint.priority)
+    new_priority = payload.get("priority", curr_priority_val)
+    override_reason = (payload.get("override_reason") or "").strip()
+
+    is_override = (
+        new_category != complaint.category
+        or new_priority.lower() != curr_priority_val.lower()
+    )
+    if is_override and not override_reason:
+        raise HTTPException(
+            status_code=400,
+            detail="An override_reason is required when overriding AI category or priority.",
+        )
+
+    complaint.category = new_category
+    try:
+        complaint.priority = ComplaintPriority(new_priority.lower())
+    except ValueError:
+        pass
+
+    # Record human-in-the-loop decision on latest AIResult if exists
+    if getattr(complaint, "ai_results", None):
+        latest_ai = complaint.ai_results[0]
+        if hasattr(latest_ai, "overridden"):
+            latest_ai.overridden = is_override
+        if is_override and hasattr(latest_ai, "override_reason"):
+            latest_ai.override_reason = override_reason
+
+    from_status = complaint.status
+    target_status = ComplaintStatus.ASSIGNED if from_status == ComplaintStatus.SUBMITTED else from_status
+    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
+    user_role = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+
+    await repo.add_status_transition(
+        complaint_id=cid,
+        from_status=from_status,
+        to_status=target_status,
+        actor_id=user_id,
+        actor_role=user_role,
+        notes=(
+            f"Nodal Triage Override ({override_reason}): Category={new_category}, Priority={new_priority}"
+            if is_override
+            else f"Nodal Officer confirmed AI Triage: Category={new_category}, Priority={new_priority}"
+        ),
+    )
+    await session.commit()
+    updated = await repo.get_by_id(cid)
+    return {"message": "Triage confirmed", "overridden": is_override, "complaint": _complaint_to_dict(updated)}
 
 
