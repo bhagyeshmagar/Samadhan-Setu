@@ -96,7 +96,7 @@ export default function HandleComplaint() {
 
     const handleConfirmTriage = async (isOverride = false) => {
         if (isOverride && !overrideReason.trim()) {
-            setError('An override reason is required by CPGRAMS policy when overriding AI triage.');
+            setError('An override reason is required by Samadhan Setu Governance Protocol when overriding AI triage.');
             return;
         }
         setTriageSubmitting(true);
@@ -413,12 +413,12 @@ export default function HandleComplaint() {
                         </div>
                     </div>
 
-                    {/* CPGRAMS Nodal Triage Review */}
+                    {/* Samadhan Setu Nodal Governance Verification */}
                     <div className="gov-section border-t-4 border-t-purple-600 bg-purple-50/20">
                         <div className="gov-section-header bg-purple-50/50 flex items-center justify-between">
                             <span className="gov-section-title flex items-center gap-2 text-purple-950 font-bold">
                                 <Brain size={14} className="text-purple-700" />
-                                CPGRAMS Nodal Triage Confirmation / नोडल अधिकारी समीक्षा
+                                Samadhan Setu Nodal Governance Verification / नोडल अधिकारी समीक्षा
                             </span>
                             <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded">
                                 Human-in-the-Loop

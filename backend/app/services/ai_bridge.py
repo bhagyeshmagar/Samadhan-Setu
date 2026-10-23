@@ -165,6 +165,45 @@ class AIBridge:
 
         return insights
 
+    @staticmethod
+    def check_Duplicates(
+        new_text: str,
+        existing_complaints: List[dict],
+        threshold: float = 0.60,
+    ) -> Dict[str, Any]:
+        """Check if new_text is semantically or lexically duplicate of existing complaints."""
+        matches = AIBridge.get_similar_complaints(new_text, existing_complaints, threshold=threshold)
+        if matches:
+            return {
+                "is_duplicate": True,
+                "confidence": matches[0].get("similarity_score", 0.0),
+                "matched_id": matches[0].get("complaint_id"),
+                "matches": matches,
+            }
+        # Fallback word-overlap matching if SBERT model is not loaded or returns empty
+        if new_text and existing_complaints:
+            new_words = {w.lower() for w in new_text.split() if len(w) > 3}
+            for c in existing_complaints:
+                other_text = c.get("text", "")
+                other_words = {w.lower() for w in other_text.split() if len(w) > 3}
+                if new_words and other_words:
+                    intersection = new_words.intersection(other_words)
+                    union = new_words.union(other_words)
+                    score = len(intersection) / len(union) if union else 0.0
+                    if score >= 0.35:
+                        return {
+                            "is_duplicate": True,
+                            "confidence": round(float(score), 3),
+                            "matched_id": c.get("id"),
+                            "matches": [{"complaint_id": c.get("id"), "similarity_score": round(float(score), 3)}],
+                        }
+        return {"is_duplicate": False, "confidence": 0.0, "matches": []}
+
 
 # Singleton instance
 ai_bridge = AIBridge()
+
+
+def get_ai_bridge() -> AIBridge:
+    """Return the canonical AIBridge singleton instance."""
+    return ai_bridge

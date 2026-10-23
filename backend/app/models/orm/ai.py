@@ -5,6 +5,7 @@ from sqlalchemy import String, Float, DateTime, ForeignKey, func, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
+from app.models.orm.complaint import AIResult
 
 if TYPE_CHECKING:
     from .complaint import Complaint
@@ -54,3 +55,5 @@ class AIAnalysisResult(Base):
 
     complaint: Mapped["Complaint"] = relationship("Complaint", back_populates="ai_analysis")
     recommended_department: Mapped[Optional["Department"]] = relationship("Department")
+
+__all__ = ["AIResult", "AIAnalysisResult"]

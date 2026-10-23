@@ -449,7 +449,7 @@ export default function TrackGrievance() {
                                                     </div>
                                                 )}
 
-                                                {/* CPGRAMS Action Taken Report (ATR) & Citizen Satisfaction Gate */}
+                                                {/* Samadhan Setu Action Taken Report (ATR) & Citizen Satisfaction Gate */}
                                                 {['resolved'].includes(sNorm) && (
                                                     <div className="mt-4 p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
                                                         <div className="flex items-center justify-between mb-2">
@@ -523,7 +523,7 @@ export default function TrackGrievance() {
                                                         <div className="flex items-center gap-2 mb-1">
                                                             <AlertTriangle size={15} className="text-rose-500" />
                                                             <span className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
-                                                                CPGRAMS Appeal Under Review
+                                                                Samadhan Setu Appeal Under Review
                                                             </span>
                                                         </div>
                                                         <p className="text-xs text-rose-800 dark:text-rose-200">

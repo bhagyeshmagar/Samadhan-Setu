@@ -133,7 +133,7 @@ export default function Footer() {
                             <h3 className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-3">External</h3>
                             <ul className="space-y-2">
                                 {[
-                                    { href: 'https://cpgrams.gov.in', label: 'CPGRAMS' },
+                                    { href: 'https://pgportal.gov.in', label: 'Central Grievance Portal' },
                                     { href: 'https://mygov.in',       label: 'MyGov India' },
                                     { href: 'https://india.gov.in',   label: 'India.gov.in' },
                                 ].map(l => (

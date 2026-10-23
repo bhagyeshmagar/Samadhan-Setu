@@ -1,4 +1,4 @@
-"""cpgrams_schema_upgrade
+"""samadhan_setu_schema_upgrade
 
 Revision ID: a1b2c3d4e5f6
 Revises: fe28d94740d4

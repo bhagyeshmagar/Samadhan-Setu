@@ -488,7 +488,7 @@ async def submit_feedback(
     session: AsyncSession = Depends(get_db_session),
 ):
     """
-    CPGRAMS Citizen Decision Gate:
+    Samadhan Setu Citizen Resolution Gate:
     - If satisfied=True (default when rating >= 3): stores rating/comment and closes complaint.
     - If satisfied=False: redirects citizen to Appeal Level 1 flow.
     """
@@ -579,7 +579,7 @@ async def file_citizen_appeal(
     session: AsyncSession = Depends(get_db_session),
 ):
     """
-    Explicit CPGRAMS 2-Tier Appeal Endpoint:
+    Explicit Samadhan Setu Multi-Tier Appeal Protocol:
     - Level 1: Nodal Appellate Authority
     - Level 2: Sub / Appellate Authority
     """

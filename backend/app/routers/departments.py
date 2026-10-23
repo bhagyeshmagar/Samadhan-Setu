@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session, get_db_session
@@ -24,6 +25,7 @@ from ..repositories.user_repo import UserRepository
 from ..schemas import ComplaintResponse, ComplaintUpdate, StatusLogResponse
 from ..services.state_machine import is_valid_transition
 from ..services.media_service import process_and_store_image
+from ..services.ai_bridge import get_ai_bridge
 from ..config import settings
 
 PROOF_UPLOAD_DIR = os.path.join(
@@ -342,11 +344,40 @@ async def upload_resolution_proof(
         if not officer or not officer.department_id or complaint.department_id != officer.department_id:
             raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
+    # Load the most recent Inspection ('Before') photo bytes if present for forensic comparison
+    from pathlib import Path
+    from app.services.media_service import verify_before_after_authenticity, UPLOADS_DIR
+
+    before_bytes = None
+    inspection_media = [
+        m for m in (complaint.media or [])
+        if m.media_type == MediaType.INSPECTION_PHOTO
+        or (m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" in (getattr(m, "file_url", "") or getattr(m, "s3_key", "")))
+        or (hasattr(m, "s3_key") and "inspection" in m.s3_key)
+    ]
+    if inspection_media:
+        latest_before_url = getattr(inspection_media[-1], "file_url", "") or getattr(inspection_media[-1], "s3_key", "")
+        local_rel_path = latest_before_url.lstrip("/")
+        if Path(local_rel_path).is_file():
+            before_bytes = Path(local_rel_path).read_bytes()
+        elif (Path(UPLOADS_DIR) / latest_before_url).is_file():
+            before_bytes = (Path(UPLOADS_DIR) / latest_before_url).read_bytes()
+
     uploaded, rejected = [], []
     for file in files[:5]:
         if file.content_type not in settings.ALLOWED_IMAGE_TYPES:
             rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
             continue
+
+        raw_after_bytes = await file.read()
+        await file.seek(0)
+
+        forensic_check = verify_before_after_authenticity(before_bytes, raw_after_bytes)
+        if not forensic_check["verified"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Forensic Visual Verification Failed: {forensic_check['reason']}",
+            )
 
         try:
             s3_key, file_url, file_size = await process_and_store_image(
@@ -364,6 +395,8 @@ async def upload_resolution_proof(
                 uploaded_by=current_user.id,
             )
             uploaded.append(file_url)
+        except HTTPException:
+            raise
         except Exception as e:
             rejected.append({"filename": file.filename, "reason": str(e)})
 
@@ -832,7 +865,7 @@ async def adjudicate_citizen_appeal(
     session: AsyncSession = Depends(get_db_session),
 ):
     """
-    Completes the CPGRAMS Appellate Ladder (Appeal L1 / L2 -> Final Resolution or Rework):
+    Completes the Samadhan Setu Appellate Ladder Protocol (Appeal L1 / L2 -> Final Resolution or Rework):
     - decision = 'reopen_rework': Sends back to field team (IN_PROGRESS) with fresh 24h SLA.
     - decision = 'final_close': Appellate Authority upholds resolution with final binding order (CLOSED).
     """
@@ -878,6 +911,95 @@ async def adjudicate_citizen_appeal(
         "decision": decision,
         "complaint": _complaint_to_task(updated),
     }
+
+
+@router.post("/complaints/{complaint_id}/swarm-resolve")
+async def swarm_cascade_resolve_duplicates(
+    complaint_id: str,
+    payload: dict = None,
+    user: dict = Depends(require_officer_or_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Samadhan Setu Smart Swarm Resolution:
+    Finds all open complaints in the same category and ward/vicinity with high semantic
+    similarity to this resolved complaint, links their resolution proof, and cascades
+    the Action Taken Report (ATR) in one atomic operation.
+    """
+    payload = payload or {}
+    repo = ComplaintRepository(session)
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid complaint ID")
+
+    master = await repo.get_by_id(cid)
+    if not master:
+        raise HTTPException(status_code=404, detail="Master complaint not found")
+
+    # Find open candidate complaints in the same category
+    stmt = (
+        select(Complaint)
+        .options(selectinload(Complaint.media), selectinload(Complaint.timeline))
+        .where(
+            Complaint.id != cid,
+            Complaint.category == master.category,
+            Complaint.status.in_([
+                ComplaintStatus.SUBMITTED,
+                ComplaintStatus.ASSIGNED,
+                ComplaintStatus.IN_PROGRESS,
+            ]),
+        )
+        .limit(50)
+    )
+    candidates = (await session.execute(stmt)).scalars().all()
+
+    bridge = get_ai_bridge()
+    master_text = f"{master.title}. {master.description}"
+    cascaded_ids = []
+
+    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
+    user_role = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+
+    for cand in candidates:
+        # Check ward match or proximity (~1 km bounding box)
+        same_ward = bool(master.ward and cand.ward and master.ward.lower() == cand.ward.lower())
+        near_coords = (
+            abs((master.latitude or 0) - (cand.latitude or 0)) <= 0.01
+            and abs((master.longitude or 0) - (cand.longitude or 0)) <= 0.01
+        )
+        if not (same_ward or near_coords):
+            continue
+
+        cand_text = f"{cand.title}. {cand.description}"
+        sim_res = bridge.check_Duplicates(
+            cand_text,
+            [{"id": str(master.id), "text": master_text}],
+            threshold=0.60,
+        )
+        if sim_res.get("is_duplicate") or same_ward:
+            cand.resolution_notes = (
+                f"[SWARM CASCADE ATR — Linked to Primary Incident {master.complaint_number}]\n"
+                f"{master.resolution_notes or 'Resolved via coordinated municipal field operation.'}"
+            )
+            await repo.add_status_transition(
+                complaint_id=cand.id,
+                from_status=cand.status,
+                to_status=ComplaintStatus.RESOLVED,
+                actor_id=user_id,
+                actor_role=user_role,
+                notes=f"Auto-resolved via Smart Swarm Cascade from Primary Incident {master.complaint_number}.",
+            )
+            cascaded_ids.append(cand.complaint_number)
+
+    await session.commit()
+    return {
+        "message": f"Swarm Cascade completed: {len(cascaded_ids)} linked complaints resolved.",
+        "master_complaint": master.complaint_number,
+        "cascaded_count": len(cascaded_ids),
+        "cascaded_complaint_numbers": cascaded_ids,
+    }
+
 
 
 

@@ -250,12 +250,17 @@ export const departmentAPI = {
         }
         return response.json();
     },
+
+    swarmResolve: (complaintId) => apiRequest(`/api/department/complaints/${complaintId}/swarm-resolve`, {
+        method: 'POST',
+    }),
 };
 
 // Admin API
 export const adminAPI = {
     getStats: () => apiRequest('/api/admin/stats'),
     getSummary: () => apiRequest('/api/admin/stats/summary'),
+    runSlaSweep: () => apiRequest('/api/admin/sla/run-sweep', { method: 'POST' }),
 
     getComplaints: (statusFilter, category, page = 1) => {
         const params = new URLSearchParams({ page });

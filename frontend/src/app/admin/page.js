@@ -52,6 +52,21 @@ export default function AdminDashboard() {
     const [modelHealth, setModelHealth] = useState(null);
     const [overrideStats, setOverrideStats] = useState(null);
     const [recentComplaints, setRecentComplaints] = useState([]);
+    const [slaSweepResult, setSlaSweepResult] = useState(null);
+    const [runningSweep, setRunningSweep] = useState(false);
+
+    const handleRunSlaSweep = async () => {
+        try {
+            setRunningSweep(true);
+            const res = await adminAPI.runSlaSweep();
+            setSlaSweepResult(res);
+            await fetchData();
+        } catch (err) {
+            console.error('SLA sweep failed:', err);
+        } finally {
+            setRunningSweep(false);
+        }
+    };
 
     const { getInsights, insights, loading: insightsLoading } = useAIServices();
 
@@ -125,7 +140,25 @@ export default function AdminDashboard() {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        onClick={handleRunSlaSweep}
+                        disabled={runningSweep}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold tracking-wide shadow-lg shadow-indigo-600/20 transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                        {runningSweep ? (
+                            <>
+                                <Loader2 size={13} className="animate-spin" /> Running SLA Sweep...
+                            </>
+                        ) : (
+                            '⚡ Trigger Autonomous SLA Sweep'
+                        )}
+                    </button>
+                    {slaSweepResult && (
+                        <span className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-medium">
+                            Sweep Complete: {slaSweepResult.warned_75_pct ?? 0} Warned (75%) · {slaSweepResult.breached_escalated ?? 0} Escalated · {slaSweepResult.auto_closed_7d ?? 0} Auto-Closed
+                        </span>
+                    )}
                     {/* Live status */}
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
                         style={{ background: 'var(--india-green-light)', color: 'var(--india-green)', border: '1px solid var(--india-green)' }}>
