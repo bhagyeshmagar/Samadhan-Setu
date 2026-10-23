@@ -2,7 +2,7 @@
 # Routers and services should import from here or from models.orm directly.
 
 from .orm.user import User
-from .orm.complaint import Complaint, ComplaintMedia, ComplaintTimeline, ComplaintVote, CitizenFeedback
+from .orm.complaint import Complaint, ComplaintMedia, ComplaintTimeline, ComplaintVote, CitizenFeedback, AIResult
 from .orm.department import Department, CategoryMapping
 from .orm.officer import Officer
 from .orm.team import Team, TaskAssignment, AssignmentLog
@@ -20,7 +20,8 @@ from .orm.enums import (
 __all__ = [
     # ORM Models
     "User",
-    "Complaint", "ComplaintMedia", "ComplaintTimeline", "ComplaintVote", "CitizenFeedback",
+    "Complaint", "ComplaintMedia", "ComplaintTimeline", "ComplaintVote", "CitizenFeedback", "AIResult",
+
     "Department", "CategoryMapping",
     "Officer",
     "Team", "TaskAssignment", "AssignmentLog",

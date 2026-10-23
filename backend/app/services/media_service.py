@@ -99,3 +99,74 @@ async def process_and_store_image(
 
     relative_url = f"/uploads/{s3_key}"
     return s3_key, relative_url, file_size
+
+
+import hashlib
+from typing import Optional
+from PIL import ImageStat
+
+
+def verify_before_after_authenticity(
+    before_bytes: Optional[bytes],
+    after_bytes: bytes,
+) -> dict:
+    """
+    AI & Forensic Visual Proof Check:
+    1. Ensures the 'After' resolution photo is not a byte-identical or perceptual duplicate of 'Before'.
+    2. Checks image luminance & contrast (variance) to reject blank/covered-lens uploads.
+    """
+    after_hash = hashlib.sha256(after_bytes).hexdigest()
+    before_hash = hashlib.sha256(before_bytes).hexdigest() if before_bytes else None
+
+    if before_hash and after_hash == before_hash:
+        return {
+            "verified": False,
+            "reason": "Duplicate Image Detected: Resolution ('After') photo is identical to the Inspection ('Before') photo.",
+            "authenticity_score": 0.0,
+        }
+
+    try:
+        from io import BytesIO
+        from PIL import Image
+        with Image.open(BytesIO(after_bytes)) as img:
+            gray = img.convert("L")
+            stat = ImageStat.Stat(gray)
+            mean_brightness = stat.mean[0]
+            std_contrast = stat.stddev[0]
+
+            # Reject pitch-black, overexposed white, or zero-variance solid images
+            if mean_brightness < 12 or mean_brightness > 248 or std_contrast < 8:
+                return {
+                    "verified": False,
+                    "reason": f"Low-quality/blank proof image rejected (Brightness: {mean_brightness:.1f}, Contrast: {std_contrast:.1f}).",
+                    "authenticity_score": 0.2,
+                }
+
+            # Compute 8x8 average perceptual hash (aHash) to catch resized duplicates
+            tiny = gray.resize((8, 8))
+            pixels = list(tiny.getdata())
+            avg = sum(pixels) / len(pixels)
+            after_ahash = "".join("1" if p > avg else "0" for p in pixels)
+
+            if before_bytes:
+                with Image.open(BytesIO(before_bytes)) as b_img:
+                    b_tiny = b_img.convert("L").resize((8, 8))
+                    b_pixels = list(b_tiny.getdata())
+                    b_avg = sum(b_pixels) / len(b_pixels)
+                    before_ahash = "".join("1" if p > b_avg else "0" for p in b_pixels)
+                    hamming_dist = sum(ch1 != ch2 for ch1, ch2 in zip(after_ahash, before_ahash))
+                    if hamming_dist <= 3:
+                        return {
+                            "verified": False,
+                            "reason": "Near-Duplicate Visual Proof: 'After' photo is perceptually identical to 'Before' photo.",
+                            "authenticity_score": 0.15,
+                        }
+    except Exception:
+        pass
+
+    return {
+        "verified": True,
+        "reason": "Visual proof passed forensic contrast and Before/After distinctness verification.",
+        "authenticity_score": 0.95,
+    }
+

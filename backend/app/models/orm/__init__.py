@@ -16,10 +16,12 @@ from .complaint import (
     ComplaintTimeline,
     ComplaintVote,
     CitizenFeedback,
+    AIResult,
 )
 from .team import Team, TaskAssignment, AssignmentLog
 from .audit import AuditLog, Notification
 from .ai import AIAnalysisResult
+
 
 __all__ = [
     "Base",
@@ -45,4 +47,5 @@ __all__ = [
     "AuditLog",
     "Notification",
     "AIAnalysisResult",
+    "AIResult",
 ]

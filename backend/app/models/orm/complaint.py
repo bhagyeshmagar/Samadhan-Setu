@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from sqlalchemy import (
-    String, Boolean, Integer, Float, BigInteger, DateTime, Text,
+    String, Boolean, Integer, Float, BigInteger, DateTime, Text, JSON,
     ForeignKey, UniqueConstraint, Index, func
 )
 from sqlalchemy.dialects.postgresql import UUID, ENUM
@@ -163,6 +163,9 @@ class Complaint(Base):
     ai_analysis: Mapped[Optional["AIAnalysisResult"]] = relationship(
         "AIAnalysisResult", back_populates="complaint", uselist=False, cascade="all, delete-orphan"
     )
+    ai_results: Mapped[List["AIResult"]] = relationship(
+        "AIResult", back_populates="complaint", cascade="all, delete-orphan", order_by="desc(AIResult.created_at)"
+    )
 
 
 class ComplaintMedia(Base):
@@ -299,3 +302,32 @@ class CitizenFeedback(Base):
 
     complaint: Mapped["Complaint"] = relationship("Complaint", back_populates="feedback")
     citizen: Mapped["User"] = relationship("User", back_populates="feedback_entries")
+
+
+class AIResult(Base):
+    __tablename__ = "ai_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    complaint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("complaints.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    model_name: Mapped[str] = mapped_column(String(100), default="Samadhan-Hybrid-Triage-v2", server_default="Samadhan-Hybrid-Triage-v2")
+    predicted_category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    category_confidence: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
+    urgency_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
+    severity_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
+    priority_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
+    overridden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    override_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_output: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    complaint: Mapped["Complaint"] = relationship("Complaint", back_populates="ai_results")
+

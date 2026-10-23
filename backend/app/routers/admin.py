@@ -925,3 +925,11 @@ async def get_admin_clusters(
 
     return clusters
 
+
+@router.post("/sla/run-sweep")
+async def trigger_sla_sweep(user: User = Depends(require_admin)):
+    """Manually trigger the Autonomous SLA Governance sweep."""
+    from app.services.sla_daemon import run_sla_governance_sweep
+    result = await run_sla_governance_sweep()
+    return {"message": "SLA Governance Sweep completed", **result}
+

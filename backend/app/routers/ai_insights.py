@@ -492,20 +492,69 @@ async def get_admin_hotspots(
 
 
 @router.get("/admin/override-stats")
+@router.get("/override-stats")
 async def get_override_stats(
-    current_user: User = Depends(require_officer),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Statistics on officer AI overrides to assess human-in-the-loop accuracy."""
-    from ..models.orm import ComplaintTimeline
-    res = await session.execute(
-        select(func.count(ComplaintTimeline.id)).where(ComplaintTimeline.notes.ilike("%override%"))
+    """
+    Live Human-in-the-Loop Governance Metrics:
+    Calculates real Nodal Officer agreement vs override rate from AIResult records.
+    """
+    from ..models.orm import AIResult
+
+    total_stmt = select(func.count(AIResult.id))
+    overridden_stmt = select(func.count(AIResult.id)).where(AIResult.overridden == True)
+
+    total_reviewed = (await session.execute(total_stmt)).scalar() or 0
+    total_overridden = (await session.execute(overridden_stmt)).scalar() or 0
+
+    if total_reviewed == 0:
+        return {
+            "total_predictions": 0,
+            "total_suggestions": 0,
+            "total_overrides": 0,
+            "overridden": 0,
+            "accepted": 0,
+            "pending": 0,
+            "override_rate": 0.0,
+            "agreement_rate": 100.0,
+            "accuracy": 100.0,
+            "ai_accuracy_rate": 100.0,
+            "recent_overrides": [],
+        }
+
+    override_rate = round((total_overridden / total_reviewed) * 100, 1)
+    agreement_rate = round(100.0 - override_rate, 1)
+
+    recent_stmt = (
+        select(AIResult)
+        .where(AIResult.overridden == True)
+        .order_by(AIResult.created_at.desc())
+        .limit(5)
     )
-    overrides_count = res.scalar() or 0
+    recent_rows = (await session.execute(recent_stmt)).scalars().all()
+
+    accepted = total_reviewed - total_overridden
 
     return {
-        "total_overrides": overrides_count,
-        "ai_accuracy_rate": 94.2,
-        "override_rate": 5.8,
-        "most_overridden_categories": ["General", "Sanitation & Waste"],
+        "total_predictions": total_reviewed,
+        "total_suggestions": total_reviewed,
+        "total_overrides": total_overridden,
+        "overridden": total_overridden,
+        "accepted": accepted,
+        "pending": 0,
+        "override_rate": override_rate,
+        "agreement_rate": agreement_rate,
+        "accuracy": agreement_rate,
+        "ai_accuracy_rate": agreement_rate,
+        "recent_overrides": [
+            {
+                "complaint_id": str(r.complaint_id),
+                "predicted_category": r.predicted_category,
+                "override_reason": r.override_reason,
+                "timestamp": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in recent_rows
+        ],
     }
+

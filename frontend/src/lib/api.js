@@ -187,6 +187,16 @@ export const departmentAPI = {
         body: JSON.stringify(data),
     }),
 
+    generateAtrDraft: (complaintId) => apiRequest(`/api/department/complaints/${complaintId}/generate-atr`, {
+        method: 'POST',
+    }),
+
+    adjudicateAppeal: (complaintId, decision, notes) => apiRequest(`/api/department/complaints/${complaintId}/adjudicate-appeal`, {
+        method: 'POST',
+        body: JSON.stringify({ decision, notes }),
+    }),
+
+
     uploadProof: async (complaintId, files) => {
         const token = localStorage.getItem('token');
         const formData = new FormData();

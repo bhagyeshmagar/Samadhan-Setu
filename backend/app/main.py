@@ -20,14 +20,22 @@ from .routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: verify DB connectivity. Shutdown: dispose connection pool."""
+    """Startup: verify DB connectivity and start autonomous SLA daemon. Shutdown: cancel tasks and dispose connection pool."""
     # Quick connectivity check — will raise if PG is unreachable
     async with async_engine.connect() as conn:
         await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
     print("[OK] PostgreSQL connection verified.")
+
+    import asyncio
+    from app.services.sla_daemon import sla_background_loop
+    sla_task = asyncio.create_task(sla_background_loop(300))
+
     yield
+
+    sla_task.cancel()
     await async_engine.dispose()
     print("[OK] PostgreSQL connection pool closed.")
+
 
 
 app = FastAPI(

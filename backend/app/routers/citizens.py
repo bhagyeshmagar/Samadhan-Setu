@@ -167,6 +167,26 @@ async def submit_complaint(
         is_public=complaint_data.is_public if complaint_data.is_public is not None else True,
     )
 
+    # Persist initial AI Triage & 6-Factor Priority breakdown into ai_results
+    from app.models.orm.complaint import AIResult
+    ai_record = AIResult(
+        complaint_id=complaint.id,
+        model_name="Samadhan-Hybrid-Triage-v2",
+        predicted_category=category,
+        category_confidence=round(float(classification.get("confidence", 0.85)), 4),
+        urgency_score=round(float(priority_result.get("breakdown", {}).get("urgency", 1.5)), 3),
+        severity_score=round(float(priority_result.get("breakdown", {}).get("severity", 1.5)), 3),
+        priority_score=round(float(priority_result.get("score", 1.5)), 3),
+        overridden=False,
+        raw_output={
+            "formula": "P = 0.30*U + 0.30*S + 0.15*C + 0.10*R + 0.10*L + 0.05*H",
+            "factors": priority_result.get("breakdown", {}),
+            "matched_keywords": classification.get("matched_keywords", []),
+        },
+    )
+    session.add(ai_record)
+    await session.flush()
+
     if department_id:
         await complaint_repo.add_status_transition(
             complaint,

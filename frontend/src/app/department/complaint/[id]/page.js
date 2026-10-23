@@ -283,6 +283,46 @@ export default function HandleComplaint() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Content */}
                 <div className="lg:col-span-2 space-y-6">
+                    {/* Appellate Authority Adjudication Panel */}
+                    {(complaint.status || '').toLowerCase() === 'appealed' && (
+                        <div className="p-5 rounded-2xl border-2 border-rose-400 bg-rose-50/80 shadow-sm">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-800 mb-2 flex items-center gap-2">
+                                ⚖️ Appellate Authority Adjudication Required (Citizen Appeal Active)
+                            </h3>
+                            <p className="text-xs text-rose-900 mb-3 leading-relaxed">
+                                The citizen challenged the previous Action Taken Report (ATR). Issue a binding Appellate Order below:
+                            </p>
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const notes = prompt('Enter Appellate Rework Directive for Field Team (min 10 chars):', 'Field inspection incomplete. Re-verify on site and upload fresh geo-tagged proof within 24 hours.');
+                                        if (notes && notes.length >= 10) {
+                                            await departmentAPI.adjudicateAppeal(complaint.id, 'reopen_rework', notes);
+                                            window.location.reload();
+                                        }
+                                    }}
+                                    className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold"
+                                >
+                                    ↺ Uphold Citizen Appeal — Reopen for Field Rework (24h SLA)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const notes = prompt('Enter Final Binding Appellate Closure Order (min 10 chars):', 'Verified before/after evidence and departmental logs. Work meets municipal specifications. Appeal disposed.');
+                                        if (notes && notes.length >= 10) {
+                                            await departmentAPI.adjudicateAppeal(complaint.id, 'final_close', notes);
+                                            window.location.reload();
+                                        }
+                                    }}
+                                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
+                                >
+                                    ✓ Dispose Appeal — Issue Final Resolution & Close
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Complaint Details Card */}
                     <div className="gov-section">
                         <div className="gov-section-header">
@@ -500,15 +540,31 @@ export default function HandleComplaint() {
                         <div className="p-5 space-y-4">
                             {/* Officer Remarks */}
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                                    Official Redressal Remarks / कार्यवाई विवरण <span className="text-red-500">*</span>
-                                </label>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                        Official Action Taken Report (ATR) Notes <span className="text-red-500">*</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            try {
+                                                const res = await departmentAPI.generateAtrDraft(complaint.id);
+                                                if (res?.atr_draft) setRemarks(res.atr_draft);
+                                            } catch (err) {
+                                                console.error('ATR draft error:', err);
+                                            }
+                                        }}
+                                        className="px-3 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition"
+                                    >
+                                        ✨ Auto-Draft Official ATR with AI
+                                    </button>
+                                </div>
                                 <textarea
                                     value={remarks}
                                     onChange={(e) => setRemarks(e.target.value)}
                                     className="gov-input w-full resize-none p-3 text-xs"
                                     placeholder="Enter detailed report on repairs conducted, materials utilized, and on-site resolution verification..."
-                                    rows={4}
+                                    rows={5}
                                 />
                                 <div className="mt-2 flex gap-2 flex-wrap">
                                     <button
