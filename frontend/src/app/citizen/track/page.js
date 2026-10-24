@@ -462,6 +462,28 @@ export default function TrackGrievance() {
                                                             {complaint.resolution_remarks || complaint.resolution_notes || 'Field inspection completed and resolution proof uploaded by the nodal team.'}
                                                         </p>
 
+                                                        {((detail?.inspection_images?.length || 0) > 0 || (detail?.resolution_proof?.length || 0) > 0) && (
+                                                            <div className="mb-4 rounded-lg border border-emerald-200 bg-white/70 p-3 dark:border-slate-700 dark:bg-slate-900/50">
+                                                                <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                                                                    Field evidence comparison
+                                                                </h4>
+                                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                                                    {detail?.inspection_images?.[0] && (
+                                                                        <a href={getImageUrl(detail.inspection_images[0])} target="_blank" rel="noopener noreferrer" className="block">
+                                                                            <span className="mb-1 block text-[10px] font-semibold uppercase text-amber-700 dark:text-amber-300">Before · Inspection</span>
+                                                                            <img src={getImageUrl(detail.inspection_images[0])} alt="Site inspection before work" className="h-36 w-full rounded-lg border border-amber-200 object-cover" />
+                                                                        </a>
+                                                                    )}
+                                                                    {detail?.resolution_proof?.[0] && (
+                                                                        <a href={getImageUrl(detail.resolution_proof[0])} target="_blank" rel="noopener noreferrer" className="block">
+                                                                            <span className="mb-1 block text-[10px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">After · Resolution</span>
+                                                                            <img src={getImageUrl(detail.resolution_proof[0])} alt="Resolution after work" className="h-36 w-full rounded-lg border border-emerald-200 object-cover" />
+                                                                        </a>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
                                                         {/* Optional Rating stars before deciding */}
                                                         <div className="mb-3">
                                                             <span className="text-xs text-gray-600 block mb-1">Rate the resolution quality:</span>

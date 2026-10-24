@@ -7,7 +7,7 @@ import io
 import os
 import uuid
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from PIL import Image, UnidentifiedImageError
@@ -53,6 +53,15 @@ STATUS_LABEL_TO_ENUM = {
 }
 
 
+def _media_url(s3_key: Optional[str]) -> Optional[str]:
+    if not s3_key:
+        return None
+    if s3_key.startswith(("http://", "https://")):
+        return s3_key
+    clean_key = s3_key.lstrip("/")
+    return f"/{clean_key}" if clean_key.startswith("uploads/") else f"/uploads/{clean_key}"
+
+
 def _complaint_to_response(c: Complaint) -> ComplaintResponse:
     status_logs = [
         StatusLogResponse(
@@ -79,7 +88,7 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
     attachments = []
     if getattr(c, "media", None):
         for m in c.media:
-            url = f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+            url = _media_url(m.s3_key) or ""
             if m.media_type == MediaType.RESOLUTION_PHOTO:
                 proof_images.append(url)
             attachments.append(url)
@@ -154,6 +163,7 @@ async def get_department_complaints(
     complaints, _ = await repo.list_complaints(
         department_id=department_id,
         status=status_enum,
+        sort_by="priority_sla",
         limit=per_page,
         offset=offset,
     )
@@ -346,6 +356,7 @@ async def upload_resolution_proof(
 
     # Load the most recent Inspection ('Before') photo bytes if present for forensic comparison
     from pathlib import Path
+    from urllib.parse import unquote, urlsplit
     from app.services.media_service import verify_before_after_authenticity, UPLOADS_DIR
 
     before_bytes = None
@@ -356,12 +367,28 @@ async def upload_resolution_proof(
         or (hasattr(m, "s3_key") and "inspection" in m.s3_key)
     ]
     if inspection_media:
-        latest_before_url = getattr(inspection_media[-1], "file_url", "") or getattr(inspection_media[-1], "s3_key", "")
-        local_rel_path = latest_before_url.lstrip("/")
-        if Path(local_rel_path).is_file():
-            before_bytes = Path(local_rel_path).read_bytes()
-        elif (Path(UPLOADS_DIR) / latest_before_url).is_file():
-            before_bytes = (Path(UPLOADS_DIR) / latest_before_url).read_bytes()
+        latest_before = max(
+            inspection_media,
+            key=lambda media: media.created_at or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        latest_before_url = getattr(latest_before, "file_url", "") or getattr(latest_before, "s3_key", "")
+        stored_path = unquote(urlsplit(latest_before_url).path).replace("\\", "/")
+        relative_key = stored_path.split("/uploads/", 1)[-1].lstrip("/")
+        if relative_key.startswith("uploads/"):
+            relative_key = relative_key[len("uploads/"):]
+        upload_root = Path(UPLOADS_DIR).resolve()
+        before_path = (upload_root / relative_key).resolve()
+        try:
+            before_path.relative_to(upload_root)
+        except ValueError:
+            before_path = None
+        if before_path and before_path.is_file():
+            before_bytes = before_path.read_bytes()
+        if before_bytes is None:
+            raise HTTPException(
+                status_code=409,
+                detail="The saved inspection photo could not be loaded for verification. Re-upload the inspection proof before submitting resolution proof.",
+            )
 
     uploaded, rejected = [], []
     for file in files[:5]:
@@ -516,7 +543,7 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
     attachments = []
     if getattr(c, "media", None):
         for m in c.media:
-            url = getattr(m, "file_url", None) or (f"/uploads/{m.s3_key}" if m.s3_key and not m.s3_key.startswith("http") else (m.s3_key or ""))
+            url = getattr(m, "file_url", None) or _media_url(m.s3_key) or ""
             media_item = {
                 "id": str(m.id),
                 "url": url,
@@ -610,12 +637,14 @@ async def get_tasks(
             complaints_resolved, _ = await repo.list_complaints(
                 department_id=department_id,
                 status=ComplaintStatus.RESOLVED,
+                sort_by="priority_sla",
                 limit=per_page,
                 offset=offset,
             )
             complaints_closed, _ = await repo.list_complaints(
                 department_id=department_id,
                 status=ComplaintStatus.CLOSED,
+                sort_by="priority_sla",
                 limit=per_page,
                 offset=offset,
             )
@@ -627,6 +656,7 @@ async def get_tasks(
     complaints, _ = await repo.list_complaints(
         department_id=department_id,
         status=status_enum,
+        sort_by="priority_sla",
         limit=per_page,
         offset=offset,
     )
@@ -770,15 +800,16 @@ async def confirm_or_override_triage(
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
 
-    new_category = payload.get("category", complaint.category)
+    original_category = complaint.category
+    new_category = payload.get("category", original_category)
     curr_priority_val = complaint.priority.value if hasattr(complaint.priority, "value") else str(complaint.priority)
     new_priority = payload.get("priority", curr_priority_val)
+    new_priority = new_priority.value if hasattr(new_priority, "value") else str(new_priority)
     override_reason = (payload.get("override_reason") or "").strip()
+    category_changed = new_category != complaint.category
+    priority_changed = new_priority.lower() != curr_priority_val.lower()
 
-    is_override = (
-        new_category != complaint.category
-        or new_priority.lower() != curr_priority_val.lower()
-    )
+    is_override = category_changed or priority_changed
     if is_override and not override_reason:
         raise HTTPException(
             status_code=400,
@@ -791,13 +822,36 @@ async def confirm_or_override_triage(
     except ValueError:
         pass
 
-    # Record human-in-the-loop decision on latest AIResult if exists
-    if getattr(complaint, "ai_results", None):
-        latest_ai = complaint.ai_results[0]
-        if hasattr(latest_ai, "overridden"):
-            latest_ai.overridden = is_override
-        if is_override and hasattr(latest_ai, "override_reason"):
-            latest_ai.override_reason = override_reason
+    if category_changed or priority_changed:
+        # Reuse the same category/priority SLA rule lookup used during intake.
+        sla_hours = await DepartmentRepository(session).get_sla_hours(
+            complaint.category,
+            complaint.priority.value if hasattr(complaint.priority, "value") else str(complaint.priority),
+        )
+        now = datetime.now(timezone.utc)
+        complaint.sla_deadline = (complaint.created_at or now) + timedelta(hours=sla_hours)
+        complaint.sla_breached = now >= complaint.sla_deadline
+
+    # Keep the nodal decision visible in override analytics, including older or seeded cases.
+    from ..models.orm.complaint import AIResult
+    ai_results = getattr(complaint, "ai_results", None)
+    if ai_results:
+        latest_ai = ai_results[0]
+        latest_ai.overridden = is_override
+        latest_ai.override_reason = override_reason if is_override else None
+    else:
+        session.add(AIResult(
+            complaint_id=cid,
+            model_name="Samadhan-Hybrid-Triage-v2",
+            predicted_category=complaint.ai_category or original_category,
+            category_confidence=float(complaint.ai_confidence or 0.0),
+            urgency_score=float(complaint.urgency_score or 0.0),
+            severity_score=0.0,
+            priority_score=float(complaint.priority_score or 0.0),
+            overridden=is_override,
+            override_reason=override_reason if is_override else None,
+            raw_output={"recorded_from": "nodal_triage", "legacy_or_seeded_complaint": True},
+        ))
 
     from_status = complaint.status
     target_status = ComplaintStatus.ASSIGNED if from_status == ComplaintStatus.SUBMITTED else from_status
@@ -965,8 +1019,12 @@ async def swarm_cascade_resolve_duplicates(
         # Check ward match or proximity (~1 km bounding box)
         same_ward = bool(master.ward and cand.ward and master.ward.lower() == cand.ward.lower())
         near_coords = (
-            abs((master.latitude or 0) - (cand.latitude or 0)) <= 0.01
-            and abs((master.longitude or 0) - (cand.longitude or 0)) <= 0.01
+            master.latitude is not None
+            and master.longitude is not None
+            and cand.latitude is not None
+            and cand.longitude is not None
+            and abs(master.latitude - cand.latitude) <= 0.01
+            and abs(master.longitude - cand.longitude) <= 0.01
         )
         if not (same_ward or near_coords):
             continue
@@ -977,7 +1035,7 @@ async def swarm_cascade_resolve_duplicates(
             [{"id": str(master.id), "text": master_text}],
             threshold=0.60,
         )
-        if sim_res.get("is_duplicate") or same_ward:
+        if sim_res.get("is_duplicate") and (same_ward or near_coords):
             cand.resolution_notes = (
                 f"[SWARM CASCADE ATR — Linked to Primary Incident {master.complaint_number}]\n"
                 f"{master.resolution_notes or 'Resolved via coordinated municipal field operation.'}"

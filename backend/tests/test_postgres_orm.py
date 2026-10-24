@@ -5,15 +5,15 @@ Validates SQLAlchemy 2.0 async models, UUID generation, enum constraints,
 relationships, foreign key cascades, and unique constraints.
 """
 import uuid
+import os
 import pytest
 import pytest_asyncio
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import NullPool
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
-from app.config import settings
 from app.models.orm import (
     User,
     UserRole,
@@ -33,14 +33,27 @@ from app.models.orm import (
 )
 from app.auth import get_password_hash
 
-# Test engine with NullPool so every test creates and closes its connection in its own event loop
-test_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
-TestSessionLocal = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
+# Integration tests must never write to the application's configured database.
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
+if not TEST_DATABASE_URL:
+    pytest.skip("Set TEST_DATABASE_URL to a dedicated test database to run PostgreSQL integration tests", allow_module_level=True)
+
+test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 
 @pytest_asyncio.fixture
 async def db_session():
-    async with TestSessionLocal() as session:
-        yield session
+    async with test_engine.connect() as connection:
+        transaction = await connection.begin()
+        async with AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as session:
+            try:
+                yield session
+            finally:
+                await session.close()
+                await transaction.rollback()
 
 @pytest.mark.asyncio
 async def test_create_user_and_uuid(db_session):

@@ -111,6 +111,11 @@ class OfficerQueueItem(BaseModel):
     similar_count: int = 0
     sla_risk_level: str = "Low"
     created_at: Optional[str] = None
+    sla_deadline: Optional[str] = None
+    sla_breached: bool = False
+    complaint_number: str = ""
+    ward: Optional[str] = None
+    vote_count: int = 0
 
     class Config:
         from_attributes = True

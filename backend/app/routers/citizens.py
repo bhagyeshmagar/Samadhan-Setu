@@ -40,6 +40,15 @@ os.makedirs(CITIZEN_UPLOAD_DIR, exist_ok=True)
 router = APIRouter(prefix="/api/complaints", tags=["Citizens"])
 
 
+def _media_url(s3_key: Optional[str]) -> Optional[str]:
+    if not s3_key:
+        return None
+    if s3_key.startswith(("http://", "https://")):
+        return s3_key
+    clean_key = s3_key.lstrip("/")
+    return f"/{clean_key}" if clean_key.startswith("uploads/") else f"/uploads/{clean_key}"
+
+
 def _complaint_to_response(
     c: Complaint,
     viewer_id: Optional[str] = None,
@@ -67,13 +76,19 @@ def _complaint_to_response(
             "phone": c.citizen.phone,
         }
 
-    resolution_images = [
-        f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+    inspection_images = [
+        _media_url(m.s3_key)
         for m in (c.media or [])
-        if m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" not in (m.s3_key or "").lower()
+        if m.media_type == MediaType.INSPECTION_PHOTO
+    ]
+    resolution_images = [
+        _media_url(m.s3_key)
+        for m in (c.media or [])
+        if m.media_type == MediaType.RESOLUTION_PHOTO
+        and "inspection" not in (m.s3_key or "").lower()
     ]
     all_attachments = [
-        f"/uploads/{m.s3_key}" if not m.s3_key.startswith("http") else m.s3_key
+        _media_url(m.s3_key)
         for m in (c.media or [])
     ]
 
@@ -98,6 +113,7 @@ def _complaint_to_response(
         department_id=str(c.department_id) if c.department_id else None,
         upvotes=c.vote_count,
         attachments=all_attachments,
+        inspection_images=inspection_images,
         resolution_proof=resolution_images,
         resolution_remarks=c.resolution_remarks,
         citizen_rating=getattr(c, 'citizen_rating', None) if getattr(c, 'citizen_rating', None) is not None else (c.feedback[-1].rating if getattr(c, 'feedback', None) and len(c.feedback) > 0 else None),

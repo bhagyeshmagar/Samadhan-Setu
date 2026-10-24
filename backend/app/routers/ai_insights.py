@@ -121,7 +121,7 @@ async def get_officer_ai_queue(
     current_user: User = Depends(require_officer),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """AI-ranked complaint queue for the officer — sorted by priority score descending."""
+    """Active officer queue ordered by nearest SLA deadline, then priority score."""
     user_repo = UserRepository(session)
     officer = await user_repo.get_officer_by_user_id(current_user.id)
 
@@ -131,27 +131,30 @@ async def get_officer_ai_queue(
     complaints, _ = await repo.list_complaints(
         department_id=dept_id,
         status=None,
+        exclude_statuses=[ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED],
+        sort_by="priority_sla",
         limit=limit,
         offset=0,
     )
 
-    # Filter to only active (non-terminal) complaints
-    active = [c for c in complaints if c.status not in (ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED)]
-
     return [
         OfficerQueueItem(
+            task_id=str(c.id),
             complaint_id=str(c.id),
             complaint_number=c.complaint_number,
-            title=c.title,
+            complaint_title=c.title,
+            complaint_description=c.description,
+            complaint_location=c.address or "",
             category=c.category,
             priority=c.priority.value,
             priority_score=c.priority_score,
-            status=c.status.value,
+            task_status=c.status.value,
             ward=c.ward,
             sla_breached=c.sla_breached,
+            sla_deadline=c.sla_deadline.isoformat() if c.sla_deadline else None,
             vote_count=c.vote_count,
         )
-        for c in active
+        for c in complaints
     ]
 
 

@@ -83,7 +83,7 @@ export default function DepartmentDashboard() {
     const fetchAiQueue = async () => {
         setAiQueueLoading(true);
         try {
-            const data = await aiAPI.getOfficerQueue(statusFilter || undefined);
+            const data = await aiAPI.getOfficerQueue();
             setAiQueue(data || []);
         } catch (err) {
             console.error('AI queue fetch failed:', err);
@@ -328,7 +328,7 @@ export default function DepartmentDashboard() {
                             <Brain size={18} className="text-purple-700" />
                             <span>AI Neural-Ranked Action Queue</span>
                             <span className="text-[10px] font-normal text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
-                                Optimized by SLA risk, sentiment & severity
+                                Ordered by SLA deadline, then priority score
                             </span>
                         </div>
                         <button
@@ -349,22 +349,23 @@ export default function DepartmentDashboard() {
                     ) : (
                         <div className="space-y-2">
                             {aiQueue.slice(0, 5).map((q, idx) => (
-                                <div key={q.id || q.complaint_id || idx} className="bg-white p-3 rounded-lg border border-purple-100 flex items-center justify-between gap-3 shadow-sm">
+                                        <div key={q.complaint_id || idx} className="bg-white p-3 rounded-lg border border-purple-100 flex items-center justify-between gap-3 shadow-sm">
                                     <div className="flex items-center gap-3">
                                         <span className="font-mono text-xs font-black text-purple-900 w-6">#{idx + 1}</span>
                                         <div>
-                                            <div className="text-xs font-bold text-gray-900">{q.title}</div>
+                                            <div className="text-xs font-bold text-gray-900">{q.complaint_title}</div>
                                             <div className="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
                                                 <span>Ward: {q.ward || '—'}</span>
                                                 <span>•</span>
                                                 <span className="text-purple-700 font-semibold">Priority Score: {q.priority_score}</span>
+                                                {q.sla_deadline && <span className="text-rose-700 font-semibold">Due: {new Date(q.sla_deadline).toLocaleString('en-IN')}</span>}
                                             </div>
                                         </div>
                                     </div>
                                     <button
                                         onClick={() => {
                                             setShowAiQueue(false);
-                                            setExpandedTaskId(q.id || q.complaint_id);
+                                            setExpandedTaskId(q.complaint_id);
                                         }}
                                         className="text-xs font-bold text-purple-800 hover:text-purple-950 px-2.5 py-1 rounded bg-purple-50"
                                     >

@@ -362,10 +362,7 @@ export const aiAPI = {
     ),
 
     // Officer AI queue
-    getOfficerQueue: (priorityBand) => {
-        const params = priorityBand ? `?priority_band=${priorityBand}` : '';
-        return apiRequest(`/api/ai/officer/queue${params}`);
-    },
+    getOfficerQueue: () => apiRequest('/api/ai/officer/queue'),
 
     // Admin AI insights
     getModelHealth: () => apiRequest('/api/ai/admin/model-health'),

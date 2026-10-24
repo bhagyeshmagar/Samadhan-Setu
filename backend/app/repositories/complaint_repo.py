@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Tuple, Union
-from sqlalchemy import select, update, func, desc, or_, text
+from sqlalchemy import select, update, func, desc, or_, text, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -229,6 +229,7 @@ class ComplaintRepository:
         category: Optional[str] = None,
         ward: Optional[str] = None,
         is_public_only: bool = False,
+        exclude_statuses: Optional[List[ComplaintStatus]] = None,
         sort_by: str = "recent",
         limit: int = 50,
         offset: int = 0,
@@ -251,6 +252,8 @@ class ComplaintRepository:
             query = query.where(Complaint.assigned_officer_id == officer_id)
         if status:
             query = query.where(Complaint.status == status)
+        if exclude_statuses:
+            query = query.where(Complaint.status.not_in(exclude_statuses))
         if category:
             query = query.where(Complaint.category.ilike(category))
         if ward:
@@ -264,7 +267,20 @@ class ComplaintRepository:
         total = total_res.scalar() or 0
 
         # Dynamic ordering based on sort_by
-        if sort_by == "priority":
+        if sort_by == "priority_sla":
+            terminal_statuses = (
+                ComplaintStatus.RESOLVED,
+                ComplaintStatus.CLOSED,
+                ComplaintStatus.REJECTED,
+            )
+            query = query.order_by(
+                case((Complaint.status.in_(terminal_statuses), 1), else_=0).asc(),
+                case((Complaint.sla_deadline.is_(None), 1), else_=0).asc(),
+                Complaint.sla_deadline.asc(),
+                desc(Complaint.priority_score),
+                Complaint.created_at.asc(),
+            )
+        elif sort_by == "priority":
             query = query.order_by(desc(Complaint.priority_score), desc(Complaint.created_at))
         elif sort_by == "upvotes":
             query = query.order_by(desc(Complaint.vote_count), desc(Complaint.created_at))

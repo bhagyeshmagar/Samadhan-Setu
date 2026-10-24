@@ -59,6 +59,8 @@ export default function HandleComplaint() {
     const [showOverride, setShowOverride] = useState(false);
     const [triageSubmitting, setTriageSubmitting] = useState(false);
     const [triageSuccess, setTriageSuccess] = useState('');
+    const [swarmSubmitting, setSwarmSubmitting] = useState(false);
+    const [swarmResult, setSwarmResult] = useState(null);
 
     const complaintId = params?.id;
 
@@ -183,6 +185,21 @@ export default function HandleComplaint() {
             fetchComplaint();
         } catch (err) {
             setError(err.message || 'Failed to update status');
+        }
+    };
+
+    const handleSwarmResolve = async () => {
+        setSwarmSubmitting(true);
+        setError('');
+        setSwarmResult(null);
+        try {
+            const result = await departmentAPI.swarmResolve(complaintId);
+            setSwarmResult(result);
+            await fetchComplaint();
+        } catch (err) {
+            setError(err.message || 'Failed to resolve linked complaints');
+        } finally {
+            setSwarmSubmitting(false);
         }
     };
 
@@ -664,6 +681,39 @@ export default function HandleComplaint() {
                                     <span>Certify Resolved / समाधानित प्रमाणित करें</span>
                                 </button>
                             </div>
+
+                            {['resolved', 'closed'].includes(String(complaint.status || '').toLowerCase()) && (
+                                <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-900">
+                                                Resolve verified linked complaints
+                                            </h3>
+                                            <p className="mt-1 text-xs text-cyan-800">
+                                                Apply this resolution to semantically matching complaints in the same ward or nearby area.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleSwarmResolve}
+                                            disabled={swarmSubmitting}
+                                            className="rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-50"
+                                        >
+                                            {swarmSubmitting ? 'Checking linked complaints…' : 'Resolve linked complaints'}
+                                        </button>
+                                    </div>
+                                    {swarmResult && (
+                                        <p className="mt-3 text-xs font-medium text-emerald-800" role="status">
+                                            {swarmResult.message}
+                                            {swarmResult.cascaded_complaint_numbers?.length > 0 && (
+                                                <span className="mt-1 block">
+                                                    Resolved: {swarmResult.cascaded_complaint_numbers.join(', ')}
+                                                </span>
+                                            )}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

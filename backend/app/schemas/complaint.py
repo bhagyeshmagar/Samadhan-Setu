@@ -83,6 +83,7 @@ class ComplaintResponse(BaseModel):
 
     upvotes: Optional[int] = 0
     attachments: Optional[List] = None
+    inspection_images: Optional[List] = None
     resolution_proof: Optional[List] = None
     resolution_remarks: Optional[str] = None
     citizen_rating: Optional[int] = None
