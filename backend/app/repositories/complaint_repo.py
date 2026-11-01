@@ -90,7 +90,14 @@ class ComplaintRepository:
             longitude=longitude,
             location_accuracy=location_accuracy,
             priority=priority,
-            priority_score=priority_score,
+            # BUG-06 FIX: Normalize priority_score to 1.0-3.0 scale.
+            # Seed data used a 0-100 scale; runtime uses 1.0-3.0. If a value > 10
+            # is passed, divide by 100 to bring it into range.
+            priority_score=(
+                round(float(priority_score) / 100.0, 4)
+                if float(priority_score) > 10.0
+                else round(float(priority_score), 4)
+            ),
             urgency_score=urgency_score,
             sentiment_score=sentiment_score,
             status=ComplaintStatus.SUBMITTED,

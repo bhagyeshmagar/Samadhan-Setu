@@ -279,18 +279,20 @@ class PriorityCalculator:
         if (urgency_raw >= 7 or urgency >= 2.8) and severity >= 2.8 and score < critical_threshold:
             score = critical_threshold
 
+        # BUG-05 FIX: SLA hours unified with department_repo.py and DeadlineTimer.jsx
+        # Statutory deadlines: Critical=3d(72h), High=5d(120h), Medium=7d(168h), Low=21d(504h)
         if score >= critical_threshold:
             priority = "Critical"
-            sla_hours = 12
+            sla_hours = 72
         elif score >= high_threshold:
             priority = "High"
-            sla_hours = 24
+            sla_hours = 120
         elif score >= medium_threshold:
             priority = "Medium"
-            sla_hours = 72
+            sla_hours = 168
         else:
             priority = "Low"
-            sla_hours = 168  # 7 days
+            sla_hours = 504
 
         # Build explanation
         explanation = {

@@ -553,8 +553,10 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
             }
             if (
                 m.media_type == MediaType.INSPECTION_PHOTO
-                or m.media_type == MediaType.PROOF_PHOTO
-                or (m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" in (url or "").lower())
+                # BUG-09 FIX: MediaType.PROOF_PHOTO is citizen-submitted evidence
+                # and must NOT appear in inspection_images (officer Before-photo slot).
+                # Only INSPECTION_PHOTO goes in inspection_images; PROOF_PHOTO goes in
+                # attachments only (already added above).
             ):
                 inspection_images.append(url)
             elif m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" not in (url or "").lower():

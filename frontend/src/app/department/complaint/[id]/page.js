@@ -545,6 +545,84 @@ export default function HandleComplaint() {
                         </div>
                     </div>
 
+                    {/* Before / After Visual Verification Card (BUG-10) */}
+                    {(() => {
+                        const beforeImgs = complaint.inspection_images || [];
+                        const afterImgs = complaint.proof_images || [];
+                        if (beforeImgs.length === 0 && afterImgs.length === 0) return null;
+                        return (
+                            <div className="gov-section border-t-4 border-t-cyan-600 bg-cyan-50/10">
+                                <div className="gov-section-header bg-cyan-50/50 flex items-center justify-between">
+                                    <span className="gov-section-title flex items-center gap-2 text-cyan-950 font-bold">
+                                        <ImagePlus size={14} className="text-cyan-700" />
+                                        Before / After Forensic Verification / पूर्व–पश्चात् फोटो सत्यापन
+                                    </span>
+                                    <span className="text-[10px] bg-cyan-100 text-cyan-800 font-bold px-2 py-0.5 rounded">
+                                        Visual Evidence
+                                    </span>
+                                </div>
+                                <div className="p-5">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {/* Before — Inspection Photos */}
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2 flex items-center gap-1.5">
+                                                <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+                                                Before (Site Inspection)
+                                            </p>
+                                            {beforeImgs.length > 0 ? (
+                                                <div className="flex gap-2 flex-wrap">
+                                                    {beforeImgs.map((img, idx) => (
+                                                        <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer">
+                                                            <Image
+                                                                src={getImageUrl(img)}
+                                                                alt={`Before ${idx + 1}`}
+                                                                width={100} height={100} unoptimized
+                                                                className="w-24 h-24 object-cover rounded border-2 border-amber-300 hover:border-amber-600 shadow-sm transition hover:scale-105"
+                                                            />
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-gray-400 italic">No inspection photo uploaded yet.</p>
+                                            )}
+                                        </div>
+
+                                        {/* After — Resolution Proof Photos */}
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2 flex items-center gap-1.5">
+                                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                                                After (Resolution Proof)
+                                            </p>
+                                            {afterImgs.length > 0 ? (
+                                                <div className="flex gap-2 flex-wrap">
+                                                    {afterImgs.map((img, idx) => (
+                                                        <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer">
+                                                            <Image
+                                                                src={getImageUrl(img)}
+                                                                alt={`After ${idx + 1}`}
+                                                                width={100} height={100} unoptimized
+                                                                className="w-24 h-24 object-cover rounded border-2 border-emerald-300 hover:border-emerald-600 shadow-sm transition hover:scale-105"
+                                                            />
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-gray-400 italic">Resolution proof not yet submitted.</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {beforeImgs.length > 0 && afterImgs.length > 0 && (
+                                        <p className="mt-3 text-[11px] text-cyan-800 font-medium flex items-center gap-1.5">
+                                            <CheckCircle size={12} className="text-emerald-600" />
+                                            Forensic Before/After photo pair present — visual verification enabled.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {/* Officer Resolution Workspace */}
                     <div className="gov-section border-t-4 border-t-(--india-green)">
                         <div className="gov-section-header bg-green-50/50">

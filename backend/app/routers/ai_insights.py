@@ -258,7 +258,9 @@ async def get_similar_for_complaint(
 
     res = await session.execute(
         select(Complaint)
-        .where(Complaint.id != c.id, Complaint.category == c.category)
+        # BUG-08 FIX: Only expose public complaints in similarity results — previously
+        # private (is_public=False) complaints were leaking into the response.
+        .where(Complaint.id != c.id, Complaint.category == c.category, Complaint.is_public == True)
         .order_by(Complaint.created_at.desc())
         .limit(30)
     )

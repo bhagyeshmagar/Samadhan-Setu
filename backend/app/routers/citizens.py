@@ -31,6 +31,7 @@ from ..schemas import ComplaintCreate, ComplaintResponse, ComplaintAIResponse, S
 from ..config import settings
 from ..services.ai_bridge import ai_bridge
 from ..ai.priority import calculate_priority
+from ..services.media_service import process_and_store_image
 
 CITIZEN_UPLOAD_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "citizen"
@@ -129,6 +130,15 @@ def _complaint_to_response(
 
 def _complaint_to_public_response(c: Complaint) -> ComplaintResponse:
     resp = _complaint_to_response(c)
+    # BUG-08 FIX: Always redact PII from public-facing responses regardless of
+    # is_anonymous flag — name can remain but email and phone must never leak.
+    if resp.user:
+        resp.user = {
+            "id": resp.user.get("id"),
+            "name": resp.user.get("name") if not c.is_anonymous else None,
+            "email": None,
+            "phone": None,
+        }
     if c.is_anonymous:
         resp.user_id = "anonymous"
         resp.user = None
@@ -430,36 +440,29 @@ async def upload_complaint_images(
             rejected.append({"filename": file.filename, "reason": "Unsupported file type"})
             continue
 
-        content = await file.read()
-        if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
-            rejected.append({"filename": file.filename, "reason": "File exceeds 5MB limit"})
-            continue
-
+        # BUG-07 FIX: Route ALL citizen uploads through process_and_store_image so
+        # that EXIF metadata is stripped, perceptual hash is computed, and dedup
+        # is applied — previously was writing raw bytes directly to disk.
         try:
-            img = Image.open(io.BytesIO(content))
-            img.verify()
-        except Exception:
-            rejected.append({"filename": file.filename, "reason": "Invalid or unreadable image"})
+            s3_key, file_url, file_size = await process_and_store_image(
+                file=file,
+                complaint_id=complaint.id,
+                media_type=MediaType.PROOF_PHOTO,
+            )
+        except Exception as exc:
+            rejected.append({"filename": file.filename, "reason": str(exc)})
             continue
 
-        ext = os.path.splitext(file.filename or "")[1].lower()
-        safe_ext = ext if ext in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
-        unique_name = f"{uuid.uuid4().hex}{safe_ext}"
-        file_path = os.path.join(CITIZEN_UPLOAD_DIR, unique_name)
-        with open(file_path, "wb") as f:
-            f.write(content)
-
-        local_key = f"citizen/{unique_name}"
         await repo.add_media_proof(
             complaint_id=complaint.id,
             media_type=MediaType.PROOF_PHOTO,
-            s3_key=local_key,
-            file_name=unique_name,
-            file_size_bytes=len(content),
+            s3_key=s3_key,
+            file_name=os.path.basename(s3_key),
+            file_size_bytes=file_size,
             mime_type=file.content_type or "image/jpeg",
             uploaded_by=current_user.id,
         )
-        uploaded.append(f"/uploads/{local_key}")
+        uploaded.append(file_url)
 
     await session.commit()
     return {
@@ -661,18 +664,21 @@ async def verify_priority(
     vote_boost = min(upvotes * 0.1, 2.0)
     final_score = round(base_score + vote_boost, 2)
 
+    # BUG-05 FIX: Align SLA hours with canonical table in department_repo.py and
+    # DeadlineTimer.jsx (72/120/168/504h). Previous values (4/24/48/72h) were wrong.
+    # Score scale here is 0-10 so thresholds are proportionally adjusted.
     if final_score >= 7.0:
         band = "CRITICAL"
-        sla_hours = 4
+        sla_hours = 72    # 3 days
     elif final_score >= 5.0:
         band = "HIGH"
-        sla_hours = 24
+        sla_hours = 120   # 5 days
     elif final_score >= 3.0:
         band = "MEDIUM"
-        sla_hours = 48
+        sla_hours = 168   # 7 days
     else:
         band = "LOW"
-        sla_hours = 72
+        sla_hours = 504   # 21 days
 
     return {
         "priority": band,
