@@ -41,13 +41,18 @@ class AIClassifyResponse(BaseModel):
 class OfficerQueueItem(BaseModel):
     complaint_id: str
     complaint_number: str
+    # Fields are aliased so both legacy consumers ("title") and task-desk
+    # consumers ("complaint_title") deserialize correctly.
     title: str
+    complaint_title: str
     category: str
     priority: str
     priority_score: float
     status: str
+    task_status: str
     ward: Optional[str] = None
     sla_breached: bool
+    sla_deadline: Optional[str] = None
     vote_count: int
 
 
@@ -139,15 +144,14 @@ async def get_officer_ai_queue(
 
     return [
         OfficerQueueItem(
-            task_id=str(c.id),
             complaint_id=str(c.id),
             complaint_number=c.complaint_number,
+            title=c.title,
             complaint_title=c.title,
-            complaint_description=c.description,
-            complaint_location=c.address or "",
             category=c.category,
             priority=c.priority.value,
             priority_score=c.priority_score,
+            status=c.status.value,
             task_status=c.status.value,
             ward=c.ward,
             sla_breached=c.sla_breached,
@@ -381,6 +385,64 @@ async def get_complaint_sla_risk(
         "is_breached": c.sla_breached or (hours_remaining is not None and hours_remaining < 0),
         "is_at_risk": is_at_risk,
         "risk_level": "critical" if (c.sla_breached or (hours_remaining is not None and hours_remaining < 0)) else ("high" if is_at_risk else "normal"),
+    }
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Image analysis result for a complaint (BUG-03: was missing, caused 404)
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/complaint/{complaint_id}/image-analysis")
+async def get_complaint_image_analysis(
+    complaint_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Return AI image-analysis metadata for all media attached to a complaint.
+    Includes YOLO object counts, aHash fingerprints, and forensic flags.
+    Officers see full forensic details; citizens see only their own complaints.
+    """
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    repo = ComplaintRepository(session)
+    c = await repo.get_by_id(cid)
+    if not c:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    is_owner = c.citizen_id == current_user.id
+    is_staff = current_user.role in (
+        UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN
+    )
+    if not (is_owner or c.is_public or is_staff):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    media_analyses = []
+    for m in c.media or []:
+        # Expose stored YOLO / forensic metadata when available
+        ai_meta = getattr(m, "ai_metadata", None) or {}
+        media_analyses.append({
+            "media_id": str(m.id),
+            "media_type": m.media_type.value if hasattr(m.media_type, "value") else str(m.media_type),
+            "file_name": m.file_name,
+            "url": (getattr(m, "file_url", None) or m.s3_key or ""),
+            "perceptual_hash": getattr(m, "perceptual_hash", None),
+            "is_duplicate_flagged": getattr(m, "is_duplicate", False),
+            "has_watermark": getattr(m, "has_watermark", False),
+            "ai_labels": ai_meta.get("yolo_labels", []),
+            "ai_confidence": ai_meta.get("confidence", None),
+            "forensic_verified": ai_meta.get("forensic_verified", None),
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        })
+
+    return {
+        "complaint_id": str(c.id),
+        "complaint_number": c.complaint_number,
+        "media_count": len(media_analyses),
+        "analyses": media_analyses,
     }
 
 

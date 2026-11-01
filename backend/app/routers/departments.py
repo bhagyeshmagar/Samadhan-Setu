@@ -584,6 +584,94 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
 _complaint_to_dict = _complaint_to_task
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# GET /tasks/{complaint_id} — task-shaped detail view (BUG-02)
+# The Officer Task Desk frontend calls departmentAPI.getTaskDetail(id) which
+# resolves to GET /api/department/tasks/{id}. This endpoint was missing.
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/tasks/{task_id}")
+async def get_task_detail(
+    task_id: str,
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Task-shaped detail view for a single complaint (Officer Task Desk)."""
+    try:
+        cid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Department-scoped access check
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — task belongs to another department")
+
+    dept_repo = DepartmentRepository(session)
+    dept_name = ""
+    if complaint.department_id:
+        dept = await dept_repo.get_by_id(complaint.department_id)
+        dept_name = dept.name if dept else ""
+
+    return _complaint_to_task(complaint, dept_name)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GET /complaints/{complaint_id}/history — status timeline (BUG-02)
+# The frontend calls getComplaintHistory(id) → GET /api/department/complaints/{id}/history
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/complaints/{complaint_id}/history")
+async def get_complaint_history(
+    complaint_id: str,
+    current_user: User = Depends(require_officer),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Return the full status-transition timeline for a complaint.
+    Each entry includes actor, role, timestamps, and remarks.
+    """
+    try:
+        cid = uuid.UUID(complaint_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    repo = ComplaintRepository(session)
+    complaint = await repo.get_by_id(cid)
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    # Department-scoped access check
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_officer_by_user_id(current_user.id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
+
+    timeline = sorted(complaint.timeline or [], key=lambda t: t.created_at)
+    return {
+        "complaint_id": str(complaint.id),
+        "complaint_number": complaint.complaint_number,
+        "history": [
+            {
+                "id": str(t.id),
+                "from_status": t.status_from,
+                "to_status": t.status_to,
+                "actor_id": str(t.changed_by) if t.changed_by else None,
+                "actor_role": t.actor_role,
+                "notes": t.notes,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in timeline
+        ],
+    }
+
+
 
 # Status label → ComplaintStatus enum mapping for incoming filter values
 _TASK_STATUS_TO_COMPLAINT = {
@@ -1036,9 +1124,11 @@ async def swarm_cascade_resolve_duplicates(
             threshold=0.60,
         )
         if sim_res.get("is_duplicate") and (same_ward or near_coords):
-            cand.resolution_notes = (
+            # BUG-04 FIX: was cand.resolution_notes (non-existent field) — correct
+            # ORM attribute is resolution_remarks (see models/orm/complaint.py L116)
+            cand.resolution_remarks = (
                 f"[SWARM CASCADE ATR — Linked to Primary Incident {master.complaint_number}]\n"
-                f"{master.resolution_notes or 'Resolved via coordinated municipal field operation.'}"
+                f"{master.resolution_remarks or 'Resolved via coordinated municipal field operation.'}"
             )
             await repo.add_status_transition(
                 complaint_id=cand.id,
