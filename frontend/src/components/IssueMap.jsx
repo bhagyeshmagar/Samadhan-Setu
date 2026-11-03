@@ -42,7 +42,8 @@ const categoryColors = {
     'General': '#6b7280'
 };
 
-const DEFAULT_CENTER = [18.5204, 73.8567];
+// BUG-17: Corrected default map centre from Pune to Mumbai
+const DEFAULT_CENTER = [19.0760, 72.8777];
 
 function escapeHtml(unsafe) {
     if (!unsafe) return '';

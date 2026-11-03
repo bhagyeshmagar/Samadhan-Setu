@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..db.session import get_async_session
-from ..auth import get_current_user, require_admin, require_officer, get_password_hash
+from ..auth import get_current_user, require_admin, require_officer, get_password_hash, hash_password_async
 from ..models.orm import User, Complaint, Department, CategoryMapping, Officer
 from ..models.orm.department import SLARule
 from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole
@@ -113,6 +113,18 @@ async def get_dashboard_stats(
         by_priority[val.lower()] = row.n
         by_priority[val.capitalize()] = row.n
 
+    # BUG-13: Live appealed count instead of hardcoded 0
+    appealed_res = await session.execute(
+        select(func.count()).where(
+            Complaint.status.in_([
+                ComplaintStatus.APPEALED,
+                ComplaintStatus.APPEALED_L1,
+                ComplaintStatus.APPEALED_L2,
+            ])
+        )
+    )
+    appealed_count = appealed_res.scalar() or 0
+
     return ComplaintStats(
         total=total,
         submitted=counts.get("submitted", 0),
@@ -122,7 +134,7 @@ async def get_dashboard_stats(
         resolved=counts.get("resolved", 0),
         closed=counts.get("closed", 0),
         reopened=counts.get("reopened", 0),
-        appealed=0,
+        appealed=appealed_count,
         by_category=by_category,
         by_priority=by_priority,
     )
@@ -441,7 +453,7 @@ async def create_officer(
         email=email_clean,
         name=officer_data.name.strip(),
         phone=phone_clean,
-        password_hash=get_password_hash(officer_data.password),
+        password_hash=await hash_password_async(officer_data.password),  # BUG-11
         role=UserRole.OFFICER,
     )
     session.add(new_user)

@@ -119,10 +119,14 @@ class TextIntelligence:
         cleaned = self.text_processor.clean_text(text)
         keyword_score = 0
 
+        # BUG-14: Word-boundary matching to avoid substring false positives
+        cleaned_tokens = set(cleaned.split())
         for level, keywords in SEVERITY_KEYWORDS.items():
             weight = {"critical": 5, "high": 4, "medium": 2, "low": 1}[level]
             for kw in keywords:
-                if kw in cleaned:
+                kw_clean = kw.strip().lower()
+                matched = (f" {kw_clean} " in f" {cleaned} ") if " " in kw_clean else (kw_clean in cleaned_tokens)
+                if matched:
                     keyword_score += weight
 
         keyword_score = min(8, keyword_score)
@@ -143,9 +147,13 @@ class TextIntelligence:
         """Get severity keywords found in text."""
         cleaned = self.text_processor.clean_text(text)
         found = []
+        # BUG-14: Word-boundary matching to avoid substring false positives
+        cleaned_tokens = set(cleaned.split())
         for keywords in SEVERITY_KEYWORDS.values():
             for kw in keywords:
-                if kw in cleaned:
+                kw_clean = kw.strip().lower()
+                matched = (f" {kw_clean} " in f" {cleaned} ") if " " in kw_clean else (kw_clean in cleaned_tokens)
+                if matched:
                     found.append(kw)
         return found
 

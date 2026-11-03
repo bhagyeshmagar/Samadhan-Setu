@@ -2,6 +2,7 @@
 auth.py — JWT authentication utilities for Samadhan Setu.
 Uses PostgreSQL via UserRepository (no Firestore).
 """
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import uuid
@@ -31,8 +32,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using argon2."""
+    """Hash a password using argon2.
+
+    NOTE: Argon2 is intentionally CPU/memory-intensive and will block the
+    event loop if called directly from an async context.  Always call this
+    function via ``asyncio.to_thread`` from async endpoints (BUG-11 fix).
+    """
     return pwd_context.hash(password)
+
+
+async def hash_password_async(password: str) -> str:
+    """BUG-11 FIX: Non-blocking wrapper for get_password_hash.
+
+    Runs argon2 hashing in the default executor (thread-pool) so the
+    FastAPI async event loop is never blocked during registration or
+    password-change operations.
+    """
+    return await asyncio.to_thread(pwd_context.hash, password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

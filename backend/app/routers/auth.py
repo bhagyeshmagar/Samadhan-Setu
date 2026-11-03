@@ -11,7 +11,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session
-from ..auth import get_password_hash, verify_password, create_access_token, get_current_user, settings
+from ..auth import get_password_hash, hash_password_async, verify_password, create_access_token, get_current_user, settings
 from ..models.orm import User
 from ..models.orm.enums import UserRole
 from ..repositories.user_repo import UserRepository
@@ -45,7 +45,9 @@ async def register(
     if user_data.phone and await repo.get_by_phone(user_data.phone):
         raise HTTPException(status_code=400, detail="Phone number already registered")
 
-    hashed_password = get_password_hash(user_data.password)
+    # BUG-11 FIX: use async wrapper so argon2 hashing runs in the thread-pool
+    # and never blocks the FastAPI async event loop.
+    hashed_password = await hash_password_async(user_data.password)
     user = await repo.create(
         email=user_data.email,
         name=user_data.name,

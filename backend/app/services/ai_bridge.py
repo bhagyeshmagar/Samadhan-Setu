@@ -16,6 +16,11 @@ from ..ai.priority import get_urgency_score
 SBERT_AVAILABLE = False
 sbert_model = None
 
+# BUG-12 FIX: LRU embedding cache — keyed by text string, capped at 512 entries.
+# Prevents re-encoding the same candidate texts on every request (was O(50)
+# encodes per keystroke on the check-similar endpoint).
+from functools import lru_cache
+
 try:
     from sentence_transformers import SentenceTransformer
     import numpy as np
@@ -36,6 +41,21 @@ def _get_sbert_model():
         sbert_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
         print("[AI Bridge] SBERT model loaded!")
     return sbert_model
+
+
+@lru_cache(maxsize=512)
+def _cached_encode(text: str):
+    """BUG-12 FIX: Cache SBERT embeddings by text string.
+
+    Previously every call to get_similar_complaints re-encoded all 50
+    candidate texts from scratch.  Now each unique text is encoded at most
+    once per process lifetime.  The cache is bounded at 512 entries to cap
+    memory usage (~50 MB at MiniLM embedding size).
+    """
+    model = _get_sbert_model()
+    if model is None:
+        return None
+    return model.encode(text, convert_to_numpy=True)
 
 
 def _compute_similarity(new_embedding, existing_embeddings):
@@ -81,9 +101,13 @@ class AIBridge:
             if not valid_complaints:
                 return []
 
-            new_embedding = model.encode(new_text, convert_to_numpy=True)
-            existing_texts = [c["text"] for c in valid_complaints]
-            existing_embeddings = model.encode(existing_texts, convert_to_numpy=True)
+            # BUG-12 FIX: use LRU-cached encode; avoids re-encoding repeated texts
+            new_embedding = _cached_encode(new_text)
+            if new_embedding is None:
+                return []
+            existing_embeddings = np.stack([
+                _cached_encode(c["text"]) for c in valid_complaints
+            ])
             similarities = _compute_similarity(new_embedding, existing_embeddings)
 
             results = []
