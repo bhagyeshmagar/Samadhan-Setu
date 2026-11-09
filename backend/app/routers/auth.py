@@ -6,12 +6,21 @@ import uuid
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session
-from ..auth import get_password_hash, hash_password_async, verify_password, create_access_token, get_current_user, settings
+from ..auth import (
+    get_password_hash,
+    hash_password_async,
+    verify_password,
+    verify_password_async,
+    create_access_token,
+    get_current_user,
+    settings,
+)
+from ..services.rate_limiter import limit_login_attempts
 from ..models.orm import User
 from ..models.orm.enums import UserRole
 from ..repositories.user_repo import UserRepository
@@ -67,14 +76,22 @@ async def register(
 
 @router.post("/login", response_model=UserWithToken)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_async_session),
 ):
     """Login via OAuth2 form (username = email)."""
+    limit_login_attempts(request, form_data.username)
+
     repo = UserRepository(session)
     user = await repo.get_by_email(form_data.username)
 
-    if not user or not verify_password(form_data.password, user.password_hash):
+    # BUG-11 / H13 FIX: Non-blocking async verification with constant-time dummy hash comparison
+    password_matches = await verify_password_async(
+        form_data.password,
+        user.password_hash if user else None,
+    )
+    if not user or not password_matches:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -95,14 +112,22 @@ async def login(
 
 @router.post("/login/json", response_model=UserWithToken)
 async def login_json(
+    request: Request,
     login_data: UserLogin,
     session: AsyncSession = Depends(get_async_session),
 ):
     """Login via JSON body (frontend convenience endpoint)."""
+    limit_login_attempts(request, login_data.email)
+
     repo = UserRepository(session)
     user = await repo.get_by_email(login_data.email)
 
-    if not user or not verify_password(login_data.password, user.password_hash):
+    # BUG-11 / H13 FIX: Non-blocking async verification with constant-time dummy hash comparison
+    password_matches = await verify_password_async(
+        login_data.password,
+        user.password_hash if user else None,
+    )
+    if not user or not password_matches:
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated. Contact support.")

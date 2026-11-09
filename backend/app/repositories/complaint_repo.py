@@ -233,6 +233,7 @@ class ComplaintRepository:
         department_id: Optional[uuid.UUID] = None,
         officer_id: Optional[uuid.UUID] = None,
         status: Optional[ComplaintStatus] = None,
+        statuses: Optional[List[ComplaintStatus]] = None,
         category: Optional[str] = None,
         ward: Optional[str] = None,
         is_public_only: bool = False,
@@ -257,7 +258,9 @@ class ComplaintRepository:
             query = query.where(Complaint.department_id == department_id)
         if officer_id:
             query = query.where(Complaint.assigned_officer_id == officer_id)
-        if status:
+        if statuses:
+            query = query.where(Complaint.status.in_(statuses))
+        elif status:
             query = query.where(Complaint.status == status)
         if exclude_statuses:
             query = query.where(Complaint.status.not_in(exclude_statuses))

@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { useRouter, usePathname } from 'next/navigation';
-import { Menu, X, User, LogOut, ChevronDown } from 'lucide-react';
-import { useState, useSyncExternalStore } from 'react';
+import { Menu, X, User, LogOut, ChevronDown, Bell } from 'lucide-react';
+import { useState, useSyncExternalStore, useEffect, useRef, useCallback } from 'react';
+import { notificationsAPI } from '@/lib/api';
 import ThemeToggle from './ThemeToggle';
 
 const emptySubscribe = () => () => {};
@@ -76,6 +77,64 @@ export default function Navbar() {
     const [userMenuOpen, setUserMenuOpen] = useState(false);
     const [prevPathname, setPrevPathname] = useState(pathname);
 
+    // ── Notification bell state ──────────────────────────────────────────────
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [notifOpen, setNotifOpen] = useState(false);
+    const [notifications, setNotifications] = useState([]);
+    const [notifLoading, setNotifLoading] = useState(false);
+    const notifRef = useRef(null);
+
+    // Poll unread count every 30 s when user is logged in
+    const fetchCount = useCallback(async () => {
+        if (!user) return;
+        try {
+            const data = await notificationsAPI.getCount();
+            setUnreadCount(data?.unread_count ?? 0);
+        } catch { /* silent – don't break navbar on API errors */ }
+    }, [user]);
+
+    useEffect(() => {
+        fetchCount();
+        const interval = setInterval(fetchCount, 30_000);
+        return () => clearInterval(interval);
+    }, [fetchCount]);
+
+    // Reload count on route change
+    useEffect(() => { fetchCount(); }, [pathname, fetchCount]);
+
+    // Load notification items when dropdown opens
+    useEffect(() => {
+        if (!notifOpen || !user) return;
+        setNotifLoading(true);
+        notificationsAPI.getNotifications(1, 10)
+            .then(data => setNotifications(data?.items ?? []))
+            .catch(() => {})
+            .finally(() => setNotifLoading(false));
+    }, [notifOpen, user]);
+
+    // Close notification dropdown on outside click
+    useEffect(() => {
+        const handler = (e) => {
+            if (notifRef.current && !notifRef.current.contains(e.target)) {
+                setNotifOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const handleMarkAllRead = async () => {
+        await notificationsAPI.markAllRead().catch(() => {});
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        setUnreadCount(0);
+    };
+
+    const handleMarkOneRead = async (id) => {
+        await notificationsAPI.markRead(id).catch(() => {});
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+    };
+
     // Close menus on route change without triggering cascading renders in effect
     if (pathname !== prevPathname) {
         setPrevPathname(pathname);
@@ -143,6 +202,75 @@ export default function Navbar() {
                     {/* Desktop: User actions */}
                     <div className="hidden md:flex items-center gap-3 shrink-0">
                         <ThemeToggle />
+                        {user && (
+                            /* ── Notification Bell ── */
+                            <div className="relative" ref={notifRef}>
+                                <button
+                                    onClick={() => setNotifOpen(!notifOpen)}
+                                    className="relative p-1.5 rounded-lg text-(--text-secondary) hover:bg-(--navy-xlight) transition-colors"
+                                    aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ''}`}
+                                >
+                                    <Bell size={18} />
+                                    {unreadCount > 0 && (
+                                        <span
+                                            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full text-[9px] font-bold text-white px-1"
+                                            style={{ background: '#DC2626' }}
+                                        >
+                                            {unreadCount > 99 ? '99+' : unreadCount}
+                                        </span>
+                                    )}
+                                </button>
+
+                                {notifOpen && (
+                                    <div
+                                        className="absolute right-0 top-full mt-2 w-80 max-h-[420px] flex flex-col rounded-xl shadow-xl border overflow-hidden z-50"
+                                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+                                    >
+                                        {/* Header */}
+                                        <div
+                                            className="flex items-center justify-between px-4 py-2.5 border-b text-sm font-semibold"
+                                            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                                        >
+                                            <span>Notifications</span>
+                                            {unreadCount > 0 && (
+                                                <button
+                                                    onClick={handleMarkAllRead}
+                                                    className="text-xs font-medium text-(--navy) hover:underline"
+                                                >
+                                                    Mark all read
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Body */}
+                                        <div className="overflow-y-auto flex-1">
+                                            {notifLoading ? (
+                                                <p className="text-xs text-(--text-muted) p-4 text-center">Loading…</p>
+                                            ) : notifications.length === 0 ? (
+                                                <p className="text-xs text-(--text-muted) p-4 text-center">No notifications yet.</p>
+                                            ) : (
+                                                notifications.map(n => (
+                                                    <button
+                                                        key={n.id}
+                                                        onClick={() => !n.is_read && handleMarkOneRead(n.id)}
+                                                        className={`w-full text-left px-4 py-3 border-b transition-colors hover:bg-(--bg-section) ${!n.is_read ? 'bg-(--navy-xlight)' : ''}`}
+                                                        style={{ borderColor: 'var(--border)' }}
+                                                    >
+                                                        <p className={`text-xs font-semibold truncate ${!n.is_read ? 'text-(--navy)' : 'text-(--text-primary)'}`}>
+                                                            {n.title}
+                                                        </p>
+                                                        <p className="text-[11px] text-(--text-secondary) mt-0.5 line-clamp-2">{n.body}</p>
+                                                        <p className="text-[10px] text-(--text-muted) mt-1">
+                                                            {new Date(n.created_at).toLocaleString()}
+                                                        </p>
+                                                    </button>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         {user ? (
                             <div className="relative">
                                 <button

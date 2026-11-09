@@ -15,6 +15,7 @@ from .db.session import async_engine
 from .routers import (
     auth_router, citizens_router, departments_router,
     admin_router, assignments_router, analytics_router, ai_insights_router,
+    notifications_router,
 )
 
 
@@ -95,6 +96,7 @@ app.include_router(admin_router)
 app.include_router(assignments_router)
 app.include_router(analytics_router)
 app.include_router(ai_insights_router)
+app.include_router(notifications_router)
 
 
 @app.get("/", tags=["Root"])

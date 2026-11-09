@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List
 import uuid
 from datetime import datetime
@@ -13,6 +13,13 @@ class UserCreate(UserBase):
     password: str
     role: Optional[UserRole] = UserRole.CITIZEN
     department_id: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_length(cls, v: str) -> str:
+        if len(v.strip()) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        return v
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -58,6 +65,13 @@ class OfficerCreate(BaseModel):
     employee_id: str         # Unique employee / badge ID
     designation: Optional[str] = None
     jurisdiction_wards: Optional[List[str]] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_length(cls, v: str) -> str:
+        if len(v.strip()) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        return v
 
 
 class OfficerResponse(BaseModel):

@@ -1,12 +1,16 @@
 """
 Complaint State Machine for Samadhan Setu.
 Defines valid status transitions across the complaint lifecycle and enforces them.
-Uses PostgreSQL ORM ComplaintStatus enum.
+
+SINGLE SOURCE OF TRUTH: Only VALID_TRANSITIONS is used.
+STRING_VALID_TRANSITIONS was removed — it had wider gaps that allowed skipping
+steps (e.g. submitted → closed, assigned → resolved).
 """
 from typing import Union, List
 from ..models.orm.enums import ComplaintStatus
 
-# Valid transitions between ORM ComplaintStatus values
+# Valid transitions between ORM ComplaintStatus values.
+# This is the ONLY authoritative table. No other transition table may exist.
 VALID_TRANSITIONS: dict[ComplaintStatus, list[ComplaintStatus]] = {
     ComplaintStatus.SUBMITTED: [
         ComplaintStatus.VERIFIED,
@@ -95,39 +99,17 @@ def _normalize_status(st: Union[ComplaintStatus, str]) -> str:
     return st_str.replace(" ", "_")
 
 
-STRING_VALID_TRANSITIONS: dict[str, set[str]] = {
-    "submitted": {"assigned", "in_progress", "escalated", "closed", "verified", "rejected"},
-    "assigned": {"in_progress", "resolved", "escalated", "submitted", "verified", "rejected"},
-    "in_progress": {"resolved", "escalated", "assigned", "pending_info", "rejected"},
-    "pending_info": {"in_progress", "submitted", "rejected", "closed"},
-    "escalated": {"assigned", "in_progress", "resolved", "appealed", "closed"},
-    "appealed": {"assigned", "in_progress", "resolved", "closed", "appealed", "appealed_l1", "appealed_l2"},
-    "appealed_l1": {"assigned", "in_progress", "resolved", "closed", "appealed_l2"},
-    "appealed_l2": {"assigned", "in_progress", "resolved", "closed"},
-    "resolved": {"closed", "reopened", "in_progress", "escalated", "appealed", "appealed_l1"},
-    "reopened": {"assigned", "in_progress", "resolved", "escalated", "verified"},
-    "closed": {"reopened", "appealed", "appealed_l1"},
-    "rejected": {"reopened", "appealed", "appealed_l1"},
-}
-
-
 def is_valid_transition(
     from_status: Union[ComplaintStatus, str],
     to_status: Union[ComplaintStatus, str]
 ) -> bool:
-    """Check if a status transition is allowed, case-insensitively."""
+    """Check if a status transition is allowed using the single authoritative table."""
     from_norm = _normalize_status(from_status)
     to_norm = _normalize_status(to_status)
 
     if from_norm == to_norm:
         return True
 
-    # Check STRING_VALID_TRANSITIONS first
-    if from_norm in STRING_VALID_TRANSITIONS:
-        if to_norm in STRING_VALID_TRANSITIONS[from_norm]:
-            return True
-
-    # Find matching ComplaintStatus in VALID_TRANSITIONS
     for orig_from, allowed_list in VALID_TRANSITIONS.items():
         if orig_from.value == from_norm:
             allowed_values = {s.value for s in allowed_list}

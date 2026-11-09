@@ -512,10 +512,10 @@ export default function HandleComplaint() {
                                                 onChange={(e) => setTriagePriority(e.target.value)}
                                                 className="gov-input w-full text-xs"
                                             >
-                                                <option value="low">Low (14 Days)</option>
-                                                <option value="medium">Medium (7 Days)</option>
-                                                <option value="high">High (72 Hours)</option>
-                                                <option value="critical">Critical (24 Hours)</option>
+                                                <option value="low">Low (21 Days / 504h)</option>
+                                                <option value="medium">Medium (7 Days / 168h)</option>
+                                                <option value="high">High (5 Days / 120h)</option>
+                                                <option value="critical">Critical (3 Days / 72h)</option>
                                             </select>
                                         </div>
                                     </div>

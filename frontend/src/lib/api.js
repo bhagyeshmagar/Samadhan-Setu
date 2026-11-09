@@ -345,6 +345,15 @@ export const analyticsAPI = {
     getSmartAlerts: (days = 7) => apiRequest(`/api/analytics/smart-alerts?days=${days}`),
 };
 
+// Notifications API (H7)
+export const notificationsAPI = {
+    getNotifications: (page = 1, per_page = 20, unread_only = false) =>
+        apiRequest(`/api/notifications?page=${page}&per_page=${per_page}&unread_only=${unread_only}`),
+    getCount: () => apiRequest('/api/notifications/count'),
+    markRead: (id) => apiRequest(`/api/notifications/${id}/read`, { method: 'POST' }),
+    markAllRead: () => apiRequest('/api/notifications/read-all', { method: 'POST' }),
+};
+
 // AI Insights API (Phase 2)
 export const aiAPI = {
     // Complaint AI analysis

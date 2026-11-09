@@ -13,7 +13,8 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session
-from ..auth import get_current_user, require_officer
+from ..auth import get_current_user, require_officer, require_admin
+from ..services.complaint_access import get_visible_complaint
 from ..models.orm import User, Complaint
 from ..models.orm.enums import UserRole, ComplaintStatus
 from ..repositories.complaint_repo import ComplaintRepository
@@ -91,25 +92,11 @@ async def get_priority_explanation(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Explain how the priority score was computed for a complaint."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    complaint = await repo.get_by_id(cid)
-    if not complaint:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    is_owner = complaint.citizen_id == current_user.id
-    is_staff = current_user.role in (UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
-    if not (is_owner or complaint.is_public or is_staff):
-        raise HTTPException(status_code=403, detail="Access denied")
-
+    complaint = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
     priority_result = calculate_priority(complaint.description, complaint.category, complaint.vote_count)
 
     return {
-        "complaint_id": complaint_id,
+        "complaint_id": str(complaint.id),
         "complaint_number": complaint.complaint_number,
         "priority": complaint.priority.value,
         "priority_score": complaint.priority_score,
@@ -199,20 +186,7 @@ async def get_complaint_ai_summary(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Generate an AI summary of a complaint."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    is_owner = c.citizen_id == current_user.id
-    is_staff = current_user.role in (UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
-    if not (is_owner or c.is_public or is_staff):
-        raise HTTPException(status_code=403, detail="Access denied")
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
 
     summary_text = (
         f"Grievance #{c.complaint_number} reported in {c.ward or 'the municipality'}. "
@@ -246,15 +220,7 @@ async def get_similar_for_complaint(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Find similar complaints for a specific existing complaint."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
 
     res = await session.execute(
         select(Complaint)
@@ -301,15 +267,7 @@ async def get_complaint_cluster(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Get thematic and ward spatial cluster information for a complaint."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
 
     return {
         "complaint_id": str(c.id),
@@ -330,24 +288,13 @@ async def get_complaint_routing(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Get AI department routing recommendation for a complaint."""
-    from ..models.orm import Department
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    dept_res = await session.execute(select(Department).where(Department.id == c.department_id))
-    dept = dept_res.scalar_one_or_none()
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
+    dept_name = c.department.name if c.department else "General Administration"
 
     return {
         "complaint_id": str(c.id),
         "recommended_department_id": str(c.department_id) if c.department_id else None,
-        "recommended_department_name": dept.name if dept else "General Administration",
+        "recommended_department_name": dept_name,
         "confidence": c.ai_confidence or 85,
         "routing_reason": f"Matched classification tokens in category '{c.category}'.",
     }
@@ -363,15 +310,7 @@ async def get_complaint_sla_risk(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Get detailed SLA risk breakdown for a complaint."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
 
     now = datetime.now(timezone.utc)
     hours_remaining = None
@@ -405,22 +344,7 @@ async def get_complaint_image_analysis(
     Includes YOLO object counts, aHash fingerprints, and forensic flags.
     Officers see full forensic details; citizens see only their own complaints.
     """
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    is_owner = c.citizen_id == current_user.id
-    is_staff = current_user.role in (
-        UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN
-    )
-    if not (is_owner or c.is_public or is_staff):
-        raise HTTPException(status_code=403, detail="Access denied")
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
 
     media_analyses = []
     for m in c.media or []:
@@ -459,15 +383,17 @@ async def rerun_complaint_analysis(
 ):
     """Rerun AI categorization and priority evaluation on an active complaint."""
     from ..models.orm.enums import ComplaintPriority
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=False)
+
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_active_officer(current_user.id)
+        if not officer or officer.department_id != c.department_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Officers can only rerun analysis on complaints within their own department"
+            )
 
     classification = ai_bridge.classify_complaint(c.description)
     priority_res = calculate_priority(c.description, classification["category"], c.vote_count)
@@ -498,16 +424,18 @@ async def override_routing(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Record an officer's routing override reason into the audit timeline."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
+    c = await get_visible_complaint(complaint_id, current_user, session, allow_public=False)
+
+    if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_active_officer(current_user.id)
+        if not officer or officer.department_id != c.department_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Officers can only override routing on complaints within their own department"
+            )
 
     repo = ComplaintRepository(session)
-    c = await repo.get_by_id(cid)
-    if not c:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
     await repo.add_status_transition(
         c,
         c.status,
@@ -516,7 +444,7 @@ async def override_routing(
         notes=f"Officer routing override: {reason}",
     )
     await session.commit()
-    return {"message": "Routing override recorded", "complaint_id": complaint_id, "reason": reason}
+    return {"message": "Routing override recorded", "complaint_id": str(c.id), "reason": reason}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -559,8 +487,8 @@ async def get_admin_hotspots(
 
 
 @router.get("/admin/override-stats")
-@router.get("/override-stats")
 async def get_override_stats(
+    current_user: User = Depends(require_admin),
     session: AsyncSession = Depends(get_async_session),
 ):
     """

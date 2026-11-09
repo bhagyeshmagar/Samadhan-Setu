@@ -245,38 +245,40 @@ export default function LoginPage() {
                             </button>
                         </form>
 
-                        {/* Quick Demo Credentials Selector */}
-                        <div className="mt-6 pt-5 border-t border-gray-100">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1">
-                                    <HelpCircle size={12} /> Quick Demo Fill
-                                </span>
-                                <span className="text-[10px] text-gray-400">Click to autofill</span>
+                        {/* Quick Demo Credentials Selector (only shown in development or when NEXT_PUBLIC_DEMO is true) */}
+                        {(process.env.NEXT_PUBLIC_DEMO === 'true' || process.env.NODE_ENV === 'development') && (
+                            <div className="mt-6 pt-5 border-t border-gray-100">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1">
+                                        <HelpCircle size={12} /> Quick Demo Fill
+                                    </span>
+                                    <span className="text-[10px] text-gray-400">Click to autofill</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setDemoCredentials('citizen')}
+                                        className="px-2.5 py-1.5 text-xs rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium text-center transition-colors"
+                                    >
+                                        Citizen
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDemoCredentials('officer')}
+                                        className="px-2.5 py-1.5 text-xs rounded border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 font-medium text-center transition-colors"
+                                    >
+                                        Officer
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDemoCredentials('admin')}
+                                        className="px-2.5 py-1.5 text-xs rounded border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-800 font-medium text-center transition-colors"
+                                    >
+                                        Admin
+                                    </button>
+                                </div>
                             </div>
-                            <div className="grid grid-cols-3 gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setDemoCredentials('citizen')}
-                                    className="px-2.5 py-1.5 text-xs rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium text-center transition-colors"
-                                >
-                                    Citizen
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setDemoCredentials('officer')}
-                                    className="px-2.5 py-1.5 text-xs rounded border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 font-medium text-center transition-colors"
-                                >
-                                    Officer
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setDemoCredentials('admin')}
-                                    className="px-2.5 py-1.5 text-xs rounded border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-800 font-medium text-center transition-colors"
-                                >
-                                    Admin
-                                </button>
-                            </div>
-                        </div>
+                        )}
                     </div>
 
                     {/* Footer note */}

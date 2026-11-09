@@ -53,14 +53,33 @@ class Settings:
     ALLOWED_IMAGE_TYPES: set = {"image/jpeg", "image/png", "image/webp"}
 
     def validate(self) -> None:
-        """Fail fast on dangerous misconfigurations."""
-        if self.ENVIRONMENT != "development" and self.SECRET_KEY == _DEFAULT_SECRET:
+        """Fail fast on dangerous misconfigurations.
+
+        Rules:
+        - The default weak SECRET_KEY is NEVER accepted unless ALLOW_INSECURE_DEV=1
+          is explicitly set (for local developer convenience only).
+        - In production/staging the key must also be at least 32 characters.
+        """
+        allow_insecure_dev = os.getenv("ALLOW_INSECURE_DEV", "0") == "1"
+        is_prod = self.ENVIRONMENT in ("production", "staging")
+
+        if self.SECRET_KEY == _DEFAULT_SECRET and (not allow_insecure_dev or is_prod):
             print(
-                "FATAL: Default SECRET_KEY detected in non-development environment. "
-                "Set a strong SECRET_KEY via the environment variable and restart.",
+                "FATAL: Default SECRET_KEY detected. "
+                "Set a strong SECRET_KEY (32+ chars) via environment variable, "
+                "or set ALLOW_INSECURE_DEV=1 for local development only.",
                 file=sys.stderr,
             )
             sys.exit(1)
+
+        if self.ENVIRONMENT in ("production", "staging"):
+            if len(self.SECRET_KEY) < 32:
+                print(
+                    f"FATAL: SECRET_KEY too short ({len(self.SECRET_KEY)} chars) "
+                    "for a production/staging environment. Use at least 32 characters.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
 settings = Settings()
 settings.validate()

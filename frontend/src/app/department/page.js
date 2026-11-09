@@ -14,7 +14,7 @@ import {
     Send, Check, X, ShieldAlert
 } from 'lucide-react';
 
-const TASK_STATUS_OPTIONS = ['Pending', 'Assigned', 'In Progress', 'Completed', 'Rejected'];
+const TASK_STATUS_OPTIONS = ['Pending', 'Assigned', 'In Progress', 'Appeals', 'Completed', 'Rejected'];
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 const formatImageUrl = (url) => {
@@ -362,15 +362,27 @@ export default function DepartmentDashboard() {
                                             </div>
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={() => {
-                                            setShowAiQueue(false);
-                                            setExpandedTaskId(q.complaint_id);
-                                        }}
-                                        className="text-xs font-bold text-purple-800 hover:text-purple-950 px-2.5 py-1 rounded bg-purple-50"
-                                    >
-                                        Inspect Task →
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setShowAiQueue(false);
+                                                setExpandedTaskId(q.complaint_id);
+                                            }}
+                                            className="text-xs font-bold text-purple-800 hover:text-purple-950 px-2.5 py-1 rounded bg-purple-50"
+                                        >
+                                            Inspect Task →
+                                        </button>
+                                        <a
+                                            href={`/department/complaint/${q.complaint_id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-xs font-bold text-indigo-700 hover:text-indigo-900 px-2.5 py-1 rounded bg-indigo-50 border border-indigo-200 flex items-center gap-1"
+                                            title="Open full grievance dossier and smart triage"
+                                        >
+                                            <span>Dossier</span>
+                                            <ChevronRight size={12} />
+                                        </a>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -458,6 +470,19 @@ export default function DepartmentDashboard() {
                                                 <span className="font-mono text-[11px] text-gray-400 ml-auto sm:ml-0">
                                                     ID: #{task.id?.substring(0, 8)}
                                                 </span>
+
+                                                <a
+                                                    href={`/department/complaint/${task.complaint_id || task.id}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-[11px] font-bold text-[var(--navy)] hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    title="Open full grievance dossier in a new tab"
+                                                >
+                                                    <FileText size={11} />
+                                                    <span>Dossier</span>
+                                                    <ChevronRight size={11} />
+                                                </a>
                                             </div>
 
                                             <h3 className="text-sm font-bold text-gray-900 mb-1 leading-snug">
@@ -816,18 +841,31 @@ export default function DepartmentDashboard() {
                                         )}
 
                                         {/* Task Registered & Closed Audit Footer */}
-                                        <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-500 pt-3 border-t border-gray-200">
-                                            <span>
-                                                Registered: {task.created_at ? new Date(task.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                                            </span>
-                                            {task.completed_at && (
-                                                <span className="text-emerald-700 font-semibold">
-                                                    Resolved: {new Date(task.completed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-200">
+                                            <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-500">
+                                                <span>
+                                                    Registered: {task.created_at ? new Date(task.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                                                 </span>
-                                            )}
-                                            <span className="ml-auto text-gray-400">
-                                                Department: {task.department_name || task.category || 'Municipal Services'}
-                                            </span>
+                                                {task.completed_at && (
+                                                    <span className="text-emerald-700 font-semibold">
+                                                        Resolved: {new Date(task.completed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                )}
+                                                <span className="text-gray-400">
+                                                    Department: {task.department_name || task.category || 'Municipal Services'}
+                                                </span>
+                                            </div>
+                                            <a
+                                                href={`/department/complaint/${task.complaint_id || task.id}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="btn-gov-primary text-xs py-1.5 px-3 flex items-center gap-1.5 no-underline ml-auto"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <FileText size={13} />
+                                                <span>Open Dossier & Triage / संपूर्ण विवरण</span>
+                                                <ChevronRight size={13} />
+                                            </a>
                                         </div>
 
                                     </div>

@@ -5,6 +5,7 @@ from .admin import router as admin_router
 from .assignments import router as assignments_router
 from .analytics import router as analytics_router
 from .ai_insights import router as ai_insights_router
+from .notifications import router as notifications_router
 
 __all__ = [
     "auth_router",
@@ -14,4 +15,5 @@ __all__ = [
     "assignments_router",
     "analytics_router",
     "ai_insights_router",
+    "notifications_router",
 ]

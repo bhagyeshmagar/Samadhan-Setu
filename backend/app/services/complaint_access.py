@@ -96,7 +96,7 @@ def _format_media_url(s3_key: str) -> str:
 def serialize_public(c: Complaint) -> Dict[str, Any]:
     """
     Public View: Strictly ZERO PII.
-    Hides citizen ID, name, email, phone.
+    Hides citizen ID, name, email, phone, street address.
     Rounds coordinates to 3 decimals (~110m accuracy) to protect citizen residence.
     """
     lat = round(c.latitude, 3) if c.latitude is not None else None
@@ -113,6 +113,11 @@ def serialize_public(c: Complaint) -> Dict[str, Any]:
         if m.media_type == MediaType.RESOLUTION_PHOTO
     ]
 
+    if c.ward:
+        ward_text = c.ward if c.ward.strip().lower().startswith("ward") else f"Ward {c.ward.strip()}"
+    else:
+        ward_text = c.city or "Mumbai"
+
     return {
         "id": str(c.id),
         "complaint_number": c.complaint_number,
@@ -120,6 +125,7 @@ def serialize_public(c: Complaint) -> Dict[str, Any]:
         "category": c.category,
         "subcategory": c.sub_category,
         "description": c.description,
+        "location": ward_text,
         "ward": c.ward,
         "city": c.city or "Mumbai",
         "latitude": lat,
@@ -139,6 +145,11 @@ def serialize_public(c: Complaint) -> Dict[str, Any]:
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
         "resolved_at": c.resolved_at.isoformat() if c.resolved_at else None,
         "deadline": c.sla_deadline.isoformat() if c.sla_deadline else None,
+        "is_public": c.is_public,
+        "user_id": None,
+        "user": None,
+        "status_logs": [],
+        "status_history": [],
     }
 
 
@@ -147,10 +158,24 @@ def serialize_owner(c: Complaint) -> Dict[str, Any]:
     Citizen Owner View: Full tracking, exact location, feedback, ATR, appeal options.
     """
     data = serialize_public(c)
+    status_logs = [
+        {
+            "id": str(t.id),
+            "from_status": t.status_from or "",
+            "to_status": t.status_to,
+            "remarks": t.notes,
+            "notes": t.notes,
+            "actor_role": t.actor_role,
+            "timestamp": t.created_at.isoformat() if t.created_at else None,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        }
+        for t in (c.timeline or [])
+    ]
     data.update({
         "citizen_id": str(c.citizen_id),
         "user_id": str(c.citizen_id),
-        "location": c.address or "",
+        "citizen_name": c.citizen.name if c.citizen else None,
+        "location": c.address or (f"Ward {c.ward}" if c.ward else (c.city or "Mumbai")),
         "address": c.address or "",
         "latitude": c.latitude,
         "longitude": c.longitude,
@@ -163,17 +188,8 @@ def serialize_owner(c: Complaint) -> Dict[str, Any]:
         "feedback_text": c.feedback_text,
         "appeal_remarks": c.appeal_remarks,
         "atr_submitted_at": c.atr_submitted_at.isoformat() if c.atr_submitted_at else None,
-        "status_logs": [
-            {
-                "id": str(t.id),
-                "from_status": t.status_from or "",
-                "to_status": t.status_to,
-                "notes": t.notes,
-                "actor_role": t.actor_role,
-                "timestamp": t.created_at.isoformat() if t.created_at else None,
-            }
-            for t in (c.timeline or [])
-        ],
+        "status_logs": status_logs,
+        "status_history": status_logs,
     })
     return data
 
@@ -199,12 +215,30 @@ def serialize_staff(c: Complaint) -> Dict[str, Any]:
             "is_anonymous": True,
         }
 
+    status_logs_with_actors = [
+        {
+            "id": str(t.id),
+            "from_status": t.status_from or "",
+            "to_status": t.status_to,
+            "remarks": t.notes,
+            "notes": t.notes,
+            "actor_id": str(t.changed_by) if t.changed_by else None,
+            "updated_by": str(t.changed_by) if t.changed_by else None,
+            "actor_role": t.actor_role,
+            "timestamp": t.created_at.isoformat() if t.created_at else None,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        }
+        for t in (c.timeline or [])
+    ]
+
     data.update({
         "user": user_info,
         "assigned_officer_id": str(c.assigned_officer_id) if c.assigned_officer_id else None,
         "assigned_officer_name": c.assigned_officer.user.name if (c.assigned_officer and c.assigned_officer.user) else None,
         "sla_breached": c.sla_breached,
         "escalation_count": c.escalation_count,
+        "status_logs": status_logs_with_actors,
+        "status_history": status_logs_with_actors,
         "tasks": [
             {
                 "id": str(t.id),
@@ -218,3 +252,24 @@ def serialize_staff(c: Complaint) -> Dict[str, Any]:
         ],
     })
     return data
+
+
+async def serialize_complaint(c: Complaint, user: Optional[User], session: AsyncSession) -> Dict[str, Any]:
+    """Helper to serialize complaint based on the caller's role and ownership."""
+    if not user:
+        return serialize_public(c)
+
+    if user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        return serialize_staff(c)
+
+    if user.role in (UserRole.OFFICER, UserRole.SUPERVISOR):
+        user_repo = UserRepository(session)
+        officer = await user_repo.get_active_officer(user.id)
+        if officer and (officer.department_id == c.department_id or c.assigned_officer_id == officer.id):
+            return serialize_staff(c)
+        return serialize_public(c)
+
+    if c.citizen_id == user.id:
+        return serialize_owner(c)
+
+    return serialize_public(c)

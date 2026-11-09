@@ -22,10 +22,16 @@ export default function Badge({ status, size = 'default' }) {
                 return 'badge-progress';
             case 'Pending':
             case 'Submitted':
+            case 'Pending Info':
+            case 'Reopened':
                 return 'badge-pending';
             case 'Rejected':
             case 'Critical':
             case 'High':
+            case 'Appealed':
+            case 'Appealed L1':
+            case 'Appealed L2':
+            case 'Escalated':
                 return 'badge-critical';
             default:
                 return 'badge-normal';

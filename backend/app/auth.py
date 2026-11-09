@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import uuid
 
-from jose import JWTError, jwt
+import jwt as pyjwt
+from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -31,6 +32,21 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$dGVzdF9kdW1teV9zYWx0$dGVzdF9kdW1teV9oYXNoX3ZhbHVlX2Zvcl90aW1pbmc"
+
+
+async def verify_password_async(plain_password: str, hashed_password: Optional[str]) -> bool:
+    """Non-blocking Argon2 password verification via asyncio.to_thread.
+    If hashed_password is None, verifies against a dummy hash to prevent timing attacks (BUG-11, H13).
+    """
+    target_hash = hashed_password or DUMMY_HASH
+    try:
+        is_valid = await asyncio.to_thread(pwd_context.verify, plain_password, target_hash)
+    except Exception:
+        is_valid = False
+    return is_valid and (hashed_password is not None)
+
+
 def get_password_hash(password: str) -> str:
     """Hash a password using argon2.
 
@@ -52,20 +68,20 @@ async def hash_password_async(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a signed JWT access token."""
+    """Create a signed JWT access token using PyJWT (H12: replaces python-jose)."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta if expires_delta else timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return pyjwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_token(token: str) -> Optional[dict]:
-    """Decode and verify a JWT token. Returns None on any error."""
+    """Decode and verify a JWT token using PyJWT. Returns None on any error."""
     try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    except JWTError:
+        return pyjwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except InvalidTokenError:
         return None
 
 

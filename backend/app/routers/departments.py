@@ -245,6 +245,23 @@ async def update_complaint_status(
                     detail=f"Invalid status transition from '{complaint.status.value}' to '{new_status.value}'"
                 )
 
+        # C5 FIX: Resolving complaints requires at least one resolution photo and remarks >= 20 chars
+        if new_status == ComplaintStatus.RESOLVED and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            has_resolution_photo = any(
+                m.media_type == MediaType.RESOLUTION_PHOTO for m in (complaint.media or [])
+            )
+            if not has_resolution_photo:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot resolve complaint without at least one uploaded resolution proof photo."
+                )
+            remarks_text = (update_data.remarks or update_data.notes or "").strip()
+            if len(remarks_text) < 20:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Resolution remarks must be at least 20 characters describing the remediation action taken."
+                )
+
         status_notes = update_data.remarks or update_data.notes
         await repo.add_status_transition(
             complaint,
@@ -263,8 +280,9 @@ async def update_complaint_status(
         complaint.assigned_officer_id = officer_id
 
     await session.commit()
-    await session.refresh(complaint)
-    return _complaint_to_response(complaint)
+    # C4 FIX: Re-fetch eagerly loaded complaint instead of session.refresh to avoid MissingGreenlet in async sessions
+    updated = await repo.get_by_id(cid)
+    return _complaint_to_response(updated)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -675,13 +693,16 @@ async def get_complaint_history(
 
 
 
-# Status label → ComplaintStatus enum mapping for incoming filter values
-_TASK_STATUS_TO_COMPLAINT = {
-    "pending": ComplaintStatus.SUBMITTED,
-    "assigned": ComplaintStatus.ASSIGNED,
-    "in progress": ComplaintStatus.IN_PROGRESS,
-    "completed": None,  # handled specially (RESOLVED + CLOSED)
-    "rejected": ComplaintStatus.REJECTED,
+# Status label → ComplaintStatus enum mapping for incoming filter values (supports multi-status groups)
+_TASK_STATUS_TO_COMPLAINT_LIST = {
+    "pending": [ComplaintStatus.SUBMITTED, ComplaintStatus.VERIFIED, ComplaintStatus.REOPENED, ComplaintStatus.PENDING_INFO],
+    "assigned": [ComplaintStatus.ASSIGNED],
+    "in progress": [ComplaintStatus.IN_PROGRESS, ComplaintStatus.ESCALATED],
+    "appeals": [ComplaintStatus.APPEALED, ComplaintStatus.APPEALED_L1, ComplaintStatus.APPEALED_L2],
+    "appealed": [ComplaintStatus.APPEALED, ComplaintStatus.APPEALED_L1, ComplaintStatus.APPEALED_L2],
+    "completed": [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
+    "resolved": [ComplaintStatus.RESOLVED],
+    "rejected": [ComplaintStatus.REJECTED],
 }
 
 
@@ -696,7 +717,7 @@ async def get_tasks(
     """
     Task queue for the Officer Task Desk.
     Wraps /complaints with a task-shaped response and frontend-compatible
-    status label filtering (Pending, Assigned, In Progress, Completed, Rejected).
+    status label filtering (Pending, Assigned, In Progress, Appeals, Completed, Rejected).
     """
     user_repo = UserRepository(session)
     dept_repo = DepartmentRepository(session)
@@ -718,34 +739,20 @@ async def get_tasks(
     repo = ComplaintRepository(session)
     offset = (page - 1) * per_page
 
-    # Map frontend status label to DB enum(s)
-    status_enum = None
+    statuses_filter_list = None
     if status_filter:
-        key = status_filter.lower()
-        if key == "completed":
-            # "Completed" covers both RESOLVED and CLOSED
-            complaints_resolved, _ = await repo.list_complaints(
-                department_id=department_id,
-                status=ComplaintStatus.RESOLVED,
-                sort_by="priority_sla",
-                limit=per_page,
-                offset=offset,
-            )
-            complaints_closed, _ = await repo.list_complaints(
-                department_id=department_id,
-                status=ComplaintStatus.CLOSED,
-                sort_by="priority_sla",
-                limit=per_page,
-                offset=offset,
-            )
-            all_complaints = complaints_resolved + complaints_closed
-            return [_complaint_to_task(c, dept_name) for c in all_complaints]
-        elif key in _TASK_STATUS_TO_COMPLAINT:
-            status_enum = _TASK_STATUS_TO_COMPLAINT[key]
+        key = status_filter.lower().strip()
+        if key in _TASK_STATUS_TO_COMPLAINT_LIST:
+            statuses_filter_list = _TASK_STATUS_TO_COMPLAINT_LIST[key]
+        else:
+            try:
+                statuses_filter_list = [ComplaintStatus(key)]
+            except ValueError:
+                statuses_filter_list = None
 
     complaints, _ = await repo.list_complaints(
         department_id=department_id,
-        status=status_enum,
+        statuses=statuses_filter_list,
         sort_by="priority_sla",
         limit=per_page,
         offset=offset,
@@ -807,6 +814,23 @@ async def update_task_status(
                     detail=f"Invalid status transition from '{complaint.status.value}' to '{new_status.value}'"
                 )
 
+        # C5 FIX: Resolving complaints requires at least one resolution photo and remarks >= 20 chars
+        if new_status == ComplaintStatus.RESOLVED and current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            has_resolution_photo = any(
+                m.media_type == MediaType.RESOLUTION_PHOTO for m in (complaint.media or [])
+            )
+            if not has_resolution_photo:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot resolve complaint without at least one uploaded resolution proof photo."
+                )
+            remarks_text = (update_data.remarks or update_data.notes or "").strip()
+            if len(remarks_text) < 20:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Resolution remarks must be at least 20 characters describing the remediation action taken."
+                )
+
         status_notes = update_data.remarks or update_data.notes or f"Status updated to {raw}"
         await repo.add_status_transition(
             complaint,
@@ -827,8 +851,9 @@ async def update_task_status(
         dept = await dept_repo.get_by_id(off2.department_id)
         dept_name = dept.name if dept else ""
 
-    await session.refresh(complaint)
-    return _complaint_to_task(complaint, dept_name)
+    # C4 FIX: Re-fetch eagerly loaded complaint instead of session.refresh
+    updated = await repo.get_by_id(cid)
+    return _complaint_to_task(updated, dept_name)
 
 
 @router.post("/tasks/{task_id}/assign")
@@ -865,7 +890,6 @@ async def assign_task(
 
     complaint.assigned_officer_id = oid
     await session.commit()
-    await session.refresh(complaint)
     return {"message": "Task assigned successfully", "task_id": task_id, "officer_id": officer_id}
 
 
@@ -890,6 +914,15 @@ async def confirm_or_override_triage(
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
 
+    # C1 FIX: Enforce department authorization on triage override
+    user_repo = UserRepository(session)
+    user_role_val = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
+    if user_role_val not in (UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value):
+        officer = await user_repo.get_officer_by_user_id(user_id)
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
+
     original_category = complaint.category
     new_category = payload.get("category", original_category)
     curr_priority_val = complaint.priority.value if hasattr(complaint.priority, "value") else str(complaint.priority)
@@ -912,9 +945,28 @@ async def confirm_or_override_triage(
     except ValueError:
         pass
 
+    re_routed_dept_name = None
+    if category_changed:
+        dept_repo = DepartmentRepository(session)
+        new_dept = await dept_repo.get_by_category(new_category)
+        if new_dept and new_dept.id != complaint.department_id:
+            complaint.department_id = new_dept.id
+            re_routed_dept_name = new_dept.name
+
+    sla_hours = None
     if category_changed or priority_changed:
-        # Reuse the same category/priority SLA rule lookup used during intake.
-        sla_hours = await DepartmentRepository(session).get_sla_hours(
+        # Re-evaluate priority score with new category & upvotes
+        priority_calc = calculate_priority(
+            complaint.description,
+            complaint.category,
+            complaint.vote_count or 0,
+        )
+        complaint.priority_score = priority_calc.get("score", complaint.priority_score)
+        complaint.urgency_score = priority_calc.get("breakdown", {}).get("urgency", complaint.urgency_score)
+
+        # Reuse category/priority SLA rule lookup with explicit precedence hierarchy
+        dept_repo = DepartmentRepository(session)
+        sla_hours = await dept_repo.get_sla_hours(
             complaint.category,
             complaint.priority.value if hasattr(complaint.priority, "value") else str(complaint.priority),
         )
@@ -956,6 +1008,9 @@ async def confirm_or_override_triage(
         actor_role=user_role,
         notes=(
             f"Nodal Triage Override ({override_reason}): Category={new_category}, Priority={new_priority}"
+            + (f", PriorityScore={complaint.priority_score:.2f}" if complaint.priority_score is not None else "")
+            + (f", SLA={sla_hours}h" if sla_hours is not None else "")
+            + (f", Re-routed to Department: {re_routed_dept_name}" if re_routed_dept_name else "")
             if is_override
             else f"Nodal Officer confirmed AI Triage: Category={new_category}, Priority={new_priority}"
         ),
@@ -984,6 +1039,15 @@ async def generate_smart_atr_draft(
     c = await repo.get_by_id(cid)
     if not c:
         raise HTTPException(status_code=404, detail="Complaint not found")
+
+    # C1 FIX: Enforce department authorization
+    user_repo = UserRepository(session)
+    user_role_val = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
+    if user_role_val not in (UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value):
+        officer = await user_repo.get_officer_by_user_id(user_id)
+        if not officer or not officer.department_id or c.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
     dept_name = c.department.name if getattr(c, "department", None) else "Assigned Municipal Department"
     has_inspection = any(m.media_type == MediaType.INSPECTION_PHOTO for m in (c.media or []))
@@ -1022,6 +1086,37 @@ async def adjudicate_citizen_appeal(
     complaint = await repo.get_by_id(cid)
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
+
+    # C1 FIX: Require status to be in an appealed status
+    if complaint.status not in (ComplaintStatus.APPEALED, ComplaintStatus.APPEALED_L1, ComplaintStatus.APPEALED_L2):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot adjudicate complaint in '{complaint.status.value}' status. Complaint must be in an appealed status."
+        )
+
+    user_repo = UserRepository(session)
+    user_role_val = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
+
+    # C1 FIX: Require an appellate authority role: Supervisor or Admin
+    if user_role_val not in (UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.SUPERVISOR.value):
+        raise HTTPException(
+            status_code=403,
+            detail="Appellate adjudication requires a Supervisor or Admin role."
+        )
+
+    # C1 FIX: If supervisor, verify department matches
+    officer = await user_repo.get_officer_by_user_id(user_id)
+    if user_role_val == UserRole.SUPERVISOR.value:
+        if not officer or not officer.department_id or complaint.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
+
+    # C1 FIX: The resolving officer cannot adjudicate their own complaint appeal
+    if officer and complaint.assigned_officer_id == officer.id and user_role_val not in (UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value):
+        raise HTTPException(
+            status_code=403,
+            detail="The resolving officer cannot adjudicate their own complaint appeal. A separate supervisor or admin must review."
+        )
 
     decision = (payload.get("decision") or "reopen_rework").lower()
     order_notes = (payload.get("notes") or "").strip()
@@ -1081,6 +1176,30 @@ async def swarm_cascade_resolve_duplicates(
     if not master:
         raise HTTPException(status_code=404, detail="Master complaint not found")
 
+    # C1 FIX: Master complaint must be in RESOLVED or CLOSED status
+    if master.status not in (ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Master complaint must be RESOLVED or CLOSED before triggering swarm resolution. Current status: '{master.status.value}'"
+        )
+
+    # C1 FIX: Master complaint must have at least one verified resolution photo
+    master_proofs = [m for m in (master.media or []) if m.media_type == MediaType.RESOLUTION_PHOTO]
+    if not master_proofs:
+        raise HTTPException(
+            status_code=400,
+            detail="Master complaint must have at least one verified resolution proof photo to cascade."
+        )
+
+    # C1 FIX: Enforce department authorization on swarm resolution
+    user_repo = UserRepository(session)
+    user_role_val = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
+    if user_role_val not in (UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value):
+        officer = await user_repo.get_officer_by_user_id(user_id)
+        if not officer or not officer.department_id or master.department_id != officer.department_id:
+            raise HTTPException(status_code=403, detail="Access denied — master complaint belongs to another department")
+
     # Find open candidate complaints in the same category
     stmt = (
         select(Complaint)
@@ -1126,6 +1245,18 @@ async def swarm_cascade_resolve_duplicates(
             threshold=0.60,
         )
         if sim_res.get("is_duplicate") and (same_ward or near_coords):
+            # C1 FIX: Copy verified resolution proof photos from master to cascaded complaint
+            for proof_item in master_proofs:
+                await repo.add_media_proof(
+                    complaint_id=cand.id,
+                    media_type=MediaType.RESOLUTION_PHOTO,
+                    s3_key=proof_item.s3_key,
+                    file_name=proof_item.file_name,
+                    file_size_bytes=proof_item.file_size_bytes,
+                    mime_type=proof_item.mime_type,
+                    uploaded_by=user_id,
+                )
+
             # BUG-04 FIX: was cand.resolution_notes (non-existent field) — correct
             # ORM attribute is resolution_remarks (see models/orm/complaint.py L116)
             cand.resolution_remarks = (

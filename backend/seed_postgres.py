@@ -38,6 +38,11 @@ from app.models.orm import (
 from app.auth import get_password_hash
 
 async def seed_data():
+    env = os.environ.get("ENV", "development").lower()
+    if env in ("prod", "production"):
+        print("❌ Refusing to run seed_postgres in production environment.")
+        sys.exit(1)
+
     print("🌱 Connecting to PostgreSQL to seed demo data...")
     now = datetime.now(timezone.utc)
 
@@ -299,7 +304,7 @@ async def seed_data():
             ai_confidence=0.96,
             ai_summary="High-severity road surface defect requiring immediate asphalt patching.",
             priority=ComplaintPriority.HIGH,
-            priority_score=78.5,
+            priority_score=2.35,
             urgency_score=4,
             sentiment_score=-0.65,
             vote_count=14,
@@ -331,7 +336,7 @@ async def seed_data():
             ai_confidence=0.98,
             ai_summary="Urgent public health risk regarding municipal drinking water contamination.",
             priority=ComplaintPriority.CRITICAL,
-            priority_score=94.0,
+            priority_score=2.82,
             urgency_score=5,
             sentiment_score=-0.89,
             vote_count=28,
@@ -363,7 +368,7 @@ async def seed_data():
             ai_confidence=0.92,
             ai_summary="Civic safety hazard due to prolonged streetlight failure.",
             priority=ComplaintPriority.MEDIUM,
-            priority_score=52.0,
+            priority_score=1.65,
             urgency_score=2,
             sentiment_score=-0.35,
             vote_count=6,

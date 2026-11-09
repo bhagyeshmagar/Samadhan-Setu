@@ -62,22 +62,22 @@ class StatusLogResponse(BaseModel):
 
 class ComplaintResponse(BaseModel):
     id: str
-    user_id: str
+    user_id: Optional[str] = None
     title: str
     category: str
     subcategory: Optional[str] = None
     description: str
-    location: str
+    location: Optional[str] = None
     ward: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     is_public: Optional[bool] = True
 
-    priority: ComplaintPriority
+    priority: Any
     priority_score: Optional[float] = 0.0
     urgency_score: Optional[int] = 0
     ai_confidence: Optional[int] = None
-    status: ComplaintStatus
+    status: Any
     department_id: Optional[str] = None
     assigned_officer_id: Optional[str] = None
 
@@ -89,15 +89,15 @@ class ComplaintResponse(BaseModel):
     citizen_rating: Optional[int] = None
     feedback_text: Optional[str] = None
 
-    created_at: datetime
-    updated_at: datetime
-    resolved_at: Optional[datetime] = None
-    deadline: Optional[datetime] = None
+    created_at: Optional[Any] = None
+    updated_at: Optional[Any] = None
+    resolved_at: Optional[Any] = None
+    deadline: Optional[Any] = None
 
     # Populated on detail view
     user: Optional[Dict[str, Any]] = None
-    status_logs: Optional[List[StatusLogResponse]] = []
-    status_history: Optional[List[StatusLogResponse]] = []
+    status_logs: Optional[List[Any]] = []
+    status_history: Optional[List[Any]] = []
     tasks: Optional[List[Dict[str, Any]]] = []
 
     class Config:

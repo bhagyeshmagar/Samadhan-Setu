@@ -21,6 +21,7 @@ from PIL import Image, ImageOps
 
 from app.config import settings
 from app.models.orm.enums import MediaType
+from app.services.storage import storage
 
 # Safety cap against decomp bombs (approx 25 megapixels)
 Image.MAX_IMAGE_PIXELS = 25_000_000
@@ -85,9 +86,11 @@ async def process_and_store_image(
 
     # Determine unique target filename
     unique_name = f"{media_type.value}_{uuid.uuid4().hex[:12]}.jpg"
+    s3_key = f"{cid_str}/{unique_name}"
+
+    # Always process to local disk first (strips EXIF, re-encodes as JPEG)
     sub_dir = os.path.join(UPLOADS_DIR, cid_str)
     disk_path = os.path.join(sub_dir, unique_name)
-    s3_key = f"{cid_str}/{unique_name}"
 
     try:
         file_size, width, height = await asyncio.to_thread(_process_and_save_sync, raw_bytes, disk_path)
@@ -97,7 +100,18 @@ async def process_and_store_image(
             detail=str(ve),
         )
 
-    relative_url = f"/uploads/{s3_key}"
+    if storage.backend == "local":
+        # Local mode: file is already in UPLOADS_DIR, build the URL directly
+        relative_url = f"/uploads/{s3_key}"
+    else:
+        # Remote mode: read processed file, upload to object store, clean up local copy
+        processed_bytes = await asyncio.to_thread(lambda: open(disk_path, "rb").read())
+        relative_url = await storage.save_file(processed_bytes, s3_key)
+        try:
+            os.remove(disk_path)
+        except OSError:
+            pass
+
     return s3_key, relative_url, file_size
 
 

@@ -32,6 +32,13 @@ from ..config import settings
 from ..services.ai_bridge import ai_bridge
 from ..ai.priority import calculate_priority
 from ..services.media_service import process_and_store_image
+from ..services.complaint_access import (
+    get_visible_complaint,
+    serialize_public,
+    serialize_owner,
+    serialize_staff,
+    serialize_complaint,
+)
 
 CITIZEN_UPLOAD_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "citizen"
@@ -128,24 +135,9 @@ def _complaint_to_response(
     )
 
 
-def _complaint_to_public_response(c: Complaint) -> ComplaintResponse:
-    resp = _complaint_to_response(c)
-    # BUG-08 FIX: Always redact PII from public-facing responses regardless of
-    # is_anonymous flag — name can remain but email and phone must never leak.
-    if resp.user:
-        resp.user = {
-            "id": resp.user.get("id"),
-            "name": resp.user.get("name") if not c.is_anonymous else None,
-            "email": None,
-            "phone": None,
-        }
-    if c.is_anonymous:
-        resp.user_id = "anonymous"
-        resp.user = None
-    if resp.latitude is not None and resp.longitude is not None:
-        resp.latitude = round(resp.latitude, 3)
-        resp.longitude = round(resp.longitude, 3)
-    return resp
+def _complaint_to_public_response(c: Complaint) -> Dict[str, Any]:
+    # Strictly zero PII: ward only, no street address, no user_id, no citizen contact info
+    return serialize_public(c)
 
 
 # POST /
@@ -316,7 +308,7 @@ async def get_my_complaints(
             raise HTTPException(status_code=422, detail=f"Invalid status: {status_filter}")
 
     complaints, _ = await repo.list_complaints(citizen_id=current_user.id, status=status_enum, limit=100)
-    return [_complaint_to_response(c) for c in complaints]
+    return [serialize_owner(c) for c in complaints]
 
 
 # GET /public/feed
@@ -324,7 +316,7 @@ async def get_my_complaints(
 async def get_public_complaints(
     category: Optional[str] = None,
     ward: Optional[str] = None,
-    sort_by: str = Query("recent", enum=["recent", "priority", "upvotes"]),
+    sort_by: str = Query("recent", pattern="^(recent|priority|upvotes)$"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_async_session),
@@ -340,7 +332,7 @@ async def get_public_complaints(
         limit=per_page,
         offset=offset,
     )
-    return [_complaint_to_public_response(c) for c in complaints]
+    return [serialize_public(c) for c in complaints]
 
 
 # GET /{complaint_id}
@@ -350,23 +342,9 @@ async def get_complaint(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Complaint detail with full timeline. Owner, officers, and admins can access."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    complaint = await repo.get_by_id(cid)
-    if not complaint:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    is_owner = complaint.citizen_id == current_user.id
-    is_staff = current_user.role in (UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
-    if not (is_owner or complaint.is_public or is_staff):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    return _complaint_to_response(complaint)
+    """Complaint detail with full timeline. Access verified by get_visible_complaint and serialized without PII leaks."""
+    complaint = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
+    return await serialize_complaint(complaint, current_user, session)
 
 
 # GET /{complaint_id}/history
@@ -376,21 +354,9 @@ async def get_complaint_history(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Status timeline for a complaint."""
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    repo = ComplaintRepository(session)
-    complaint = await repo.get_by_id(cid)
-    if not complaint:
-        raise HTTPException(status_code=404, detail="Complaint not found")
-
-    is_owner = complaint.citizen_id == current_user.id
+    """Status timeline for a complaint. Actor UUIDs are redacted for citizens."""
+    complaint = await get_visible_complaint(complaint_id, current_user, session, allow_public=True)
     is_staff = current_user.role in (UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
-    if not (is_owner or is_staff):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     return [
         StatusLogResponse(
@@ -399,7 +365,7 @@ async def get_complaint_history(
             from_status=t.status_from,
             to_status=t.status_to,
             remarks=t.notes,
-            updated_by=str(t.changed_by) if t.changed_by else None,
+            updated_by=str(t.changed_by) if (is_staff and t.changed_by) else None,
             created_at=t.created_at,
         )
         for t in sorted(complaint.timeline or [], key=lambda x: x.created_at)
@@ -573,20 +539,33 @@ async def submit_feedback(
             notes=f"Citizen verified ATR & closed complaint (Rating: {rating}/5). {comment}",
         )
     elif not satisfied:
+        curr_level = complaint.appeal_level or 0
+        if curr_level >= 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum appeal level (Level 2) reached. No further appeals permitted."
+            )
+        next_level = curr_level + 1
+        complaint.appeal_level = next_level
+        target_status = ComplaintStatus.APPEALED_L2 if next_level == 2 else ComplaintStatus.APPEALED_L1
+
         await repo.add_status_transition(
             complaint_id=cid,
             from_status=complaint.status,
-            to_status=ComplaintStatus.APPEALED,
+            to_status=target_status,
             actor_id=uuid.UUID(user_id_str),
             actor_role="citizen",
-            notes=f"Appeal Level 1 triggered (Citizen unsatisfied with ATR, Rating: {rating}/5): {comment}",
+            notes=f"Appeal Level {next_level} triggered (Citizen unsatisfied with ATR, Rating: {rating}/5): {comment}",
+            appeal_level=next_level,
         )
+        complaint.sla_breached = False
+        complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=48 if next_level == 1 else 24)
 
     await session.commit()
     updated = await repo.get_by_id(cid)
     return {
         "message": "Complaint closed with citizen satisfaction" if satisfied else "Appeal Level 1 registered",
-        "complaint": _complaint_to_response(updated, viewer_id=user_id_str, viewer_role=user_role_str),
+        "complaint": serialize_owner(updated),
     }
 
 
@@ -599,8 +578,9 @@ async def file_citizen_appeal(
 ):
     """
     Explicit Samadhan Setu Multi-Tier Appeal Protocol:
-    - Level 1: Nodal Appellate Authority
-    - Level 2: Sub / Appellate Authority
+    - Level 1: Nodal Appellate Authority (APPEALED_L1)
+    - Level 2: Sub / Appellate Authority (APPEALED_L2)
+    Appeals are strictly restricted to resolved, closed, or rejected complaints.
     """
     repo = ComplaintRepository(session)
     try:
@@ -613,41 +593,62 @@ async def file_citizen_appeal(
         raise HTTPException(status_code=404, detail="Complaint not found")
 
     user_id_str = str(user.id) if hasattr(user, "id") else str(user.get("id"))
-    user_role_str = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
 
     if str(complaint.citizen_id) != user_id_str:
         raise HTTPException(status_code=403, detail="Only the filing citizen can lodge an appeal")
+
+    # Enforce allowed statuses for appeal: only from RESOLVED, CLOSED, REJECTED, or existing APPEALED_L1
+    valid_appeal_statuses = (
+        ComplaintStatus.RESOLVED,
+        ComplaintStatus.CLOSED,
+        ComplaintStatus.REJECTED,
+        ComplaintStatus.APPEALED,
+        ComplaintStatus.APPEALED_L1,
+    )
+    if complaint.status not in valid_appeal_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot appeal a complaint in '{complaint.status.value}' status. Appeals are only permitted on resolved, closed, or rejected complaints."
+        )
+
+    curr_level = complaint.appeal_level or 0
+    if curr_level >= 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum appeal level (Level 2) reached. No further appeals permitted."
+        )
 
     reason = (payload.get("reason") or "").strip()
     if len(reason) < 10:
         raise HTTPException(status_code=400, detail="Please provide a clear appeal reason (at least 10 characters)")
 
-    # Determine Appeal Level (L1 vs L2) from existing timeline entries
-    prev_appeals = sum(
-        1 for t in (complaint.timeline or [])
-        if (t.status_to or "").lower() in ("appealed", "escalated") and "appeal" in (t.notes or "").lower()
-    )
-    appeal_level = 2 if prev_appeals >= 1 else 1
-    authority_name = "Appellate Authority (Level 2)" if appeal_level == 2 else "Nodal Authority (Level 1)"
+    next_level = curr_level + 1
+    authority_name = "Appellate Authority (Level 2)" if next_level == 2 else "Nodal Authority (Level 1)"
+    target_status = ComplaintStatus.APPEALED_L2 if next_level == 2 else ComplaintStatus.APPEALED_L1
+
+    complaint.appeal_level = next_level
+    complaint.appeal_remarks = reason
+    complaint.sla_breached = False
+    complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=48 if next_level == 1 else 24)
 
     await repo.add_status_transition(
         complaint_id=cid,
         from_status=complaint.status,
-        to_status=ComplaintStatus.APPEALED,
+        to_status=target_status,
         actor_id=uuid.UUID(user_id_str),
         actor_role="citizen",
-        notes=f"[APPEAL LEVEL {appeal_level} -> {authority_name}] Citizen Appeal Reason: {reason}",
+        notes=f"[APPEAL LEVEL {next_level} -> {authority_name}] Citizen Appeal Reason: {reason}",
+        appeal_level=next_level,
+        appeal_remarks=reason,
     )
-    complaint.sla_breached = False
-    complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=48 if appeal_level == 1 else 24)
 
     await session.commit()
     updated = await repo.get_by_id(cid)
     return {
-        "message": f"Appeal Level {appeal_level} filed with {authority_name}",
-        "appeal_level": appeal_level,
+        "message": f"Appeal Level {next_level} filed with {authority_name}",
+        "appeal_level": next_level,
         "authority": authority_name,
-        "complaint": _complaint_to_response(updated, viewer_id=user_id_str, viewer_role=user_role_str),
+        "complaint": serialize_owner(updated),
     }
 
 
