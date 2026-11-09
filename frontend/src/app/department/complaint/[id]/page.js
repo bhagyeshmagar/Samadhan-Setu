@@ -548,7 +548,7 @@ export default function HandleComplaint() {
                     {/* Before / After Visual Verification Card (BUG-10) */}
                     {(() => {
                         const beforeImgs = complaint.inspection_images || [];
-                        const afterImgs = complaint.proof_images || [];
+                        const afterImgs = complaint.resolution_proof || complaint.proof_images || [];
                         if (beforeImgs.length === 0 && afterImgs.length === 0) return null;
                         return (
                             <div className="gov-section border-t-4 border-t-cyan-600 bg-cyan-50/10">

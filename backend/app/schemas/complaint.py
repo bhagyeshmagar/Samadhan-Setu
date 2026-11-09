@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 import uuid
 from datetime import datetime
@@ -6,13 +6,13 @@ from ..models.orm.enums import ComplaintStatus, ComplaintPriority
 
 
 class ComplaintBase(BaseModel):
-    title: str
-    description: str
-    location: str
-    ward: Optional[str] = None
+    title: str = Field(..., min_length=5, max_length=500, description="Brief summary of the issue")
+    description: str = Field(..., min_length=10, max_length=5000, description="Detailed grievance description")
+    location: str = Field(..., min_length=3, max_length=255, description="Street or landmark location")
+    ward: Optional[str] = Field(None, max_length=100)
     is_public: Optional[bool] = True
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float] = Field(None, ge=-90.0, le=90.0)
+    longitude: Optional[float] = Field(None, ge=-180.0, le=180.0)
 
 
 class ComplaintCreate(ComplaintBase):
@@ -30,8 +30,8 @@ class ComplaintUpdate(BaseModel):
 
 class ComplaintFeedback(BaseModel):
     """Schema for a citizen submitting feedback on a resolved complaint."""
-    rating: int  # 1-5 stars
-    feedback_text: Optional[str] = None
+    rating: int = Field(..., ge=1, le=5, description="1 to 5 star rating")
+    feedback_text: Optional[str] = Field(None, max_length=2000)
 
 
 class ComplaintAIResponse(BaseModel):

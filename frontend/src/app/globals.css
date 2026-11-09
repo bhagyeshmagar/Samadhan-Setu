@@ -408,6 +408,10 @@ body {
 .badge-critical   .badge-dot { background: var(--status-critical); }
 .badge-appealed   { background: var(--status-appealed-bg);    color: var(--status-appealed); }
 .badge-appealed   .badge-dot { background: var(--status-appealed); }
+.badge-pending    { background: var(--saffron-light);         color: var(--saffron-dark); }
+.badge-pending    .badge-dot { background: var(--saffron-dark); }
+.badge-normal     { background: var(--bg-section);            color: var(--text-secondary); }
+.badge-normal     .badge-dot { background: var(--text-secondary); }
 
 /* ===== Gov Table ===== */
 .gov-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
@@ -435,7 +439,7 @@ body {
 
 /* ===== Form Inputs ===== */
 .gov-input {
-  background:    white;
+  background:    var(--bg-card);
   border:        1.5px solid var(--border-mid);
   border-radius: 8px;
   padding:       0.625rem 0.875rem;
@@ -687,7 +691,7 @@ body {
 
 /* Old input-theme */
 .input-theme {
-  background:    white;
+  background:    var(--bg-card);
   border:        1.5px solid var(--border-mid);
   border-radius: 8px;
   padding:       0.625rem 0.875rem;
@@ -702,52 +706,6 @@ body {
   outline:      none;
 }
 .input-theme::placeholder { color: var(--text-muted); }
-
-/* Old btn-primary */
-.btn-primary {
-  background:    var(--primary);
-  color:         white;
-  border:        none;
-  border-radius: 8px;
-  padding:       0.625rem 1.25rem;
-  font-weight:   600;
-  font-size:     0.9rem;
-  cursor:        pointer;
-  transition:    background 0.15s ease, box-shadow 0.15s ease;
-  box-shadow:    0 2px 4px rgba(0,53,128,0.22);
-  display:       inline-flex;
-  align-items:   center;
-  gap:           0.4rem;
-}
-.btn-primary:hover  { background: var(--primary-hover); box-shadow: 0 4px 10px rgba(0,53,128,0.28); }
-.btn-primary:active { transform: scale(0.98); }
-
-/* Old btn-secondary */
-.btn-secondary {
-  background:    white;
-  color:         var(--primary);
-  border:        1.5px solid var(--primary);
-  border-radius: 8px;
-  padding:       0.6rem 1.25rem;
-  font-weight:   600;
-  font-size:     0.9rem;
-  cursor:        pointer;
-  transition:    all 0.15s ease;
-}
-.btn-secondary:hover { background: var(--navy-light); }
-
-/* Old btn-accent */
-.btn-accent {
-  background:    var(--saffron);
-  color:         white;
-  border:        none;
-  border-radius: 8px;
-  padding:       0.625rem 1.25rem;
-  font-weight:   600;
-  cursor:        pointer;
-  transition:    background 0.15s ease;
-}
-.btn-accent:hover { background: var(--saffron-dark); }
 
 /* Border utility */
 @utility border-theme {
@@ -769,54 +727,6 @@ body {
 
 /* ===== Selection ===== */
 ::selection { background: var(--navy-light); color: var(--navy); }
-
-/* ===== Official Gov Badges ===== */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  border: 1px solid transparent;
-  line-height: 1.2;
-}
-.badge-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  display: inline-block;
-  flex-shrink: 0;
-}
-.badge-resolved {
-  background: var(--india-green-light);
-  color: var(--india-green);
-  border-color: rgba(19, 136, 8, 0.25);
-}
-.badge-progress {
-  background: var(--navy-light);
-  color: var(--navy);
-  border-color: rgba(0, 53, 128, 0.2);
-}
-.badge-pending {
-  background: var(--saffron-light);
-  color: var(--saffron-dark);
-  border-color: rgba(255, 153, 51, 0.3);
-}
-.badge-critical {
-  background: var(--status-critical-bg);
-  color: var(--status-critical);
-  border-color: rgba(214, 40, 40, 0.25);
-}
-.badge-normal {
-  background: var(--bg-section);
-  color: var(--text-secondary);
-  border-color: var(--border);
-}
 
 /* ===== Official Gov Button ===== */
 .btn-gov-primary {

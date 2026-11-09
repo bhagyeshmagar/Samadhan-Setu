@@ -381,8 +381,11 @@ async def rerun_complaint_analysis(
     current_user: User = Depends(require_officer),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Rerun AI categorization and priority evaluation on an active complaint."""
+    """Rerun AI categorization and priority evaluation on an active complaint.
+    Preserves manual officer overrides (M9 fix).
+    """
     from ..models.orm.enums import ComplaintPriority
+    from ..models.orm import AIResult, AuditLog
 
     c = await get_visible_complaint(complaint_id, current_user, session, allow_public=False)
 
@@ -395,6 +398,20 @@ async def rerun_complaint_analysis(
                 detail="Officers can only rerun analysis on complaints within their own department"
             )
 
+    # Check if officer has already manually overridden AI triage
+    ai_res = (await session.execute(select(AIResult).where(AIResult.complaint_id == c.id))).scalar_one_or_none()
+    if ai_res and ai_res.overridden:
+        return {
+            "message": "AI analysis rerun skipped: Complaint triage has been manually overridden by an officer.",
+            "category": c.category,
+            "priority": c.priority.value,
+            "priority_score": c.priority_score,
+            "overridden": True,
+        }
+
+    old_priority = c.priority.value
+    old_score = c.priority_score
+
     classification = ai_bridge.classify_complaint(c.description)
     priority_res = calculate_priority(c.description, classification["category"], c.vote_count)
 
@@ -403,6 +420,21 @@ async def rerun_complaint_analysis(
     c.urgency_score = priority_res["breakdown"].get("urgency", c.urgency_score)
     c.ai_confidence = float(classification.get("confidence", 80)) / 100.0
 
+    audit_entry = AuditLog(
+        action="ai_analysis_rerun",
+        entity_type="complaint",
+        entity_id=str(c.id),
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        details={
+            "old_priority": old_priority,
+            "new_priority": c.priority.value,
+            "old_score": old_score,
+            "new_score": c.priority_score,
+        },
+    )
+    session.add(audit_entry)
+
     await session.commit()
     await session.refresh(c)
     return {
@@ -410,6 +442,7 @@ async def rerun_complaint_analysis(
         "category": c.category,
         "priority": c.priority.value,
         "priority_score": c.priority_score,
+        "overridden": False,
     }
 
 
@@ -423,7 +456,9 @@ async def override_routing(
     current_user: User = Depends(require_officer),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Record an officer's routing override reason into the audit timeline."""
+    """Record an officer's routing override reason into AIResult and audit logs (M9 fix)."""
+    from ..models.orm import AIResult, AuditLog
+
     c = await get_visible_complaint(complaint_id, current_user, session, allow_public=False)
 
     if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
@@ -443,6 +478,35 @@ async def override_routing(
         actor_role=current_user.role.value,
         notes=f"Officer routing override: {reason}",
     )
+
+    # Update or create AIResult with override flags for HITL statistics
+    ai_res = (await session.execute(select(AIResult).where(AIResult.complaint_id == c.id))).scalar_one_or_none()
+    if ai_res:
+        ai_res.overridden = True
+        ai_res.override_reason = reason
+        ai_res.officer_id = current_user.id
+    else:
+        ai_res = AIResult(
+            complaint_id=c.id,
+            predicted_category=c.category,
+            predicted_priority=c.priority.value,
+            confidence_score=c.ai_confidence or 0.8,
+            overridden=True,
+            override_reason=reason,
+            officer_id=current_user.id,
+        )
+        session.add(ai_res)
+
+    audit_entry = AuditLog(
+        action="ai_routing_override",
+        entity_type="complaint",
+        entity_id=str(c.id),
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        details={"reason": reason, "category": c.category},
+    )
+    session.add(audit_entry)
+
     await session.commit()
     return {"message": "Routing override recorded", "complaint_id": str(c.id), "reason": reason}
 

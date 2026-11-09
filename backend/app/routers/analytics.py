@@ -467,7 +467,7 @@ async def daily_trends(
         .order_by(func.date(Complaint.created_at))
     )
     if category:
-        query = query.where(Complaint.category.ilike(category))
+        query = query.where(func.lower(Complaint.category) == category.lower())
 
     res = await session.execute(query)
     return [TrendPoint(date=str(r.day), count=r.n, category=category) for r in res.all()]

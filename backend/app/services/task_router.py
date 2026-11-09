@@ -1,7 +1,9 @@
 """
 Task Routing Service for Samadhan Setu.
 Provides multi-department category detection based on complaint text keywords.
+Uses word-boundary matching to prevent substring false positives (L1 fix).
 """
+import re
 from typing import List, Dict
 
 # Multi-category keywords: if a complaint matches these,
@@ -30,7 +32,7 @@ def detect_departments_from_text(description: str, primary_category: str) -> Lis
         if category == primary_category:
             continue
         for keyword in keywords:
-            if keyword in text_lower:
+            if re.search(rf"\b{re.escape(keyword)}\b", text_lower):
                 categories.add(category)
                 break
 

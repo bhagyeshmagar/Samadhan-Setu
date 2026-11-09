@@ -93,11 +93,11 @@ def _complaint_to_response(
         _media_url(m.s3_key)
         for m in (c.media or [])
         if m.media_type == MediaType.RESOLUTION_PHOTO
-        and "inspection" not in (m.s3_key or "").lower()
     ]
-    all_attachments = [
+    citizen_attachments = [
         _media_url(m.s3_key)
         for m in (c.media or [])
+        if m.media_type in (MediaType.PROOF_PHOTO, MediaType.ADDITIONAL_DOC)
     ]
 
     return ComplaintResponse(
@@ -120,7 +120,7 @@ def _complaint_to_response(
         status=c.status,
         department_id=str(c.department_id) if c.department_id else None,
         upvotes=c.vote_count,
-        attachments=all_attachments,
+        attachments=citizen_attachments,
         inspection_images=inspection_images,
         resolution_proof=resolution_images,
         resolution_remarks=c.resolution_remarks,
@@ -458,12 +458,29 @@ async def upvote_complaint(
     if not complaint.is_public:
         raise HTTPException(status_code=404, detail="Complaint not public")
 
+    # M3 fix: Prevent self-voting
+    if complaint.citizen_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Citizens cannot upvote their own grievances")
+
     voted = await repo.upvote(complaint.id, current_user.id, VoteType.UPVOTE)
     await session.commit()
 
     if not voted:
         return {"message": "Already upvoted", "upvotes": complaint.vote_count}
-    return {"message": "Upvoted successfully", "upvotes": complaint.vote_count + 1}
+
+    new_votes = complaint.vote_count + 1
+    # M3 fix: Dynamically recompute priority when votes reach crowd impact thresholds
+    if new_votes in (5, 10, 25, 50, 100):
+        priority_res = calculate_priority(
+            complaint.description,
+            complaint.category,
+            upvotes=new_votes,
+        )
+        complaint.priority_score = priority_res["score"]
+        complaint.priority = ComplaintPriority(priority_res["priority"].lower())
+        await session.commit()
+
+    return {"message": "Upvoted successfully", "upvotes": new_votes}
 # POST /{complaint_id}/feedback
 @router.post("/{complaint_id}/feedback")
 async def submit_feedback(
@@ -497,7 +514,12 @@ async def submit_feedback(
     if status_val not in ("resolved", "closed"):
         raise HTTPException(status_code=400, detail="Feedback can only be submitted after resolution (ATR)")
 
-    rating = int(payload.get("rating", 5))
+    if "rating" not in payload or payload.get("rating") is None:
+        raise HTTPException(status_code=400, detail="Rating is required (1 to 5 stars)")
+    try:
+        rating = int(payload["rating"])
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Rating must be an integer between 1 and 5")
     if rating < 1 or rating > 5:
         raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
     comment = (payload.get("feedback_text") or payload.get("comment") or "").strip()
@@ -658,37 +680,22 @@ async def verify_priority(
     urgency: int = Query(..., ge=0, le=10),
     severity: int = Query(..., ge=0, le=10),
     upvotes: int = Query(0, ge=0),
+    category: str = Query("General"),
     current_user: User = Depends(get_current_user),
 ):
-    """Verify priority score and SLA tier given urgency, severity, and upvote metrics."""
-    base_score = (urgency * 0.4) + (severity * 0.4)
-    vote_boost = min(upvotes * 0.1, 2.0)
-    final_score = round(base_score + vote_boost, 2)
-
-    # BUG-05 FIX: Align SLA hours with canonical table in department_repo.py and
-    # DeadlineTimer.jsx (72/120/168/504h). Previous values (4/24/48/72h) were wrong.
-    # Score scale here is 0-10 so thresholds are proportionally adjusted.
-    if final_score >= 7.0:
-        band = "CRITICAL"
-        sla_hours = 72    # 3 days
-    elif final_score >= 5.0:
-        band = "HIGH"
-        sla_hours = 120   # 5 days
-    elif final_score >= 3.0:
-        band = "MEDIUM"
-        sla_hours = 168   # 7 days
-    else:
-        band = "LOW"
-        sla_hours = 504   # 21 days
+    """Verify priority score and SLA tier aligned with canonical calculate_priority engine (L12 fix)."""
+    norm_severity = 1.0 + (severity / 10.0) * 2.0
+    res = calculate_priority(
+        text="",
+        category=category,
+        upvotes=upvotes,
+        ai_urgency_score=urgency,
+        fused_severity=int(round(norm_severity)),
+    )
 
     return {
-        "priority": band,
-        "priority_score": final_score,
-        "sla_target_hours": sla_hours,
-        "breakdown": {
-            "urgency": urgency,
-            "severity": severity,
-            "upvotes": upvotes,
-            "vote_boost": vote_boost,
-        }
+        "priority": res["priority"].upper(),
+        "priority_score": res["score"],
+        "sla_target_hours": res["sla_hours"],
+        "breakdown": res["breakdown"],
     }

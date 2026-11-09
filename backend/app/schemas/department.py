@@ -8,6 +8,7 @@ class DepartmentBase(BaseModel):
     description: Optional[str] = None
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
+    is_active: bool = True
 
 class DepartmentCreate(DepartmentBase):
     keywords: Optional[List[str]] = []
@@ -18,9 +19,11 @@ class DepartmentUpdate(BaseModel):
     keywords: Optional[List[str]] = None
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class DepartmentResponse(DepartmentBase):
     id: str
+    is_active: bool = True
     keywords: Optional[List[str]] = []
     created_at: datetime
     

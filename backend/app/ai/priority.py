@@ -49,6 +49,11 @@ class PriorityCalculator:
         'leaking': 2, 'leak': 2,
     }
 
+    EMERGENCY_KEYWORDS: set = {
+        'death', 'dying', 'dead', 'fatal', 'fire', 'burning',
+        'explosion', 'blast', 'electrocution', 'collapse', 'collapsed'
+    }
+
     # Category severity multipliers (maps to 1-3 scale)
     CATEGORY_SEVERITY: Dict[str, int] = {
         'Health & Safety': 3,
@@ -76,17 +81,38 @@ class PriorityCalculator:
         self.text_processor = TextProcessor()
 
     def calculate_urgency_score(self, text: str) -> int:
-        """Calculate urgency score (0-10) based on keyword presence."""
+        """Calculate urgency score (0-10) with group capping and negation handling (M1 fix)."""
         if not text:
             return 0
         cleaned = self.text_processor.clean_text(text)
-        tokens = set(cleaned.split())
-        total_score = 0
+        tokens = cleaned.split()
+        tokens_set = set(tokens)
+
+        # Basic negation detection: words immediately preceded by 'no', 'not', 'without', 'never'
+        negated_tokens = set()
+        for idx in range(1, len(tokens)):
+            if tokens[idx - 1] in ("no", "not", "without", "never"):
+                negated_tokens.add(tokens[idx])
+
+        emergency_score = 0
+        maintenance_score = 0
+
         for keyword, weight in self.URGENCY_KEYWORDS.items():
             kw = keyword.strip().lower()
-            matched = (f" {kw} " in f" {cleaned} ") if (" " in kw) else (kw in tokens)
+            if " " in kw:
+                matched = f" {kw} " in f" {cleaned} "
+            else:
+                matched = (kw in tokens_set) and (kw not in negated_tokens)
+
             if matched:
-                total_score += weight
+                if kw in self.EMERGENCY_KEYWORDS or weight >= 4:
+                    emergency_score += weight
+                else:
+                    maintenance_score += weight
+
+        # Maintenance keywords (broken, leaking, blocked) capped at 4 points max
+        capped_maintenance = min(4, maintenance_score)
+        total_score = emergency_score + capped_maintenance
         return min(10, total_score)
 
     def _urgency_level(self, score: int) -> int:
@@ -275,8 +301,9 @@ class PriorityCalculator:
         high_threshold = bands.get("high", self.BAND_HIGH)
         medium_threshold = bands.get("medium", self.BAND_MEDIUM)
 
-        # For life-safety emergencies at submission time, ensure score can reach CRITICAL (>= 2.5)
-        if (urgency_raw >= 7 or urgency >= 2.8) and severity >= 2.8 and score < critical_threshold:
+        # For genuine life-safety emergencies at submission time, ensure score can reach CRITICAL (>= 2.5)
+        has_true_emergency = any(kw in text.lower() for kw in self.EMERGENCY_KEYWORDS)
+        if has_true_emergency and (urgency_raw >= 7 or urgency >= 2.8) and severity >= 2.8 and score < critical_threshold:
             score = critical_threshold
 
         # BUG-05 FIX: SLA hours unified with department_repo.py and DeadlineTimer.jsx

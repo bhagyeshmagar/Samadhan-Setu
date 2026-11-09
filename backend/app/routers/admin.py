@@ -41,6 +41,7 @@ def _dept_to_response(d: Department) -> DepartmentResponse:
         description=d.description,
         contact_email=d.contact_email,
         contact_phone=d.contact_phone,
+        is_active=d.is_active,
         keywords=[],
         created_at=d.created_at,
     )
@@ -721,6 +722,8 @@ async def update_department(
         dept.contact_email = update_data.contact_email
     if update_data.contact_phone is not None:
         dept.contact_phone = update_data.contact_phone
+    if update_data.is_active is not None:
+        dept.is_active = update_data.is_active
 
     await session.commit()
     await session.refresh(dept)

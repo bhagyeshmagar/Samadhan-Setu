@@ -170,7 +170,7 @@ export default function LoginPage() {
                         {/* Error Alert */}
                         {error && (
                             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-                                <AlertCircle size={16} className="s hrink-0" />
+                                <AlertCircle size={16} className="shrink-0" />
                                 <span>{error}</span>
                             </div>
                         )}

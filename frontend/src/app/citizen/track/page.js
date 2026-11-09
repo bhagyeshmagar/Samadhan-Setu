@@ -100,7 +100,11 @@ export default function TrackGrievance() {
     };
 
     const handleFeedbackSubmit = async (id, satisfied = true) => {
-        const rating = feedbackForm[id]?.rating || (satisfied ? 5 : 1);
+        const rating = feedbackForm[id]?.rating;
+        if (!rating) {
+            alert('Please select a star rating (1 to 5 stars) before submitting feedback.');
+            return;
+        }
         setFeedbackLoading(true);
         try {
             await complaintsAPI.submitFeedback(id, {

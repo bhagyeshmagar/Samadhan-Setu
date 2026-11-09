@@ -265,9 +265,9 @@ class ComplaintRepository:
         if exclude_statuses:
             query = query.where(Complaint.status.not_in(exclude_statuses))
         if category:
-            query = query.where(Complaint.category.ilike(category))
+            query = query.where(func.lower(Complaint.category) == category.lower())
         if ward:
-            query = query.where(Complaint.ward.ilike(ward))
+            query = query.where(func.lower(Complaint.ward) == ward.lower())
         if is_public_only:
             query = query.where(Complaint.is_public == True)
 
@@ -385,9 +385,12 @@ class ComplaintRepository:
             target_to = from_status
             target_from = target_complaint.status if target_complaint else None
 
-        if target_complaint is None and target_id is not None:
-            target_complaint = await self.get_by_id(target_id)
-        elif target_complaint is not None and target_id is None:
+        if target_id is not None:
+            stmt = select(Complaint).where(Complaint.id == target_id).with_for_update()
+            locked = (await self.session.execute(stmt)).scalar_one_or_none()
+            if locked is not None:
+                target_complaint = locked
+        elif target_complaint is not None:
             target_id = target_complaint.id
 
         if target_complaint and target_from is None:
