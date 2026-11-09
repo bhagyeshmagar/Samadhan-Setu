@@ -424,7 +424,7 @@ function BrandLogo() {
     return (
         <div className="flex items-center gap-2.5 cursor-pointer group">
             <div className="shrink-0 transition-transform group-hover:scale-105 duration-200">
-                <AshokaPillar size={36} />
+                <CivicBridgeEmblem size={36} />
             </div>
             <div className="flex flex-col leading-none">
                 <span
