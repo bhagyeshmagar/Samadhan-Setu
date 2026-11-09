@@ -159,11 +159,11 @@ export default function AdminDashboard() {
                             Sweep Complete: {slaSweepResult.warned_75_pct ?? 0} Warned (75%) · {slaSweepResult.breached_escalated ?? 0} Escalated · {slaSweepResult.auto_closed_7d ?? 0} Auto-Closed
                         </span>
                     )}
-                    {/* Live status */}
+                    {/* Prototype status */}
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
                         style={{ background: 'var(--india-green-light)', color: 'var(--india-green)', border: '1px solid var(--india-green)' }}>
                         <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                        Systems Nominal
+                        Operational (Prototype Mode)
                     </div>
                     <button
                         onClick={fetchData}
@@ -324,8 +324,8 @@ export default function AdminDashboard() {
                     </div>
                 </Section>
 
-                {/* High Priority Zones */}
-                <Section title="High Priority Sectors" icon={<AlertTriangle size={12} />}>
+                {/* Sample Distribution Watchlist */}
+                <Section title="Priority Sectors (Sample Simulation)" icon={<AlertTriangle size={12} />}>
                     <div className="space-y-2">
                         {highPriorityZones.map((zone, i) => (
                             <div key={i}
@@ -333,7 +333,7 @@ export default function AdminDashboard() {
                                 style={{ background: i === 0 ? 'var(--status-critical-bg)' : 'var(--bg-section)', border: '1px solid var(--border)' }}>
                                 <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{zone}</span>
                                 <span className="badge badge-critical">
-                                    <span className="badge-dot" /> Active
+                                    <span className="badge-dot" /> Sample Active
                                 </span>
                             </div>
                         ))}

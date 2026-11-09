@@ -21,13 +21,10 @@ from PIL import Image, ImageOps
 
 from app.config import settings
 from app.models.orm.enums import MediaType
-from app.services.storage import storage
+from app.services.storage import storage, _UPLOADS_DIR as UPLOADS_DIR
 
 # Safety cap against decomp bombs (approx 25 megapixels)
 Image.MAX_IMAGE_PIXELS = 25_000_000
-
-UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
-os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 
 def _process_and_save_sync(raw_bytes: bytes, target_path: str) -> Tuple[int, int, int]:
@@ -101,12 +98,13 @@ async def process_and_store_image(
         )
 
     if storage.backend == "local":
-        # Local mode: file is already in UPLOADS_DIR, build the URL directly
-        relative_url = f"/uploads/{s3_key}"
+        # Local mode: file is already in UPLOADS_DIR, served through media endpoint
+        relative_url = f"/api/media/{s3_key}"
     else:
         # Remote mode: read processed file, upload to object store, clean up local copy
         processed_bytes = await asyncio.to_thread(lambda: open(disk_path, "rb").read())
-        relative_url = await storage.save_file(processed_bytes, s3_key)
+        await storage.save_file(processed_bytes, s3_key)
+        relative_url = f"/api/media/{s3_key}"
         try:
             os.remove(disk_path)
         except OSError:

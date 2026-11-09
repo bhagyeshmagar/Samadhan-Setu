@@ -120,9 +120,9 @@ export default function LoginPage() {
                     <div className="pt-4 border-t border-white/10 text-[11px] text-white/60 space-y-1">
                         <div className="flex items-center gap-1.5 text-white/80 font-medium">
                             <ShieldCheck size={14} className="text-green-400" />
-                            <span>End-to-End Encrypted & Secure</span>
+                            <span>Civic Tech Platform (Demo & Prototype)</span>
                         </div>
-                        <p>Toll Free Citizen Helpline: 1800-123-4567</p>
+                        <p>Open civic grievance resolution system for demonstration & evaluation.</p>
                     </div>
                 </div>
 
@@ -284,7 +284,7 @@ export default function LoginPage() {
                     {/* Footer note */}
                     <div className="mt-6 pt-4 border-t border-gray-100 text-center">
                         <p className="text-[11px] text-gray-500">
-                            Protected by NIC / National e-Governance Security Protocols.
+                            Civic Tech Demonstration Platform • For evaluation & research purposes.
                         </p>
                     </div>
                 </div>

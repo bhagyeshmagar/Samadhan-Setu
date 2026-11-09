@@ -26,6 +26,7 @@ from ..schemas import ComplaintResponse, ComplaintUpdate, StatusLogResponse
 from ..services.state_machine import is_valid_transition
 from ..services.media_service import process_and_store_image
 from ..services.ai_bridge import get_ai_bridge
+from ..ai.priority import calculate_priority
 from ..config import settings
 
 PROOF_UPLOAD_DIR = os.path.join(
@@ -53,13 +54,28 @@ STATUS_LABEL_TO_ENUM = {
 }
 
 
-def _media_url(s3_key: Optional[str]) -> Optional[str]:
-    if not s3_key:
+def _media_url(media: Any) -> Optional[str]:
+    if not media:
         return None
-    if s3_key.startswith(("http://", "https://")):
-        return s3_key
-    clean_key = s3_key.lstrip("/")
-    return f"/{clean_key}" if clean_key.startswith("uploads/") else f"/uploads/{clean_key}"
+    if isinstance(media, str):
+        if media.startswith(("http://", "https://")):
+            return media
+        clean = media.lstrip("/")
+        if clean.startswith("api/media/"):
+            return f"/{clean}"
+        if clean.startswith("uploads/"):
+            clean = clean[len("uploads/"):]
+        return f"/api/media/{clean}"
+    media_id = getattr(media, "id", None)
+    if media_id:
+        return f"/api/media/{media_id}"
+    s3_key = getattr(media, "s3_key", None)
+    if s3_key:
+        clean = s3_key.lstrip("/")
+        if clean.startswith("uploads/"):
+            clean = clean[len("uploads/"):]
+        return f"/api/media/{clean}"
+    return None
 
 
 def _complaint_to_response(c: Complaint) -> ComplaintResponse:
@@ -85,13 +101,17 @@ def _complaint_to_response(c: Complaint) -> ComplaintResponse:
         }
 
     proof_images = []
+    inspection_images = []
     attachments = []
     if getattr(c, "media", None):
         for m in c.media:
-            url = _media_url(m.s3_key) or ""
+            url = _media_url(m) or ""
             if m.media_type == MediaType.RESOLUTION_PHOTO:
                 proof_images.append(url)
-            attachments.append(url)
+            elif m.media_type == MediaType.INSPECTION_PHOTO:
+                inspection_images.append(url)
+            else:
+                attachments.append(url)
 
     return ComplaintResponse(
         id=str(c.id),
@@ -373,35 +393,25 @@ async def upload_resolution_proof(
             raise HTTPException(status_code=403, detail="Access denied — complaint belongs to another department")
 
     # Load the most recent Inspection ('Before') photo bytes if present for forensic comparison
-    from pathlib import Path
-    from urllib.parse import unquote, urlsplit
-    from app.services.media_service import verify_before_after_authenticity, UPLOADS_DIR
+    from app.services.media_service import verify_before_after_authenticity
+    from app.services.storage import storage
 
     before_bytes = None
     inspection_media = [
         m for m in (complaint.media or [])
         if m.media_type == MediaType.INSPECTION_PHOTO
-        or (m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" in (getattr(m, "file_url", "") or getattr(m, "s3_key", "")))
-        or (hasattr(m, "s3_key") and "inspection" in m.s3_key)
     ]
     if inspection_media:
         latest_before = max(
             inspection_media,
             key=lambda media: media.created_at or datetime.min.replace(tzinfo=timezone.utc),
         )
-        latest_before_url = getattr(latest_before, "file_url", "") or getattr(latest_before, "s3_key", "")
-        stored_path = unquote(urlsplit(latest_before_url).path).replace("\\", "/")
-        relative_key = stored_path.split("/uploads/", 1)[-1].lstrip("/")
-        if relative_key.startswith("uploads/"):
-            relative_key = relative_key[len("uploads/"):]
-        upload_root = Path(UPLOADS_DIR).resolve()
-        before_path = (upload_root / relative_key).resolve()
         try:
-            before_path.relative_to(upload_root)
-        except ValueError:
-            before_path = None
-        if before_path and before_path.is_file():
-            before_bytes = before_path.read_bytes()
+            before_bytes = await storage.read_bytes(latest_before.s3_key)
+        except Exception as e:
+            logger.warning("Could not read before_bytes from storage for key %s: %s", latest_before.s3_key, e)
+            before_bytes = None
+
         if before_bytes is None:
             raise HTTPException(
                 status_code=409,
@@ -561,7 +571,7 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
     attachments = []
     if getattr(c, "media", None):
         for m in c.media:
-            url = getattr(m, "file_url", None) or _media_url(m.s3_key) or ""
+            url = _media_url(m) or ""
             media_item = {
                 "id": str(m.id),
                 "url": url,
@@ -569,17 +579,12 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
                 "media_type": m.media_type.value if hasattr(m.media_type, "value") else str(m.media_type),
                 "created_at": m.created_at.isoformat() if m.created_at else None,
             }
-            if (
-                m.media_type == MediaType.INSPECTION_PHOTO
-                # BUG-09 FIX: MediaType.PROOF_PHOTO is citizen-submitted evidence
-                # and must NOT appear in inspection_images (officer Before-photo slot).
-                # Only INSPECTION_PHOTO goes in inspection_images; PROOF_PHOTO goes in
-                # attachments only (already added above).
-            ):
+            if m.media_type == MediaType.INSPECTION_PHOTO:
                 inspection_images.append(url)
             elif m.media_type == MediaType.RESOLUTION_PHOTO and "inspection" not in (url or "").lower():
                 proof_images.append(url)
-            attachments.append(media_item)
+            else:
+                attachments.append(media_item)
 
     return {
         "id": str(c.id),
@@ -597,7 +602,9 @@ def _complaint_to_task(c: Complaint, dept_name: str = "") -> dict:
         "priority_score": c.priority_score,
         "sla_deadline": c.sla_deadline.isoformat() if c.sla_deadline else None,
         "proof_images": proof_images,
+        "resolution_proof": proof_images,
         "inspection_images": inspection_images,
+        "citizen_evidence": [a["url"] for a in attachments],
         "attachments": attachments,
     }
 
@@ -1160,126 +1167,13 @@ async def swarm_cascade_resolve_duplicates(
     session: AsyncSession = Depends(get_db_session),
 ):
     """
-    Samadhan Setu Smart Swarm Resolution:
-    Finds all open complaints in the same category and ward/vicinity with high semantic
-    similarity to this resolved complaint, links their resolution proof, and cascades
-    the Action Taken Report (ATR) in one atomic operation.
+    C5 FIX: Automated mass-resolution of citizen complaints is disabled.
+    Each grievance requires individual verification and authentic evidence.
     """
-    payload = payload or {}
-    repo = ComplaintRepository(session)
-    try:
-        cid = uuid.UUID(complaint_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid complaint ID")
-
-    master = await repo.get_by_id(cid)
-    if not master:
-        raise HTTPException(status_code=404, detail="Master complaint not found")
-
-    # C1 FIX: Master complaint must be in RESOLVED or CLOSED status
-    if master.status not in (ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Master complaint must be RESOLVED or CLOSED before triggering swarm resolution. Current status: '{master.status.value}'"
-        )
-
-    # C1 FIX: Master complaint must have at least one verified resolution photo
-    master_proofs = [m for m in (master.media or []) if m.media_type == MediaType.RESOLUTION_PHOTO]
-    if not master_proofs:
-        raise HTTPException(
-            status_code=400,
-            detail="Master complaint must have at least one verified resolution proof photo to cascade."
-        )
-
-    # C1 FIX: Enforce department authorization on swarm resolution
-    user_repo = UserRepository(session)
-    user_role_val = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
-    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
-    if user_role_val not in (UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value):
-        officer = await user_repo.get_officer_by_user_id(user_id)
-        if not officer or not officer.department_id or master.department_id != officer.department_id:
-            raise HTTPException(status_code=403, detail="Access denied — master complaint belongs to another department")
-
-    # Find open candidate complaints in the same category
-    stmt = (
-        select(Complaint)
-        .options(selectinload(Complaint.media), selectinload(Complaint.timeline))
-        .where(
-            Complaint.id != cid,
-            Complaint.category == master.category,
-            Complaint.status.in_([
-                ComplaintStatus.SUBMITTED,
-                ComplaintStatus.ASSIGNED,
-                ComplaintStatus.IN_PROGRESS,
-            ]),
-        )
-        .limit(50)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Automated swarm mass-resolution is disabled for citizen governance integrity. Each grievance must be inspected and resolved with individual, authentic field proof."
     )
-    candidates = (await session.execute(stmt)).scalars().all()
-
-    bridge = get_ai_bridge()
-    master_text = f"{master.title}. {master.description}"
-    cascaded_ids = []
-
-    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
-    user_role = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
-
-    for cand in candidates:
-        # Check ward match or proximity (~1 km bounding box)
-        same_ward = bool(master.ward and cand.ward and master.ward.lower() == cand.ward.lower())
-        near_coords = (
-            master.latitude is not None
-            and master.longitude is not None
-            and cand.latitude is not None
-            and cand.longitude is not None
-            and abs(master.latitude - cand.latitude) <= 0.01
-            and abs(master.longitude - cand.longitude) <= 0.01
-        )
-        if not (same_ward or near_coords):
-            continue
-
-        cand_text = f"{cand.title}. {cand.description}"
-        sim_res = bridge.check_Duplicates(
-            cand_text,
-            [{"id": str(master.id), "text": master_text}],
-            threshold=0.60,
-        )
-        if sim_res.get("is_duplicate") and (same_ward or near_coords):
-            # C1 FIX: Copy verified resolution proof photos from master to cascaded complaint
-            for proof_item in master_proofs:
-                await repo.add_media_proof(
-                    complaint_id=cand.id,
-                    media_type=MediaType.RESOLUTION_PHOTO,
-                    s3_key=proof_item.s3_key,
-                    file_name=proof_item.file_name,
-                    file_size_bytes=proof_item.file_size_bytes,
-                    mime_type=proof_item.mime_type,
-                    uploaded_by=user_id,
-                )
-
-            # BUG-04 FIX: was cand.resolution_notes (non-existent field) — correct
-            # ORM attribute is resolution_remarks (see models/orm/complaint.py L116)
-            cand.resolution_remarks = (
-                f"[SWARM CASCADE ATR — Linked to Primary Incident {master.complaint_number}]\n"
-                f"{master.resolution_remarks or 'Resolved via coordinated municipal field operation.'}"
-            )
-            await repo.add_status_transition(
-                complaint_id=cand.id,
-                from_status=cand.status,
-                to_status=ComplaintStatus.RESOLVED,
-                actor_id=user_id,
-                actor_role=user_role,
-                notes=f"Auto-resolved via Smart Swarm Cascade from Primary Incident {master.complaint_number}.",
-            )
-            cascaded_ids.append(cand.complaint_number)
-
-    await session.commit()
-    return {
-        "message": f"Swarm Cascade completed: {len(cascaded_ids)} linked complaints resolved.",
-        "master_complaint": master.complaint_number,
-        "cascaded_count": len(cascaded_ids),
-        "cascaded_complaint_numbers": cascaded_ids,
-    }
 
 
 

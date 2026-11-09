@@ -19,9 +19,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 const formatImageUrl = (url) => {
     if (!url) return '';
-    if (url.startsWith('http')) return url;
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('/api/')) return `${API_BASE}${url}`;
     if (url.startsWith('/uploads/')) return `${API_BASE}${url}`;
-    return `${API_BASE}/uploads/${url.replace(/^\//, '')}`;
+    return `${API_BASE}/api/media/${url.replace(/^\//, '')}`;
 };
 
 export default function DepartmentDashboard() {

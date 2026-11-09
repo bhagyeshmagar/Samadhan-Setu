@@ -25,6 +25,7 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -122,6 +123,40 @@ async def get_current_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Officer account or profile is deactivated",
             )
+
+    return user
+
+
+async def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    session: AsyncSession = Depends(get_async_session),
+) -> Optional[User]:
+    """Resolve the JWT token to the authenticated User row, or None if unauthenticated."""
+    if not token:
+        return None
+
+    payload = decode_token(token)
+    if payload is None:
+        return None
+
+    user_id_raw = payload.get("sub")
+    if user_id_raw is None:
+        return None
+
+    try:
+        user_id = uuid.UUID(str(user_id_raw))
+    except (ValueError, AttributeError):
+        return None
+
+    repo = UserRepository(session)
+    user = await repo.get_by_id(user_id)
+    if user is None or not user.is_active:
+        return None
+
+    if user.role in (UserRole.OFFICER, UserRole.SUPERVISOR):
+        officer = await repo.get_officer_by_user_id(user.id)
+        if officer is None or not officer.is_active:
+            return None
 
     return user
 

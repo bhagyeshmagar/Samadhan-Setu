@@ -82,15 +82,29 @@ async def get_visible_complaint(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
 
 
-def _format_media_url(s3_key: str) -> str:
-    if not s3_key:
+def _format_media_url(media: Any) -> str:
+    """Format safe API media endpoint URL."""
+    if not media:
         return ""
-    if s3_key.startswith("http://") or s3_key.startswith("https://"):
-        return s3_key
-    clean = s3_key.lstrip("/")
-    if not clean.startswith("uploads/"):
-        return f"/uploads/{clean}"
-    return f"/{clean}"
+    if isinstance(media, str):
+        if media.startswith(("http://", "https://")):
+            return media
+        clean = media.lstrip("/")
+        if clean.startswith("api/media/"):
+            return f"/{clean}"
+        if clean.startswith("uploads/"):
+            clean = clean[len("uploads/"):]
+        return f"/api/media/{clean}"
+    media_id = getattr(media, "id", None)
+    if media_id:
+        return f"/api/media/{media_id}"
+    s3_key = getattr(media, "s3_key", None)
+    if s3_key:
+        clean = s3_key.lstrip("/")
+        if clean.startswith("uploads/"):
+            clean = clean[len("uploads/"):]
+        return f"/api/media/{clean}"
+    return ""
 
 
 def serialize_public(c: Complaint) -> Dict[str, Any]:
@@ -102,13 +116,19 @@ def serialize_public(c: Complaint) -> Dict[str, Any]:
     lat = round(c.latitude, 3) if c.latitude is not None else None
     lng = round(c.longitude, 3) if c.longitude is not None else None
 
-    attachments = [
-        _format_media_url(m.s3_key)
+    # H4 FIX: Separate citizen evidence, officer inspection photos, and resolution proofs
+    citizen_evidence = [
+        _format_media_url(m)
         for m in (c.media or [])
-        if m.media_type in (MediaType.PROOF_PHOTO, MediaType.INSPECTION_PHOTO)
+        if m.media_type in (MediaType.PROOF_PHOTO, MediaType.ADDITIONAL_DOC)
+    ]
+    inspection_images = [
+        _format_media_url(m)
+        for m in (c.media or [])
+        if m.media_type == MediaType.INSPECTION_PHOTO
     ]
     resolution_proof = [
-        _format_media_url(m.s3_key)
+        _format_media_url(m)
         for m in (c.media or [])
         if m.media_type == MediaType.RESOLUTION_PHOTO
     ]
@@ -135,7 +155,9 @@ def serialize_public(c: Complaint) -> Dict[str, Any]:
         "department_id": str(c.department_id) if c.department_id else None,
         "department_name": c.department.name if c.department else None,
         "upvotes": c.vote_count or 0,
-        "attachments": attachments,
+        "attachments": citizen_evidence,
+        "citizen_evidence": citizen_evidence,
+        "inspection_images": inspection_images,
         "resolution_proof": resolution_proof,
         "resolution_remarks": c.resolution_remarks,
         "action_taken_report": c.action_taken_report,

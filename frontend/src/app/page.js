@@ -9,11 +9,11 @@ import {
 
 /* ── Announcement Ticker ── */
 const NOTICES = [
-    '📢 AI-assisted complaint routing is now live — complaints are auto-classified and routed in under 2 seconds.',
-    '📋 New: Officers can now view AI priority explanations for each complaint.',
-    '✅ Resolution rate improved to 94% in the last 30 days.',
-    '🗓️ Portal maintenance scheduled: Sunday 2 AM – 4 AM IST.',
-    '📱 File grievances now available on mobile — optimised for all devices.',
+    '📢 AI-assisted complaint routing active — grievances are classified and routed to municipal departments.',
+    '📋 Officers and citizens can inspect AI priority explanations and SLA timelines for each grievance.',
+    '⚙️ Autonomous SLA daemon tracks escalation thresholds and statutory deadlines.',
+    '📱 Responsive grievance redressal portal optimised for desktop and mobile devices.',
+    '💡 Prototype Demonstration System — Developed for civic tech research and workflow evaluation.',
 ];
 
 function AnnouncementTicker() {
@@ -41,10 +41,10 @@ function AnnouncementTicker() {
 
 /* ── Stats ── */
 const STATS = [
-    { value: '24/7',   label: 'Civic Access',        labelHi: 'नागरिक सेवा',       color: 'mc-navy' },
-    { value: '<2s',    label: 'AI Categorization',   labelHi: 'AI वर्गीकरण',       color: 'mc-saffron' },
-    { value: '100%',   label: 'Transparent Audit',   labelHi: 'पारदर्शी निगरानी',  color: 'mc-green' },
-    { value: 'Active', label: 'System Operational',  labelHi: 'सिस्टम सक्रिय',    color: 'mc-purple' },
+    { value: '24/7',        label: 'Civic Access',        labelHi: 'नागरिक सेवा',       color: 'mc-navy' },
+    { value: 'Automated',   label: 'AI Categorization',   labelHi: 'AI वर्गीकरण',       color: 'mc-saffron' },
+    { value: '100%',        label: 'Transparent Audit',   labelHi: 'पारदर्शी निगरानी',  color: 'mc-green' },
+    { value: 'Prototype',   label: 'System Status',       labelHi: 'सिस्टम मोड',        color: 'mc-purple' },
 ];
 
 /* ── Quick Action Tiles ── */
@@ -137,12 +137,12 @@ export default function Home() {
 
                     {/* Left: Text */}
                     <div>
-                        {/* Official badge */}
+                        {/* Prototype badge */}
                         <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1.5 rounded-full text-xs font-semibold"
                             style={{ background: 'var(--navy-light)', color: 'var(--navy)', border: '1px solid rgba(0,53,128,0.15)' }}
                         >
                             <ShieldCheck size={13} style={{ color: 'var(--india-green)' }} />
-                            Civic Grievance Redressal Portal
+                            Civic Grievance Redressal System · Prototype
                         </div>
 
                         <h1
@@ -164,8 +164,8 @@ export default function Home() {
                             className="text-base leading-relaxed mb-8 max-w-lg"
                             style={{ color: 'var(--text-secondary)' }}
                         >
-                            Transparent, accountable, AI-powered civic grievance resolution —
-                            bridging citizens and local administration.
+                            Transparent, accountable, AI-assisted civic grievance redressal architecture —
+                            connecting citizens and local municipal administration.
                         </p>
 
                         {/* CTAs */}
@@ -181,8 +181,8 @@ export default function Home() {
                         {/* Quick trust signals */}
                         <div className="flex flex-wrap gap-4 mt-8">
                             {[
-                                { icon: '🔒', text: 'Secure & encrypted' },
-                                { icon: '⚡', text: 'AI-routed in 2 seconds' },
+                                { icon: '🔒', text: 'Role-Based Access Control' },
+                                { icon: '⚡', text: 'Automated AI Routing' },
                                 { icon: '📊', text: 'Full audit trail' },
                             ].map(t => (
                                 <div key={t.text} className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>

@@ -74,7 +74,7 @@ An intelligent, governance-first civic complaint management ecosystem that lever
 ### 4. AI Intelligence Layer
 - **Zero-Shot Categorization (DistilBERT/BART)**: Classifies unstructured grievance text into civic categories with confidence scoring.
 - **Semantic Duplicate Radar (SBERT)**: Vector embeddings (`all-MiniLM-L6-v2`) identify similar complaints to prevent duplicate investigations.
-- **Visual Evidence Inspection (YOLOv8)**: Detects civic hazards (potholes, garbage, water leaks, wiring) and evaluates image severity.
+- **Visual Evidence Inspection (YOLOv8n / COCO)**: Analyzes evidence images for contextual objects (vehicles, street furniture, debris proxies) to score photo relevance and verify authenticity.
 - **Multi-Modal Severity Fusion**: Combines text urgency and visual evidence into a balanced, adaptive severity metric.
 - **6-Factor Priority Calculator**:
   $$\text{Score} = 0.30U + 0.30S + 0.15C + 0.10R + 0.10L + 0.05H$$
@@ -97,7 +97,7 @@ An intelligent, governance-first civic complaint management ecosystem that lever
 | **Database Migrations**| **Alembic** | Versioned, auditable database schema migrations |
 | **Authentication** | **JWT** + **Argon2** | Stateless tokens with RBAC (Citizen, Officer, Admin) |
 | **AI: NLP** | **Transformers** & **Sentence-Transformers** | Zero-shot DistilBERT classification & SBERT duplicate detection |
-| **AI: Computer Vision**| **Ultralytics YOLOv8** | Evidence image inspection and civic hazard verification |
+| **AI: Computer Vision**| **Ultralytics YOLOv8** | Evidence image inspection and contextual object verification |
 
 ---
 

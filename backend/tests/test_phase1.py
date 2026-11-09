@@ -4,6 +4,7 @@ test_phase1.py – State machine, priority scoring, and routing unit tests.
 Re-written for the PostgreSQL ORM edition.
 All imports now reference the ORM models and current service paths.
 """
+import os
 import pytest
 
 
@@ -228,31 +229,54 @@ class TestRateLimiter:
 
 # ── Storage Backend ───────────────────────────────────────────────────────────
 
+@pytest.fixture
+def local_tmp_dir():
+    import os
+    import shutil
+    p = os.path.join(os.path.dirname(__file__), ".tmp_storage_test")
+    os.makedirs(p, exist_ok=True)
+    yield p
+    shutil.rmtree(p, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 class TestLocalStorage:
-    """LocalStorage saves bytes and returns a /uploads/ URL."""
+    """LocalStorage saves bytes, reads bytes safely, and returns api URLs."""
 
-    def test_save_and_url(self, tmp_path):
-        import asyncio
+    async def test_save_and_url(self, local_tmp_dir):
         from app.services.storage import LocalStorage
-        ls = LocalStorage(uploads_dir=str(tmp_path))
-        url = asyncio.run(ls.save_file(b"fake-jpeg-bytes", "comp-id/proof_abc.jpg"))
-        assert url == "/uploads/comp-id/proof_abc.jpg"
-        assert (tmp_path / "comp-id" / "proof_abc.jpg").exists()
+        ls = LocalStorage(uploads_dir=local_tmp_dir)
+        key = await ls.save_file(b"fake-jpeg-bytes", "comp-id/proof_abc.jpg")
+        assert key == "comp-id/proof_abc.jpg"
+        url = await ls.get_file_url(key)
+        assert url == "/api/media/comp-id/proof_abc.jpg"
+        assert os.path.isfile(os.path.join(local_tmp_dir, "comp-id", "proof_abc.jpg"))
 
-    def test_delete(self, tmp_path):
-        import asyncio
+    async def test_read_bytes(self, local_tmp_dir):
         from app.services.storage import LocalStorage
-        ls = LocalStorage(uploads_dir=str(tmp_path))
-        asyncio.run(ls.save_file(b"data", "x/file.jpg"))
-        asyncio.run(ls.delete_file("x/file.jpg"))
-        assert not (tmp_path / "x" / "file.jpg").exists()
+        ls = LocalStorage(uploads_dir=local_tmp_dir)
+        key = await ls.save_file(b"secure-data-123", "comp-id/test.jpg")
+        data = await ls.read_bytes(key)
+        assert data == b"secure-data-123"
 
-    def test_delete_missing_file_no_error(self, tmp_path):
-        import asyncio
+    async def test_path_traversal_blocked(self, local_tmp_dir):
         from app.services.storage import LocalStorage
-        ls = LocalStorage(uploads_dir=str(tmp_path))
+        ls = LocalStorage(uploads_dir=local_tmp_dir)
+        with pytest.raises(PermissionError):
+            await ls.read_bytes("../../etc/passwd")
+
+    async def test_delete(self, local_tmp_dir):
+        from app.services.storage import LocalStorage
+        ls = LocalStorage(uploads_dir=local_tmp_dir)
+        await ls.save_file(b"data", "x/file.jpg")
+        await ls.delete_file("x/file.jpg")
+        assert not os.path.isfile(os.path.join(local_tmp_dir, "x", "file.jpg"))
+
+    async def test_delete_missing_file_no_error(self, local_tmp_dir):
+        from app.services.storage import LocalStorage
+        ls = LocalStorage(uploads_dir=local_tmp_dir)
         # Should not raise
-        asyncio.run(ls.delete_file("nonexistent/file.jpg"))
+        await ls.delete_file("nonexistent/file.jpg")
 
 
 if __name__ == "__main__":

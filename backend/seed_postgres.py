@@ -38,9 +38,10 @@ from app.models.orm import (
 from app.auth import get_password_hash
 
 async def seed_data():
-    env = os.environ.get("ENV", "development").lower()
-    if env in ("prod", "production"):
-        print("❌ Refusing to run seed_postgres in production environment.")
+    from app.config import settings
+    env = (os.environ.get("ENVIRONMENT") or os.environ.get("ENV") or settings.ENVIRONMENT or "development").lower()
+    if env not in ("development", "dev", "local", "test"):
+        print(f"❌ Refusing to run seed_postgres in non-development environment ('{env}').")
         sys.exit(1)
 
     print("🌱 Connecting to PostgreSQL to seed demo data...")

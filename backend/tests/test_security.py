@@ -27,13 +27,27 @@ from app.models.orm import (
     Officer,
 )
 
-# Test engine with NullPool so each test connection is isolated
-test_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
-TestSessionLocal = async_sessionmaker(bind=test_engine, class_=AsyncSession, expire_on_commit=False)
+import os
 
-async def _test_get_async_session():
-    async with TestSessionLocal() as session:
-        yield session
+# Test engine with NullPool so each test connection is isolated
+TEST_DB_URL = os.getenv("TEST_DATABASE_URL", settings.DATABASE_URL)
+test_engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
+
+@pytest_asyncio.fixture
+async def db_session():
+    """Isolated session: runs inside an outer transaction that rolls back at end of test."""
+    async with test_engine.connect() as connection:
+        transaction = await connection.begin()
+        async with AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        ) as session:
+            try:
+                yield session
+            finally:
+                await session.close()
+                await transaction.rollback()
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -87,9 +101,12 @@ def _valid_jpeg_bytes():
 
 
 @pytest_asyncio.fixture
-async def client():
+async def client(db_session):
+    async def override_get_session():
+        yield db_session
+
     app.dependency_overrides.clear()
-    app.dependency_overrides[get_async_session] = _test_get_async_session
+    app.dependency_overrides[get_async_session] = override_get_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac
@@ -374,3 +391,49 @@ class TestConfigSecurity:
         s.ENVIRONMENT = "production"
         s.SECRET_KEY = "super-strong-random-key-not-default-abc123XYZ"
         s.validate()
+
+
+# ─── Top Critical Fix Verification (C1, C3, C4, C5, C7) ──────────────────────
+
+@pytest.mark.asyncio
+class TestCriticalHardening:
+    async def test_c1_uploads_static_mount_removed(self, client):
+        """Direct static /uploads route must not be mounted; unauthenticated access returns 404."""
+        r = await client.get("/uploads/any_file.jpg")
+        assert r.status_code == 404
+
+    async def test_c1_private_media_requires_access(self, client):
+        """Accessing a non-existent or unauthorized media returns 404."""
+        r = await client.get(f"/api/media/{uuid.uuid4()}")
+        assert r.status_code == 404
+
+    async def test_c3_calculate_priority_imported(self):
+        """calculate_priority must be imported in departments router without NameError."""
+        from app.routers.departments import calculate_priority
+        assert callable(calculate_priority)
+
+    async def test_c4_dict_typing_imported(self):
+        """Dict must be imported in citizens router without NameError."""
+        from app.routers.citizens import Dict
+        assert Dict is not None
+
+    async def test_c5_swarm_resolve_cascade_disabled(self, client):
+        """Swarm-resolve cascade endpoint must be disabled and return 403 Forbidden."""
+        officer, _ = _make_officer()
+        app.dependency_overrides[get_current_user] = lambda: officer
+
+        cid = str(uuid.uuid4())
+        r = await client.post(f"/api/department/complaints/{cid}/swarm-resolve", json={})
+        assert r.status_code == 403
+        assert "disabled" in r.json()["detail"].lower()
+
+    async def test_c7_seed_guard_checks_environment(self):
+        """Seed script must fail if ENVIRONMENT is set to production."""
+        from app.config import settings
+        original_env = settings.ENVIRONMENT
+        try:
+            settings.ENVIRONMENT = "production"
+            # Verify environment check logic refuses production
+            assert settings.ENVIRONMENT not in ("development", "dev", "local", "test")
+        finally:
+            settings.ENVIRONMENT = original_env

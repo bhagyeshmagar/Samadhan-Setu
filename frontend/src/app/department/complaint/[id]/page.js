@@ -26,13 +26,14 @@ const STATUS_OPTIONS = [
     { value: 'rejected', label: 'Rejected / निरस्त' },
 ];
 
-// Backend stores keys like "citizen/abc.jpg" and serves them under /uploads
+// Securely load media from API endpoint
 const getImageUrl = (img) => {
-    const raw = typeof img === 'string' ? img : img?.path;
+    const raw = typeof img === 'string' ? img : (img?.url || img?.path);
     if (!raw) return '';
-    if (raw.startsWith('http')) return raw;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    if (raw.startsWith('/api/')) return `${API_BASE}${raw}`;
     if (raw.startsWith('/uploads/')) return `${API_BASE}${raw}`;
-    return `${API_BASE}/uploads/${raw.replace(/^\//, '')}`;
+    return `${API_BASE}/api/media/${raw.replace(/^\//, '')}`;
 };
 
 export default function HandleComplaint() {
@@ -761,35 +762,17 @@ export default function HandleComplaint() {
                             </div>
 
                             {['resolved', 'closed'].includes(String(complaint.status || '').toLowerCase()) && (
-                                <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+                                <div className="rounded-xl border border-gray-200 bg-gray-50 dark:bg-slate-800/40 dark:border-slate-700 p-4">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div>
-                                            <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-900">
-                                                Resolve verified linked complaints
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                                                Grievance Deduplication Policy
                                             </h3>
-                                            <p className="mt-1 text-xs text-cyan-800">
-                                                Apply this resolution to semantically matching complaints in the same ward or nearby area.
+                                            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                                                Automated mass-resolution is disabled for citizen governance integrity. Each citizen grievance requires separate, authentic on-site inspection proof.
                                             </p>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={handleSwarmResolve}
-                                            disabled={swarmSubmitting}
-                                            className="rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-800 disabled:opacity-50"
-                                        >
-                                            {swarmSubmitting ? 'Checking linked complaints…' : 'Resolve linked complaints'}
-                                        </button>
                                     </div>
-                                    {swarmResult && (
-                                        <p className="mt-3 text-xs font-medium text-emerald-800" role="status">
-                                            {swarmResult.message}
-                                            {swarmResult.cascaded_complaint_numbers?.length > 0 && (
-                                                <span className="mt-1 block">
-                                                    Resolved: {swarmResult.cascaded_complaint_numbers.join(', ')}
-                                                </span>
-                                            )}
-                                        </p>
-                                    )}
                                 </div>
                             )}
                         </div>

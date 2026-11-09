@@ -8,14 +8,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .db.session import async_engine
 from .routers import (
     auth_router, citizens_router, departments_router,
     admin_router, assignments_router, analytics_router, ai_insights_router,
-    notifications_router,
+    notifications_router, media_router,
 )
 
 
@@ -83,11 +82,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         headers=headers,
     )
 
-# ── Static uploads (local disk — Phase 4 will swap to S3) ────────────────────
-UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-os.makedirs(UPLOADS_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
-
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(citizens_router)
@@ -97,6 +91,7 @@ app.include_router(assignments_router)
 app.include_router(analytics_router)
 app.include_router(ai_insights_router)
 app.include_router(notifications_router)
+app.include_router(media_router)
 
 
 @app.get("/", tags=["Root"])

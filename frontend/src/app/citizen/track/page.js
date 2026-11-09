@@ -13,9 +13,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 const getImageUrl = (img) => {
     const raw = typeof img === 'string' ? img : img?.path || img?.url;
     if (!raw) return '';
-    if (raw.startsWith('http')) return raw;
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    if (raw.startsWith('/api/')) return `${API_BASE}${raw}`;
     if (raw.startsWith('/uploads/')) return `${API_BASE}${raw}`;
-    return `${API_BASE}/uploads/${raw.replace(/^\//, '')}`;
+    return `${API_BASE}/api/media/${raw.replace(/^\//, '')}`;
 };
 
 const STATUS_ORDER = ['submitted', 'verified', 'assigned', 'in_progress', 'resolved', 'closed'];
@@ -147,9 +148,10 @@ export default function TrackGrievance() {
         const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
         const raw = typeof img === 'string' ? img : (img?.s3_key || img?.path || img?.url || '');
         if (!raw) return '';
-        if (raw.startsWith('http')) return raw;
+        if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+        if (raw.startsWith('/api/')) return `${apiBase}${raw}`;
         if (raw.startsWith('/uploads/')) return `${apiBase}${raw}`;
-        return `${apiBase}/uploads/${raw.replace(/^\//, '')}`;
+        return `${apiBase}/api/media/${raw.replace(/^\//, '')}`;
     };
 
     if (authLoading || loading) {

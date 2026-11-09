@@ -7,10 +7,12 @@ IMPORTANT: ALL fixed-path routes (e.g. /my, /public/feed, /preview-ai,
 otherwise Starlette's path-matching will match the fixed segments as a path
 parameter and return 405 Method Not Allowed for the wrong HTTP method.
 """
+from __future__ import annotations
+
 import io
 import os
 import uuid
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from datetime import datetime, timezone, timedelta
 
 from fastapi import (
@@ -48,13 +50,28 @@ os.makedirs(CITIZEN_UPLOAD_DIR, exist_ok=True)
 router = APIRouter(prefix="/api/complaints", tags=["Citizens"])
 
 
-def _media_url(s3_key: Optional[str]) -> Optional[str]:
-    if not s3_key:
+def _media_url(media: Any) -> Optional[str]:
+    if not media:
         return None
-    if s3_key.startswith(("http://", "https://")):
-        return s3_key
-    clean_key = s3_key.lstrip("/")
-    return f"/{clean_key}" if clean_key.startswith("uploads/") else f"/uploads/{clean_key}"
+    if isinstance(media, str):
+        if media.startswith(("http://", "https://")):
+            return media
+        clean = media.lstrip("/")
+        if clean.startswith("api/media/"):
+            return f"/{clean}"
+        if clean.startswith("uploads/"):
+            clean = clean[len("uploads/"):]
+        return f"/api/media/{clean}"
+    media_id = getattr(media, "id", None)
+    if media_id:
+        return f"/api/media/{media_id}"
+    s3_key = getattr(media, "s3_key", None)
+    if s3_key:
+        clean = s3_key.lstrip("/")
+        if clean.startswith("uploads/"):
+            clean = clean[len("uploads/"):]
+        return f"/api/media/{clean}"
+    return None
 
 
 def _complaint_to_response(
@@ -85,17 +102,17 @@ def _complaint_to_response(
         }
 
     inspection_images = [
-        _media_url(m.s3_key)
+        _media_url(m)
         for m in (c.media or [])
         if m.media_type == MediaType.INSPECTION_PHOTO
     ]
     resolution_images = [
-        _media_url(m.s3_key)
+        _media_url(m)
         for m in (c.media or [])
         if m.media_type == MediaType.RESOLUTION_PHOTO
     ]
     citizen_attachments = [
-        _media_url(m.s3_key)
+        _media_url(m)
         for m in (c.media or [])
         if m.media_type in (MediaType.PROOF_PHOTO, MediaType.ADDITIONAL_DOC)
     ]

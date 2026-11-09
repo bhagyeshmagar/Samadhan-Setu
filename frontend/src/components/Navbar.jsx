@@ -10,8 +10,8 @@ import ThemeToggle from './ThemeToggle';
 
 const emptySubscribe = () => () => {};
 
-/* ── Ashoka Pillar SVG (simplified line-art) ── */
-function AshokaPillar({ size = 36 }) {
+/* ── Civic Bridge Emblem SVG ── */
+function CivicBridgeEmblem({ size = 36 }) {
     return (
         <svg
             width={size}
@@ -19,20 +19,25 @@ function AshokaPillar({ size = 36 }) {
             viewBox="0 0 36 36"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
-            aria-label="Ashoka Pillar emblem"
+            aria-label="Civic bridge emblem"
         >
-            {/* Capital */}
-            <rect x="8" y="6" width="20" height="3" rx="1.5" fill="#003580" />
-            {/* Abacus ring */}
-            <rect x="10" y="9" width="16" height="2" rx="1" fill="#FF9933" />
-            {/* Shaft */}
-            <rect x="15" y="11" width="6" height="16" rx="1" fill="#003580" />
-            {/* Base */}
-            <rect x="9" y="27" width="18" height="2.5" rx="1.25" fill="#003580" />
-            {/* Chakra dots on abacus */}
-            <circle cx="13" cy="10" r="0.9" fill="white" />
-            <circle cx="18" cy="10" r="0.9" fill="white" />
-            <circle cx="23" cy="10" r="0.9" fill="white" />
+            <rect width="36" height="36" rx="8" fill="#003580" />
+            <path
+                d="M6 25C10 16 26 16 30 25"
+                stroke="#FF9933"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+            />
+            <path
+                d="M5 24H31"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+            />
+            <path d="M12 24V28" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M18 24V28" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M24 24V28" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+            <circle cx="18" cy="11" r="3" fill="#138808" />
         </svg>
     );
 }
