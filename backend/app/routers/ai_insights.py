@@ -471,29 +471,33 @@ async def override_routing(
             )
 
     repo = ComplaintRepository(session)
+    actor_role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
     await repo.add_status_transition(
-        c,
-        c.status,
-        changed_by=current_user.id,
-        actor_role=current_user.role.value,
+        complaint_id=c.id,
+        from_status=c.status,
+        to_status=c.status,
+        actor_id=current_user.id,
+        actor_role=actor_role_val,
         notes=f"Officer routing override: {reason}",
     )
 
     # Update or create AIResult with override flags for HITL statistics
-    ai_res = (await session.execute(select(AIResult).where(AIResult.complaint_id == c.id))).scalar_one_or_none()
+    ai_res = (await session.execute(select(AIResult).where(AIResult.complaint_id == c.id))).scalars().first()
+    priority_val = c.priority.value if hasattr(c.priority, "value") else str(c.priority)
+    raw_override_data = {"officer_id": str(current_user.id), "priority": priority_val, "reason": reason}
     if ai_res:
         ai_res.overridden = True
         ai_res.override_reason = reason
-        ai_res.officer_id = current_user.id
+        ai_res.raw_output = {**(ai_res.raw_output or {}), **raw_override_data}
     else:
         ai_res = AIResult(
             complaint_id=c.id,
             predicted_category=c.category,
-            predicted_priority=c.priority.value,
-            confidence_score=c.ai_confidence or 0.8,
+            category_confidence=float(c.ai_confidence or 0.8),
+            priority_score=float(c.priority_score or 1.0),
             overridden=True,
             override_reason=reason,
-            officer_id=current_user.id,
+            raw_output=raw_override_data,
         )
         session.add(ai_res)
 

@@ -23,6 +23,11 @@ const STATUS_OPTIONS = [
     { value: 'assigned', label: 'Assigned / स्वीकृत' },
     { value: 'in_progress', label: 'In Progress / प्रगति पर' },
     { value: 'resolved', label: 'Resolved / समाधानित' },
+    { value: 'closed', label: 'Closed / बंद' },
+    { value: 'reopened', label: 'Reopened / पुनः खुला' },
+    { value: 'appealed_l1', label: 'Appeal Level 1 (Nodal Review)' },
+    { value: 'appealed_l2', label: 'Appeal Level 2 (Appellate Review)' },
+    { value: 'escalated', label: 'Escalated / अग्रसारित' },
     { value: 'rejected', label: 'Rejected / निरस्त' },
 ];
 
@@ -301,16 +306,22 @@ export default function HandleComplaint() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Content */}
                 <div className="lg:col-span-2 space-y-6">
-                    {/* Appellate Authority Adjudication Panel */}
-                    {(complaint.status || '').toLowerCase() === 'appealed' && (
-                        <div className="p-5 rounded-2xl border-2 border-rose-400 bg-rose-50/80 shadow-sm">
-                            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-800 mb-2 flex items-center gap-2">
-                                ⚖️ Appellate Authority Adjudication Required (Citizen Appeal Active)
+                    {/* Appellate Authority Adjudication Panel (H3 FIX) */}
+                    {(complaint.status || '').toLowerCase().startsWith('appealed') && (
+                        <div className="p-5 rounded-2xl border-2 border-rose-400 bg-rose-50/90 shadow-sm space-y-3">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-800 flex items-center gap-2">
+                                ⚖️ Appellate Authority Adjudication ({String(complaint.status || '').toLowerCase() === 'appealed_l2' ? 'Level 2 Appellate Review' : 'Level 1 Nodal Review'})
                             </h3>
-                            <p className="text-xs text-rose-900 mb-3 leading-relaxed">
-                                The citizen challenged the previous Action Taken Report (ATR). Issue a binding Appellate Order below:
+                            <p className="text-xs text-rose-900 leading-relaxed">
+                                The citizen challenged the Action Taken Report. As an Appellate Authority (Supervisor / Admin), issue a binding order:
                             </p>
-                            <div className="flex flex-wrap gap-3">
+                            {complaint.appeal_remarks && (
+                                <div className="p-3 bg-white/80 rounded-lg border border-rose-200 text-xs text-rose-950">
+                                    <span className="font-bold">Citizen Appeal Reason: </span>
+                                    <span>{complaint.appeal_remarks}</span>
+                                </div>
+                            )}
+                            <div className="flex flex-wrap gap-3 pt-1">
                                 <button
                                     type="button"
                                     onClick={async () => {
@@ -320,7 +331,7 @@ export default function HandleComplaint() {
                                             window.location.reload();
                                         }
                                     }}
-                                    className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold"
+                                    className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-sm"
                                 >
                                     ↺ Uphold Citizen Appeal — Reopen for Field Rework (24h SLA)
                                 </button>
@@ -333,7 +344,7 @@ export default function HandleComplaint() {
                                             window.location.reload();
                                         }
                                     }}
-                                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold"
+                                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm"
                                 >
                                     ✓ Dispose Appeal — Issue Final Resolution & Close
                                 </button>

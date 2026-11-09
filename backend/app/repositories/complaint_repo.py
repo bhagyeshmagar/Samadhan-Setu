@@ -28,21 +28,16 @@ class ComplaintRepository:
         self.session = session
 
     async def generate_complaint_number(self) -> str:
-        """Generate unique complaint number e.g. SS-2026-001234 using PostgreSQL sequence."""
+        """Generate unique complaint number e.g. SS-2026-100001 using PostgreSQL sequence."""
         year = datetime.now(timezone.utc).year
         try:
+            res = await self.session.execute(text("SELECT nextval('complaint_number_seq')"))
+            val = res.scalar()
+        except Exception:
             async with self.session.begin_nested():
+                await self.session.execute(text("CREATE SEQUENCE IF NOT EXISTS complaint_number_seq START 100001"))
                 res = await self.session.execute(text("SELECT nextval('complaint_number_seq')"))
                 val = res.scalar()
-        except Exception:
-            try:
-                async with self.session.begin_nested():
-                    await self.session.execute(text("CREATE SEQUENCE IF NOT EXISTS complaint_number_seq START 1001"))
-                    res = await self.session.execute(text("SELECT nextval('complaint_number_seq')"))
-                    val = res.scalar()
-            except Exception:
-                res = await self.session.execute(select(func.count(Complaint.id)))
-                val = (res.scalar() or 0) + 1001
         return f"SS-{year}-{val:06d}"
 
     async def create(
@@ -403,9 +398,18 @@ class ComplaintRepository:
         if target_complaint and target_to is not None:
             target_complaint.status = target_to
             target_complaint.updated_at = now
-            # Only set resolved_at on first entry to RESOLVED (never overwrite on CLOSED)
-            if target_to == ComplaintStatus.RESOLVED and target_complaint.resolved_at is None:
+            # H2 FIX: Reset resolved_at when re-entering rework queue; update on RESOLVED
+            if target_to == ComplaintStatus.RESOLVED:
                 target_complaint.resolved_at = now
+            elif target_to in (
+                ComplaintStatus.IN_PROGRESS,
+                ComplaintStatus.REOPENED,
+                ComplaintStatus.APPEALED,
+                ComplaintStatus.APPEALED_L1,
+                ComplaintStatus.APPEALED_L2,
+                ComplaintStatus.ASSIGNED,
+            ):
+                target_complaint.resolved_at = None
 
             if effective_notes and target_to == ComplaintStatus.RESOLVED:
                 target_complaint.resolution_remarks = effective_notes

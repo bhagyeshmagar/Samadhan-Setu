@@ -25,17 +25,21 @@ const STATUS_LABELS = {
     'verified': 'Verified',
     'assigned': 'Assigned',
     'in_progress': 'In Progress',
+    'pending_info': 'Pending Info',
     'resolved': 'Resolved',
     'closed': 'Closed',
     'reopened': 'Reopened',
     'escalated': 'Escalated',
     'rejected': 'Rejected',
-    'appealed': 'Appealed'
+    'appealed': 'Appealed',
+    'appealed_l1': 'Appeal Level 1 (Nodal Authority)',
+    'appealed_l2': 'Appeal Level 2 (Appellate Authority)',
 };
 
 const getStatusIndex = (status) => {
     if (!status) return 0;
     const clean = status.toLowerCase().replace(/\s+/g, '_');
+    if (clean.startsWith('appealed')) return 4;
     const idx = STATUS_ORDER.indexOf(clean);
     return idx >= 0 ? idx : 0;
 };
@@ -212,11 +216,11 @@ export default function TrackGrievance() {
                         const statusIdx = getStatusIndex(complaint.status);
                         const isTerminal = ['resolved', 'closed'].includes(sNorm);
                         const isReopened = sNorm === 'reopened';
-                        const isAppealed = sNorm === 'appealed' || sNorm === 'escalated';
+                        const isAppealed = sNorm.startsWith('appealed') || sNorm === 'escalated';
 
                         const statusBadge = ['resolved', 'closed'].includes(sNorm) ? 'resolved' :
                             ['in_progress', 'assigned'].includes(sNorm) ? 'progress' :
-                            ['appealed', 'escalated'].includes(sNorm) ? 'appealed' : 'submitted';
+                            sNorm.startsWith('appealed') || sNorm === 'escalated' ? 'appealed' : 'submitted';
 
                         const priorityBadge = ['high', 'critical'].includes(pNorm) ? 'badge-critical' :
                             pNorm === 'medium' ? 'badge-progress' : 'badge-closed';

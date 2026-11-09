@@ -603,7 +603,7 @@ async def submit_feedback(
     await session.commit()
     updated = await repo.get_by_id(cid)
     return {
-        "message": "Complaint closed with citizen satisfaction" if satisfied else "Appeal Level 1 registered",
+        "message": "Complaint closed with citizen satisfaction" if satisfied else f"Appeal Level {next_level} registered",
         "complaint": serialize_owner(updated),
     }
 
@@ -636,18 +636,17 @@ async def file_citizen_appeal(
     if str(complaint.citizen_id) != user_id_str:
         raise HTTPException(status_code=403, detail="Only the filing citizen can lodge an appeal")
 
-    # Enforce allowed statuses for appeal: only from RESOLVED, CLOSED, REJECTED, or existing APPEALED_L1
+    # Enforce allowed statuses for appeal: only from RESOLVED, CLOSED, or REJECTED.
+    # An active appeal (APPEALED_L1 or APPEALED_L2) must be adjudicated before filing a subsequent appeal.
     valid_appeal_statuses = (
         ComplaintStatus.RESOLVED,
         ComplaintStatus.CLOSED,
         ComplaintStatus.REJECTED,
-        ComplaintStatus.APPEALED,
-        ComplaintStatus.APPEALED_L1,
     )
     if complaint.status not in valid_appeal_statuses:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot appeal a complaint in '{complaint.status.value}' status. Appeals are only permitted on resolved, closed, or rejected complaints."
+            detail=f"Cannot appeal a complaint in '{complaint.status.value}' status. Active appeals must be adjudicated by appellate authorities before filing a subsequent appeal."
         )
 
     curr_level = complaint.appeal_level or 0

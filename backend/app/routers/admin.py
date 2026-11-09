@@ -478,7 +478,9 @@ async def create_officer(
         .options(selectinload(Officer.user), selectinload(Officer.department))
         .where(Officer.id == new_officer.id)
     )
-    officer = officer_res.scalar_one()
+    officer = officer_res.scalar_one_or_none()
+    if not officer:
+        raise HTTPException(status_code=404, detail="Officer record not found")
     return _officer_to_response(officer)
 
 
@@ -528,7 +530,9 @@ async def update_officer(
         .options(selectinload(Officer.user), selectinload(Officer.department))
         .where(Officer.id == oid)
     )
-    officer = officer_res2.scalar_one()
+    officer = officer_res2.scalar_one_or_none()
+    if not officer:
+        raise HTTPException(status_code=404, detail="Officer record not found")
     return _officer_to_response(officer)
 
 
@@ -600,7 +604,9 @@ async def promote_to_officer(
         .options(selectinload(Officer.user), selectinload(Officer.department))
         .where(Officer.id == new_officer.id)
     )
-    officer = officer_res.scalar_one()
+    officer = officer_res.scalar_one_or_none()
+    if not officer:
+        raise HTTPException(status_code=404, detail="Officer record not found")
     return _officer_to_response(officer)
 
 

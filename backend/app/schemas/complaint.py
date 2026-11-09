@@ -76,7 +76,7 @@ class ComplaintResponse(BaseModel):
     priority: Any
     priority_score: Optional[float] = 0.0
     urgency_score: Optional[int] = 0
-    ai_confidence: Optional[int] = None
+    ai_confidence: Optional[float] = None
     status: Any
     department_id: Optional[str] = None
     assigned_officer_id: Optional[str] = None
