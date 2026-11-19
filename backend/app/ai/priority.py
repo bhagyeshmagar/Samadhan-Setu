@@ -27,6 +27,14 @@ from typing import Dict, List, Optional, Any
 from .text_processor import TextProcessor
 
 
+def _matches_kw(kw: str, cleaned_text: str, tokens: set) -> bool:
+    """Exact token or phrase boundary matching (H-14 fix: prevents 'dead' matching 'deadline')."""
+    kw = kw.strip().lower()
+    if not kw:
+        return False
+    return (f" {kw} " in f" {cleaned_text} ") if (" " in kw) else (kw in tokens)
+
+
 class PriorityCalculator:
 
     # Urgency keywords with weight scores
@@ -301,8 +309,15 @@ class PriorityCalculator:
         high_threshold = bands.get("high", self.BAND_HIGH)
         medium_threshold = bands.get("medium", self.BAND_MEDIUM)
 
-        # For genuine life-safety emergencies at submission time, ensure score can reach CRITICAL (>= 2.5)
-        has_true_emergency = any(kw in text.lower() for kw in self.EMERGENCY_KEYWORDS)
+        # H-14 FIX: Use exact token/phrase boundary matching instead of substring `in`.
+        # Previous code: `any(kw in text.lower() for kw in self.EMERGENCY_KEYWORDS)`
+        # would match "dead" in "deadline", "fire" in "firefox", etc.
+        cleaned_for_emergency = self.text_processor.clean_text(text)
+        emergency_tokens = set(cleaned_for_emergency.split())
+        has_true_emergency = any(
+            _matches_kw(kw, cleaned_for_emergency, emergency_tokens)
+            for kw in self.EMERGENCY_KEYWORDS
+        )
         if has_true_emergency and (urgency_raw >= 7 or urgency >= 2.8) and severity >= 2.8 and score < critical_threshold:
             score = critical_threshold
 

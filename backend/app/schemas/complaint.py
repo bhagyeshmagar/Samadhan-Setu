@@ -62,6 +62,7 @@ class StatusLogResponse(BaseModel):
 
 class ComplaintResponse(BaseModel):
     id: str
+    complaint_number: Optional[str] = None  # H-11 FIX: tracking number was missing
     user_id: Optional[str] = None
     title: str
     category: str
@@ -80,6 +81,11 @@ class ComplaintResponse(BaseModel):
     status: Any
     department_id: Optional[str] = None
     assigned_officer_id: Optional[str] = None
+
+    # H-11 FIX: SLA & appeal fields were missing
+    sla_breached: Optional[bool] = None
+    appeal_level: Optional[int] = None
+    action_taken_report: Optional[str] = None
 
     upvotes: Optional[int] = 0
     attachments: Optional[List] = None

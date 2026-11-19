@@ -59,6 +59,33 @@ class DepartmentRepository:
                 return dept
         return None
 
+    async def get_central_triage(self) -> Optional[Department]:
+        """
+        C-04 FIX: Return a Central Triage fallback department for unrouted complaints.
+        Looks for a department with code 'dept_triage' or name containing 'General'/'Triage'.
+        Falls back to the first active department so complaints are never invisible.
+        """
+        # 1. Try explicit triage department
+        for code in ("dept_triage", "dept_general"):
+            dept = await self.get_by_code(code)
+            if dept and dept.is_active:
+                return dept
+
+        # 2. Try by name pattern
+        res = await self.session.execute(
+            select(Department)
+            .where(Department.is_active == True)
+            .order_by(Department.name.asc())
+        )
+        departments = list(res.scalars().all())
+        for dept in departments:
+            name_lower = (dept.name or "").lower()
+            if "general" in name_lower or "triage" in name_lower:
+                return dept
+
+        # 3. Ultimate fallback: first active department (never leave department_id as None)
+        return departments[0] if departments else None
+
     async def get_sla_hours(self, category: Optional[str], priority: str) -> int:
         """
         Resolve SLA resolution hours with explicit precedence:

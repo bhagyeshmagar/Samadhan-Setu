@@ -4,9 +4,10 @@ Handles officer task workflows: viewing complaints, updating status,
 resolution proofs, and complaint history.
 """
 import io
+import logging
 import os
 import uuid
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
@@ -28,6 +29,8 @@ from ..services.media_service import process_and_store_image
 from ..services.ai_bridge import get_ai_bridge
 from ..ai.priority import calculate_priority
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 PROOF_UPLOAD_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "proof"
@@ -979,7 +982,10 @@ async def confirm_or_override_triage(
         )
         now = datetime.now(timezone.utc)
         complaint.sla_deadline = (complaint.created_at or now) + timedelta(hours=sla_hours)
-        complaint.sla_breached = now >= complaint.sla_deadline
+        # H-09 FIX: Never clear a previously triggered sla_breached flag.
+        # Only SET the flag if it wasn't already breached.
+        if not complaint.sla_breached:
+            complaint.sla_breached = now >= complaint.sla_deadline
 
     # Keep the nodal decision visible in override analytics, including older or seeded cases.
     from ..models.orm.complaint import AIResult
@@ -1135,7 +1141,8 @@ async def adjudicate_citizen_appeal(
         timeline_note = f"[FINAL APPELLATE RESOLUTION] Appellate Authority issued final closure order: {order_notes}"
     else:
         target_status = ComplaintStatus.IN_PROGRESS
-        complaint.sla_breached = False
+        # H-01 FIX: Never clear historical breach flag on rework order.
+        # Only set a new deadline for the rework period.
         complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=24)
         timeline_note = f"[APPEAL UPHELD — REOPENED FOR FIELD REWORK] Appellate Authority ordered immediate rework (24h SLA): {order_notes}"
 

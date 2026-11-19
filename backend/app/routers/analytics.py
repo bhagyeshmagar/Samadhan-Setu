@@ -17,8 +17,20 @@ from ..db.session import get_async_session
 from ..auth import require_officer
 from ..models.orm import User, Complaint, Department, Officer
 from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole
+from ..repositories.user_repo import UserRepository
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
+
+
+async def _get_officer_department_id(
+    user: User, session: AsyncSession
+) -> uuid.UUID | None:
+    """H-10 FIX: Return the officer's department_id for scoping, or None for admins."""
+    if user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        return None
+    res = await session.execute(select(Officer).where(Officer.user_id == user.id))
+    off = res.scalar_one_or_none()
+    return off.department_id if off else None
 
 
 class HeatmapPoint(BaseModel):
@@ -134,37 +146,43 @@ async def get_analytics_summary(
     """Overall summary statistics for the last N days."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # H-10 FIX: Scope officer analytics to their department
+    dept_id = await _get_officer_department_id(current_user, session)
+
+    def _dept_filter(q):
+        return q.where(Complaint.department_id == dept_id) if dept_id else q
+
     total = (await session.execute(
-        select(func.count(Complaint.id)).where(Complaint.created_at >= since)
+        _dept_filter(select(func.count(Complaint.id)).where(Complaint.created_at >= since))
     )).scalar() or 0
 
     resolved = (await session.execute(
-        select(func.count(Complaint.id)).where(
+        _dept_filter(select(func.count(Complaint.id)).where(
             Complaint.created_at >= since,
             Complaint.status.in_([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED]),
-        )
+        ))
     )).scalar() or 0
 
     pending = (await session.execute(
-        select(func.count(Complaint.id)).where(
+        _dept_filter(select(func.count(Complaint.id)).where(
             Complaint.created_at >= since,
             Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]),
-        )
+        ))
     )).scalar() or 0
 
     breached = (await session.execute(
-        select(func.count(Complaint.id)).where(
+        _dept_filter(select(func.count(Complaint.id)).where(
             Complaint.created_at >= since,
             Complaint.sla_breached == True,
-        )
+        ))
     )).scalar() or 0
 
     # Average citizen rating
     avg_rating = (await session.execute(
-        select(func.avg(Complaint.citizen_rating)).where(
+        _dept_filter(select(func.avg(Complaint.citizen_rating)).where(
             Complaint.created_at >= since,
             Complaint.citizen_rating.is_not(None),
-        )
+        ))
     )).scalar() or 0.0
 
     return {

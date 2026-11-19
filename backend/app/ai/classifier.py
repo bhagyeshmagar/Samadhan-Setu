@@ -68,40 +68,64 @@ class CategoryClassifier:
         """Initialize the classifier"""
         self.text_processor = TextProcessor()
     
+    # C-06 FIX: Multi-word phrase weight multiplier to prevent misrouting
+    MULTI_WORD_WEIGHT = 3
+
+    # C-06 FIX: Margin below which ties are routed to General for human triage
+    TIE_MARGIN = 0.15
+
     def classify(self, text: str) -> Tuple[str, int]:
         """
-        Classify complaint text into a category
-        
+        Classify complaint text into a category.
+
+        C-06 FIX:
+        - Multi-word phrases (e.g. "street light", "dead body") get 3× weight
+          to prevent misrouting ("street light" → Roads instead of Electricity).
+        - When the top two categories are within a 15% margin, routes to
+          General for human Nodal triage instead of arbitrary first-max.
+
         Args:
             text: The complaint description
-            
+
         Returns:
             Tuple of (category_name, confidence_score 0-100)
         """
         if not text or len(text.strip()) < 3:
             return (self.DEFAULT_CATEGORY, 0)
-        
+
         cleaned = self.text_processor.clean_text(text)
         tokens = set(cleaned.split())
 
-        # Count matches for each category
+        # Count matches for each category with multi-word phrase weighting
         category_scores: Dict[str, int] = {}
         for category, keywords in self.CATEGORY_KEYWORDS.items():
-            score = sum(1 for kw in keywords if _matches_kw(kw, cleaned, tokens))
+            score = 0
+            for kw in keywords:
+                if _matches_kw(kw, cleaned, tokens):
+                    # Multi-word phrases are more specific — give them 3× weight
+                    weight = self.MULTI_WORD_WEIGHT if " " in kw.strip() else 1
+                    score += weight
             if score > 0:
                 category_scores[category] = score
-        
+
         if not category_scores:
             return (self.DEFAULT_CATEGORY, 30)  # Low confidence for default
-        
-        # Get the category with highest score
-        best_category = max(category_scores, key=category_scores.get)
-        best_score = category_scores[best_category]
-        
+
+        # Sort categories by descending score
+        sorted_cats = sorted(category_scores.items(), key=lambda x: x[1], reverse=True)
+        best_category, best_score = sorted_cats[0]
+
+        # C-06 FIX: Check for tie within margin — route to General for human triage
+        if len(sorted_cats) >= 2:
+            _, second_score = sorted_cats[1]
+            margin = (best_score - second_score) / best_score if best_score > 0 else 0
+            if margin < self.TIE_MARGIN:
+                return (self.DEFAULT_CATEGORY, 35)  # Low confidence — needs human triage
+
         # Calculate confidence (0-100)
         # More matches = higher confidence, capped at 95
         confidence = min(95, 40 + (best_score * 15))
-        
+
         return (best_category, confidence)
     
     def classify_with_details(self, text: str) -> Dict:

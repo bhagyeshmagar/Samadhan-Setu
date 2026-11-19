@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session
@@ -48,24 +49,34 @@ async def register(
     """Register a new citizen account. Role is always CITIZEN — elevation requires admin."""
     repo = UserRepository(session)
 
+    # M-18 FIX: Sanitize empty phone string to None to avoid unique index violation on empty strings
+    clean_phone = user_data.phone.strip() if user_data.phone and user_data.phone.strip() else None
+
     # Uniqueness check
     if await repo.get_by_email(user_data.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    if user_data.phone and await repo.get_by_phone(user_data.phone):
-        raise HTTPException(status_code=400, detail="Phone number already registered")
+        raise HTTPException(status_code=409, detail="Registration failed. An account with these details already exists.")
+    if clean_phone and await repo.get_by_phone(clean_phone):
+        raise HTTPException(status_code=409, detail="Registration failed. An account with these details already exists.")
 
     # BUG-11 FIX: use async wrapper so argon2 hashing runs in the thread-pool
     # and never blocks the FastAPI async event loop.
     hashed_password = await hash_password_async(user_data.password)
-    user = await repo.create(
-        email=user_data.email,
-        name=user_data.name,
-        password_hash=hashed_password,
-        role=UserRole.CITIZEN,   # Always CITIZEN — never trust client-supplied role
-        phone=user_data.phone,
-    )
-    await session.commit()
-    await session.refresh(user)
+    try:
+        user = await repo.create(
+            email=user_data.email,
+            name=user_data.name,
+            password_hash=hashed_password,
+            role=UserRole.CITIZEN,   # Always CITIZEN — never trust client-supplied role
+            phone=clean_phone,
+        )
+        await session.commit()
+        await session.refresh(user)
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Registration failed. An account with these details already exists.",
+        )
 
     token = create_access_token(
         data={"sub": str(user.id), "role": user.role.value},

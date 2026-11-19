@@ -11,13 +11,9 @@ class Settings:
     PROJECT_DESCRIPTION: str = "AI-Powered Grievance Redressal Platform"
     VERSION: str = "1.0.0"
 
-    # Environment: 'development' | 'staging' | 'production'
+    # M-04 FIX: ENVIRONMENT must be explicitly set in production/staging.
+    # Defaults to 'development' for local dev convenience only.
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
-
-    # Firebase Database credentials
-    FIREBASE_CREDENTIALS_PATH: str = os.getenv(
-        "FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json"
-    )
 
     # PostgreSQL Database settings
     DATABASE_URL: str = os.getenv(
@@ -28,8 +24,8 @@ class Settings:
         "SYNC_DATABASE_URL",
         "postgresql+psycopg2://postgres@localhost:5432/samadhan_setu",
     )
-    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "20"))
-    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "10"))  # M-22 FIX: was 20, right-sized
+    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "5"))  # M-22 FIX: was 10
     DB_ECHO: bool = os.getenv("DB_ECHO", "false").lower() == "true"
 
     # JWT Settings
@@ -39,13 +35,18 @@ class Settings:
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24))  # 24 hours default
     )
 
-    # CORS — lock down in production via env var
-    CORS_ORIGINS: list = os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000,"
-        "http://localhost:3001,http://127.0.0.1:3001,"
-        "http://localhost:8000,http://127.0.0.1:8000",
-    ).split(",")
+    # L-15 FIX: Strip whitespace from CORS origins to prevent silent mismatches.
+    # In production, set CORS_ORIGINS to your exact frontend domain(s).
+    CORS_ORIGINS: list = [
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000,"
+            "http://localhost:3001,http://127.0.0.1:3001,"
+            "http://localhost:8000,http://127.0.0.1:8000",
+        ).split(",")
+        if origin.strip()
+    ]
 
     # Upload limits
     MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024   # 5 MB
@@ -59,9 +60,18 @@ class Settings:
         - The default weak SECRET_KEY is NEVER accepted unless ALLOW_INSECURE_DEV=1
           is explicitly set (for local developer convenience only).
         - In production/staging the key must also be at least 32 characters.
+        - M-04 FIX: Warn loudly if ENVIRONMENT is not explicitly set.
         """
         allow_insecure_dev = os.getenv("ALLOW_INSECURE_DEV", "0") == "1"
         is_prod = self.ENVIRONMENT in ("production", "staging")
+
+        # M-04 FIX: Require explicit ENVIRONMENT in production
+        if is_prod and not os.getenv("ENVIRONMENT"):
+            print(
+                "FATAL: ENVIRONMENT variable must be explicitly set in production/staging.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
         if self.SECRET_KEY == _DEFAULT_SECRET and (not allow_insecure_dev or is_prod):
             print(
@@ -81,6 +91,14 @@ class Settings:
                 )
                 sys.exit(1)
 
+            # L-15 FIX: Reject wildcard CORS in production
+            if "*" in self.CORS_ORIGINS:
+                print(
+                    "FATAL: Wildcard '*' CORS origin is not allowed in production. "
+                    "Set explicit CORS_ORIGINS.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
 settings = Settings()
 settings.validate()
-

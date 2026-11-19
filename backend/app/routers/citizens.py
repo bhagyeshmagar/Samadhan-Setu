@@ -182,6 +182,10 @@ async def submit_complaint(
     priority_enum = priority_map.get(priority_result["priority"], ComplaintPriority.LOW)
 
     department = await dept_repo.get_by_category(category)
+    # C-04 FIX: If no department matches the category, route to a Central Triage
+    # fallback so the complaint is never invisible to all officer queues.
+    if not department:
+        department = await dept_repo.get_central_triage()
     department_id = department.id if department else None
     sla_hours = await dept_repo.get_sla_hours(category, priority_result["priority"])
 
@@ -486,15 +490,21 @@ async def upvote_complaint(
         return {"message": "Already upvoted", "upvotes": complaint.vote_count}
 
     new_votes = complaint.vote_count + 1
-    # M3 fix: Dynamically recompute priority when votes reach crowd impact thresholds
+    # H-08 FIX: Only recompute priority at vote milestones if no Nodal Officer
+    # has manually overridden the AI triage. When AIResult.overridden is True,
+    # vote-based priority recalculation must be skipped.
     if new_votes in (5, 10, 25, 50, 100):
-        priority_res = calculate_priority(
-            complaint.description,
-            complaint.category,
-            upvotes=new_votes,
-        )
-        complaint.priority_score = priority_res["score"]
-        complaint.priority = ComplaintPriority(priority_res["priority"].lower())
+        from app.models.orm.complaint import AIResult
+        ai_results = getattr(complaint, "ai_results", None)
+        human_overridden = ai_results and any(getattr(r, "overridden", False) for r in ai_results)
+        if not human_overridden:
+            priority_res = calculate_priority(
+                complaint.description,
+                complaint.category,
+                upvotes=new_votes,
+            )
+            complaint.priority_score = priority_res["score"]
+            complaint.priority = ComplaintPriority(priority_res["priority"].lower())
         await session.commit()
 
     return {"message": "Upvoted successfully", "upvotes": new_votes}
@@ -597,7 +607,9 @@ async def submit_feedback(
             notes=f"Appeal Level {next_level} triggered (Citizen unsatisfied with ATR, Rating: {rating}/5): {comment}",
             appeal_level=next_level,
         )
-        complaint.sla_breached = False
+        # H-01 FIX: Never erase historical breach data on appeal.
+        # Preserve the original sla_breached flag for audit/compliance.
+        # Only set a fresh appeal SLA deadline without clearing the breach flag.
         complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=48 if next_level == 1 else 24)
 
     await session.commit()
@@ -666,7 +678,8 @@ async def file_citizen_appeal(
 
     complaint.appeal_level = next_level
     complaint.appeal_remarks = reason
-    complaint.sla_breached = False
+    # H-01 FIX: Never erase historical breach data on appeal.
+    # Preserve the original sla_breached flag — only set a fresh appeal SLA deadline.
     complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=48 if next_level == 1 else 24)
 
     await repo.add_status_transition(
