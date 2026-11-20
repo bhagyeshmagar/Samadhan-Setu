@@ -35,9 +35,9 @@ export default function LoginPage() {
             // Redirect based on role
             if (response.user.role === 'citizen') {
                 router.push('/citizen/lodge');
-            } else if (response.user.role === 'officer') {
+            } else if (response.user.role === 'officer' || response.user.role === 'supervisor') {
                 router.push('/department');
-            } else if (response.user.role === 'admin') {
+            } else if (response.user.role === 'admin' || response.user.role === 'super_admin') {
                 router.push('/admin');
             }
         } catch (err) {
@@ -102,15 +102,15 @@ export default function LoginPage() {
                             <ul className="space-y-3 text-xs text-white/80">
                                 <li className="flex items-start gap-2.5">
                                     <CheckCircle2 size={16} className="text-green-400 shrink-0 mt-0.5" />
-                                    <span>Single Sign-On access for Citizens, Field Officers & Admins</span>
+                                    <span>Role-based access for Citizens, Field Officers & Admins</span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <CheckCircle2 size={16} className="text-green-400 shrink-0 mt-0.5" />
-                                    <span>Real-time tracking with SLA statutory deadlines</span>
+                                    <span>Real-time tracking with SLA compliance deadlines</span>
                                 </li>
                                 <li className="flex items-start gap-2.5">
                                     <CheckCircle2 size={16} className="text-green-400 shrink-0 mt-0.5" />
-                                    <span>Encrypted & secure citizen grievance repository</span>
+                                    <span>AI-assisted complaint classification and routing</span>
                                 </li>
                             </ul>
                         </div>

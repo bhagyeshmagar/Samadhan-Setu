@@ -29,8 +29,12 @@ from app.models.orm import (
 
 import os
 
+# H-13 FIX: Refuse to run tests against production database
+TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
+if not TEST_DB_URL:
+    pytest.skip("TEST_DATABASE_URL not set — refusing to run against production database", allow_module_level=True)
+
 # Test engine with NullPool so each test connection is isolated
-TEST_DB_URL = os.getenv("TEST_DATABASE_URL", settings.DATABASE_URL)
 test_engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
 
 @pytest_asyncio.fixture

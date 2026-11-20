@@ -5,6 +5,7 @@ Connects the backend to the AI services.
 Single point of integration between backend and AI modules.
 """
 
+import asyncio
 from typing import List, Dict, Optional, Any
 from collections import namedtuple
 
@@ -124,6 +125,17 @@ class AIBridge:
         except Exception as e:
             print(f"[AI Bridge] Similarity check failed: {e}")
             return []
+
+    @staticmethod
+    async def get_similar_complaints_async(
+        new_text: str,
+        existing_complaints: List[dict],
+        threshold: float = 0.70,
+    ) -> List[dict]:
+        """Non-blocking wrapper — runs SBERT encoding in a thread pool."""
+        return await asyncio.to_thread(
+            AIBridge.get_similar_complaints, new_text, existing_complaints, threshold
+        )
 
     @staticmethod
     def classify_complaint(text: str) -> Dict[str, Any]:

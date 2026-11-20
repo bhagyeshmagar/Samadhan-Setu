@@ -4,7 +4,16 @@ imports app.main. This keeps pytest collection fast and lets the HTTP
 integration tests run without GPU/network/Firestore credentials.
 """
 import sys
+import os
 from unittest.mock import MagicMock, patch
+
+# H-13 FIX: Warn if TEST_DATABASE_URL is not set
+if not os.getenv("TEST_DATABASE_URL"):
+    import warnings
+    warnings.warn(
+        "TEST_DATABASE_URL not set: integration tests will be skipped to avoid running against production data.",
+        stacklevel=2,
+    )
 
 
 # ─── 1. Stub heavy torch / ML deps at the module level ───────────────────────

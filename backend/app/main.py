@@ -17,6 +17,8 @@ from .routers import (
     notifications_router, media_router,
 )
 
+_is_prod = settings.ENVIRONMENT.lower() in ("production", "prod")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,8 +44,8 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     description=settings.PROJECT_DESCRIPTION,
     version=settings.VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
     lifespan=lifespan,
 )
 
@@ -57,6 +59,19 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=600,
 )
+
+# ── Security Headers ─────────────────────────────────────────────────────────
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if _is_prod:
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+    return response
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):

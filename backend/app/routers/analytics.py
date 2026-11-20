@@ -208,12 +208,14 @@ async def get_department_performance(
     """Calculate performance metrics for all departments over the last N days."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # H-10 FIX: Scope officer analytics to their department
+    dept_id = await _get_officer_department_id(current_user, session)
+
     dept_res = await session.execute(select(Department).order_by(Department.name))
     departments = dept_res.scalars().all()
 
     # Fetch all complaints in period with relevant fields
-    comp_res = await session.execute(
-        select(
+    comp_query = select(
             Complaint.id,
             Complaint.department_id,
             Complaint.status,
@@ -223,7 +225,9 @@ async def get_department_performance(
             Complaint.sla_breached,
             Complaint.citizen_rating,
         ).where(Complaint.created_at >= since)
-    )
+    if dept_id:
+        comp_query = comp_query.where(Complaint.department_id == dept_id)
+    comp_res = await session.execute(comp_query)
     complaints = comp_res.all()
 
     metrics = {
@@ -301,10 +305,13 @@ async def get_smart_alerts(
     """Generate predictive warnings and anomaly alerts for civic hazards."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # H-10 FIX: Scope officer analytics to their department
+    dept_id = await _get_officer_department_id(current_user, session)
+
     alerts = []
 
     # 1. Ward & Category Spike Detection: Find any ward + category with >= 3 complaints
-    spikes_res = await session.execute(
+    spike_query = (
         select(
             Complaint.ward,
             Complaint.category,
@@ -316,10 +323,16 @@ async def get_smart_alerts(
             Complaint.ward.is_not(None),
             Complaint.category.is_not(None),
         )
+    )
+    if dept_id:
+        spike_query = spike_query.where(Complaint.department_id == dept_id)
+    spike_query = (
+        spike_query
         .group_by(Complaint.ward, Complaint.category)
         .having(func.count(Complaint.id) >= 3)
         .order_by(func.count(Complaint.id).desc())
     )
+    spikes_res = await session.execute(spike_query)
     spikes = spikes_res.all()
 
     for spike in spikes:
@@ -336,6 +349,9 @@ async def get_smart_alerts(
     # 2. SLA Risk Detection: Find departments with > 20% breach rate on active grievances
     dept_res = await session.execute(select(Department))
     departments = dept_res.scalars().all()
+    # H-10 FIX: Officers only see alerts for their own department
+    if dept_id:
+        departments = [d for d in departments if d.id == dept_id]
     now = datetime.now(timezone.utc)
 
     for d in departments:
@@ -386,12 +402,17 @@ async def category_heatmap(
     """Category distribution of complaints for the last N days."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    res = await session.execute(
+    # H-10 FIX: Scope to officer's department
+    dept_id = await _get_officer_department_id(current_user, session)
+
+    heatmap_query = (
         select(Complaint.category, func.count().label("n"))
         .where(Complaint.created_at >= since)
-        .group_by(Complaint.category)
-        .order_by(func.count().desc())
     )
+    if dept_id:
+        heatmap_query = heatmap_query.where(Complaint.department_id == dept_id)
+    heatmap_query = heatmap_query.group_by(Complaint.category).order_by(func.count().desc())
+    res = await session.execute(heatmap_query)
     rows = res.all()
     total = sum(r.n for r in rows)
 
@@ -438,7 +459,10 @@ async def ward_heatmap(
     """Per-ward complaint counts and open complaint counts."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    res = await session.execute(
+    # H-10 FIX: Scope to officer's department
+    dept_id = await _get_officer_department_id(current_user, session)
+
+    ward_query = (
         select(
             Complaint.ward,
             func.count().label("total"),
@@ -446,9 +470,11 @@ async def ward_heatmap(
             func.avg(Complaint.priority_score).label("avg_priority"),
         )
         .where(Complaint.created_at >= since, Complaint.ward.is_not(None))
-        .group_by(Complaint.ward)
-        .order_by(func.count().desc())
     )
+    if dept_id:
+        ward_query = ward_query.where(Complaint.department_id == dept_id)
+    ward_query = ward_query.group_by(Complaint.ward).order_by(func.count().desc())
+    res = await session.execute(ward_query)
     rows = res.all()
 
     return [
@@ -475,17 +501,21 @@ async def daily_trends(
     """Daily complaint submission count for the last N days."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
+    # H-10 FIX: Scope to officer's department
+    dept_id = await _get_officer_department_id(current_user, session)
+
     query = (
         select(
             func.date(Complaint.created_at).label("day"),
             func.count().label("n"),
         )
         .where(Complaint.created_at >= since)
-        .group_by(func.date(Complaint.created_at))
-        .order_by(func.date(Complaint.created_at))
     )
+    if dept_id:
+        query = query.where(Complaint.department_id == dept_id)
     if category:
         query = query.where(func.lower(Complaint.category) == category.lower())
+    query = query.group_by(func.date(Complaint.created_at)).order_by(func.date(Complaint.created_at))
 
     res = await session.execute(query)
     return [TrendPoint(date=str(r.day), count=r.n, category=category) for r in res.all()]
@@ -500,7 +530,10 @@ async def sla_breach_summary(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Count of active SLA breaches by department."""
-    res = await session.execute(
+    # H-10 FIX: Scope to officer's department
+    dept_id = await _get_officer_department_id(current_user, session)
+
+    breach_query = (
         select(
             Complaint.department_id,
             func.count().label("breached_count"),
@@ -509,8 +542,11 @@ async def sla_breach_summary(
             Complaint.sla_breached == True,
             Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]),
         )
-        .group_by(Complaint.department_id)
     )
+    if dept_id:
+        breach_query = breach_query.where(Complaint.department_id == dept_id)
+    breach_query = breach_query.group_by(Complaint.department_id)
+    res = await session.execute(breach_query)
     rows = res.all()
 
     # Resolve department names
@@ -536,10 +572,16 @@ async def priority_distribution(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Count of open complaints by priority level."""
-    res = await session.execute(
+    # H-10 FIX: Scope to officer's department
+    dept_id = await _get_officer_department_id(current_user, session)
+
+    prio_query = (
         select(Complaint.priority, func.count().label("n"))
         .where(Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]))
-        .group_by(Complaint.priority)
     )
+    if dept_id:
+        prio_query = prio_query.where(Complaint.department_id == dept_id)
+    prio_query = prio_query.group_by(Complaint.priority)
+    res = await session.execute(prio_query)
     return {r.priority.value: r.n for r in res.all()}
 

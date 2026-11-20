@@ -105,10 +105,10 @@ export default function Footer() {
                         <h3 className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-4">Legal</h3>
                         <ul className="space-y-2.5">
                             {[
-                                { href: '#', label: 'Privacy Policy' },
-                                { href: '#', label: 'Terms of Service' },
-                                { href: '#', label: 'Data Guidelines' },
-                                { href: '#', label: 'Security Policy' },
+                                { href: '#', label: 'Privacy Policy (Coming Soon)' },
+                                { href: '#', label: 'Terms of Service (Coming Soon)' },
+                                { href: '#', label: 'Data Guidelines (Coming Soon)' },
+                                { href: '#', label: 'Security Policy (Coming Soon)' },
                             ].map(l => (
                                 <li key={l.label}>
                                     <Link href={l.href} className="text-xs text-white/55 hover:text-white transition-colors">

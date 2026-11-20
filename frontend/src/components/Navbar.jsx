@@ -54,7 +54,17 @@ const NAV_LINKS = {
         { href: '/department', label: 'Dashboard',  labelHi: 'डैशबोर्ड' },
         { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
     ],
+    supervisor: [
+        { href: '/department', label: 'Dashboard',  labelHi: 'डैशबोर्ड' },
+        { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
+    ],
     admin: [
+        { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
+        { href: '/admin/officers',     label: 'Officers',     labelHi: 'अधिकारी' },
+        { href: '/admin/departments',  label: 'Departments',  labelHi: 'विभाग' },
+        { href: '/admin/map',          label: 'Districts',    labelHi: 'जिले' },
+    ],
+    super_admin: [
         { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
         { href: '/admin/officers',     label: 'Officers',     labelHi: 'अधिकारी' },
         { href: '/admin/departments',  label: 'Departments',  labelHi: 'विभाग' },

@@ -55,11 +55,27 @@ class PriorityCalculator:
         'problem': 2, 'issue': 2, 'complaint': 2,
         'not working': 2, 'stopped': 2, 'damaged': 2,
         'leaking': 2, 'leak': 2,
+        # H-05 FIX: Hindi / Marathi / Hinglish urgency keywords
+        'मौत': 5, 'मृत्यू': 5, 'मृत्यु': 5, 'मेला': 5,
+        'आग': 5, 'जळत': 5, 'जल रहा': 5, 'ब्लास्ट': 5,
+        'करंट': 5, 'विजेचा धक्का': 5, 'बिजली का झटका': 5,
+        'खतरा': 4, 'धोकादायक': 4, 'खतरनाक': 4, 'जानलेवा': 4,
+        'तातडी': 4, 'आपातकाल': 4, 'अत्यावश्यक': 4, 'इमरजेंसी': 4,
+        'अपघात': 4, 'दुर्घटना': 4, 'एक्सीडेंट': 4,
+        'जखमी': 4, 'घायल': 4,
+        'कोसळलं': 4, 'ढहा': 4, 'गिरा': 4,
+        'तुटलं': 3, 'टूटा': 3, 'फुटलं': 3,
+        'पूर': 3, 'बाढ़': 3, 'पाणी भरलं': 3, 'जलभराव': 3,
+        'बंद': 2, 'चालू नाही': 2, 'काम नहीं कर रहा': 2,
+        'गळती': 2, 'रिसाव': 2, 'लीकेज': 2,
     }
 
     EMERGENCY_KEYWORDS: set = {
         'death', 'dying', 'dead', 'fatal', 'fire', 'burning',
-        'explosion', 'blast', 'electrocution', 'collapse', 'collapsed'
+        'explosion', 'blast', 'electrocution', 'collapse', 'collapsed',
+        # H-05 FIX: Hindi/Marathi emergency keywords
+        'मौत', 'मृत्यू', 'मृत्यु', 'आग', 'जळत', 'ब्लास्ट', 'करंट',
+        'कोसळलं', 'ढहा', 'जानलेवा',
     }
 
     # Category severity multipliers (maps to 1-3 scale)

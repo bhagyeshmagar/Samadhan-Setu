@@ -22,6 +22,7 @@ export default function LodgeGrievance() {
     const [coordinates, setCoordinates] = useState({ lat: null, lng: null });
     const [ward, setWard]             = useState('');
     const [images, setImages]         = useState([]);
+    const [isPublic, setIsPublic]     = useState(true);
 
     const {
         classify, classification, loading: aiLoading,
@@ -84,14 +85,7 @@ export default function LodgeGrievance() {
                 setLocation(`GPS: ${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`);
             }
         } catch {
-            try {
-                const res = await fetch('https://ipapi.co/json/');
-                const d   = await res.json();
-                if (d.city) setLocation(`${d.city}, ${d.region}`);
-                else throw new Error();
-            } catch {
-                setError('Location access denied. Please enter manually.');
-            }
+            setError('Location access denied. Please enter your address manually.');
         } finally {
             setLocationLoading(false);
         }
@@ -121,7 +115,7 @@ export default function LodgeGrievance() {
         try {
             const result = await complaintsAPI.submit({
                 title, description, location,
-                latitude: coordinates.lat, longitude: coordinates.lng, ward, is_public: true,
+                latitude: coordinates.lat, longitude: coordinates.lng, ward, is_public: isPublic,
             });
             if (images.length > 0 && result.id) {
                 try { await complaintsAPI.uploadImages(result.id, images.map(i => i.file)); }
@@ -377,6 +371,28 @@ export default function LodgeGrievance() {
                                 <span className="text-sm">{error}</span>
                             </div>
                         )}
+
+                        {/* Privacy toggle */}
+                        <div className="gov-card p-4">
+                            <label className="flex items-center justify-between cursor-pointer">
+                                <div>
+                                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                        Public Grievance
+                                    </span>
+                                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                        {isPublic 
+                                            ? 'Visible in community feed (personal details hidden)' 
+                                            : 'Only visible to you and assigned officers'}
+                                    </p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={isPublic}
+                                    onChange={(e) => setIsPublic(e.target.checked)}
+                                    className="w-5 h-5 accent-[var(--navy)]"
+                                />
+                            </label>
+                        </div>
 
                         {/* Submit */}
                         <button

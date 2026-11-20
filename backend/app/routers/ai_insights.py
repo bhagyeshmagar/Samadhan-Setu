@@ -165,14 +165,16 @@ async def ai_health(current_user: User = Depends(get_current_user)):
     return {
         "status": "operational" if classifier_ok else "degraded",
         "classifier": "healthy" if classifier_ok else "degraded",
+        "classifier_type": "rule_based_keywords",
         "priority_engine": "healthy",
         "components": {
-            "distilbert_nlp": "operational" if classifier_ok else "degraded",
-            "sbert_similarity": "operational" if getattr(ai_bridge, 'sbert_available', False) else "fallback_active",
-            "priority_scoring_engine": "operational",
+            "text_classifier": "operational (rule-based)" if classifier_ok else "degraded",
+            "sbert_similarity": "operational" if getattr(ai_bridge, 'sbert_available', False) else "unavailable (fallback: word-overlap)",
+            "priority_scoring_engine": "operational (rule-based)",
             "spatial_clustering": "operational",
         },
         "overall": "healthy" if classifier_ok else "degraded",
+        "note": "Classification and priority use rule-based heuristics. ML models (DistilBERT, YOLO) are not yet wired.",
     }
 
 
@@ -237,7 +239,7 @@ async def get_similar_for_complaint(
         for item in candidates
     ]
 
-    matches = ai_bridge.get_similar_complaints(c.description, existing_dicts, threshold=0.60)
+    matches = await ai_bridge.get_similar_complaints_async(c.description, existing_dicts, threshold=0.60)
     cand_map = {str(item.id): item for item in candidates}
 
     similar = []
