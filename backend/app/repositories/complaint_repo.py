@@ -454,8 +454,8 @@ class ComplaintRepository:
         )
         self.session.add(audit)
 
-        # Notification to citizen
-        if target_complaint and target_complaint.citizen_id:
+        # Notification to citizen (L-02 FIX: Suppress notification when from_status == to_status)
+        if target_complaint and target_complaint.citizen_id and from_val != to_val:
             notif_type = NotificationType.STATUS_CHANGE
             notif_title = f"Grievance #{target_complaint.complaint_number} Updated"
             status_display = to_val.replace("_", " ").title() if to_val else "Updated"
@@ -481,8 +481,8 @@ class ComplaintRepository:
         await self.session.flush()
         return entry
 
-    async def upvote(self, complaint_id: uuid.UUID, user_id: uuid.UUID, vote_type: VoteType = VoteType.UPVOTE) -> bool:
-        """Vote on a complaint, incrementing denormalized vote_count."""
+    async def upvote(self, complaint_id: uuid.UUID, user_id: uuid.UUID, vote_type: VoteType = VoteType.UPVOTE) -> Tuple[bool, int]:
+        """Vote on a complaint, atomically incrementing denormalized vote_count via RETURNING (L-07 fix)."""
         # Check existing vote
         existing = await self.session.execute(
             select(ComplaintVote).where(
@@ -491,7 +491,8 @@ class ComplaintRepository:
             )
         )
         if existing.scalar_one_or_none():
-            return False
+            c_val = (await self.session.execute(select(Complaint.vote_count).where(Complaint.id == complaint_id))).scalar_one_or_none() or 0
+            return False, c_val
 
         vote = ComplaintVote(
             id=uuid.uuid4(),
@@ -500,10 +501,12 @@ class ComplaintRepository:
             vote_type=vote_type,
         )
         self.session.add(vote)
-        await self.session.execute(
+        res = await self.session.execute(
             update(Complaint)
             .where(Complaint.id == complaint_id)
             .values(vote_count=Complaint.vote_count + 1)
+            .returning(Complaint.vote_count)
         )
+        new_count = res.scalar_one()
         await self.session.flush()
-        return True
+        return True, new_count

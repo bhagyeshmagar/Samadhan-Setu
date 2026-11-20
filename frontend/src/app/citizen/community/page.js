@@ -55,9 +55,9 @@ export default function CommunityFeed() {
 
         setUpvoting(id);
         try {
-            await complaintsAPI.upvote(id);
+            const res = await complaintsAPI.upvote(id);
             setComplaints(prev => prev.map(c =>
-                c.id === id ? { ...c, upvotes: (c.upvotes || 0) + 1 } : c
+                c.id === id ? { ...c, upvotes: res?.upvotes !== undefined ? res.upvotes : (c.upvotes || 0) + 1, has_upvoted: true } : c
             ));
         } catch (err) {
             console.error('Upvote failed:', err);

@@ -54,12 +54,10 @@ async def get_media(
     except (ValueError, AttributeError):
         pass
 
-    # Fallback to lookup by s3_key
+    # Fallback to exact lookup by s3_key (M-05 FIX: No suffix wildcard matching to prevent enumeration collisions)
     if not media:
         res = await session.execute(
-            select(ComplaintMedia).where(
-                (ComplaintMedia.s3_key == clean_ref) | (ComplaintMedia.s3_key.endswith(clean_ref))
-            )
+            select(ComplaintMedia).where(ComplaintMedia.s3_key == clean_ref)
         )
         media = res.scalars().first()
 
@@ -70,11 +68,13 @@ async def get_media(
         )
 
     # Enforce authorization chokepoint: raises 404 if user cannot view this complaint
+    # M-06 FIX: Use lightweight=True to skip loading heavy child relations (media, timeline, tasks)
     complaint = await get_visible_complaint(
         complaint_id=media.complaint_id,
         user=current_user,
         session=session,
         allow_public=True,
+        lightweight=True,
     )
 
     # In S3 mode: redirect to short-lived 5-minute presigned GET URL

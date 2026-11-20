@@ -22,7 +22,7 @@ from ..auth import (
     settings,
 )
 from ..services.rate_limiter import limit_login_attempts
-from ..models.orm import User
+from ..models.orm import User, AuditLog
 from ..models.orm.enums import UserRole
 from ..repositories.user_repo import UserRepository
 from ..schemas import UserCreate, UserUpdate, UserResponse, UserWithToken, Token, UserLogin
@@ -43,6 +43,7 @@ def _user_to_response(user: User) -> UserResponse:
 
 @router.post("/register", response_model=UserWithToken, status_code=status.HTTP_201_CREATED)
 async def register(
+    request: Request,
     user_data: UserCreate,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -68,6 +69,22 @@ async def register(
             password_hash=hashed_password,
             role=UserRole.CITIZEN,   # Always CITIZEN — never trust client-supplied role
             phone=clean_phone,
+        )
+        # M-01 FIX: Audit log citizen registration with client IP
+        client_ip = request.client.host if request.client else None
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            client_ip = forwarded.split(",")[0].strip()
+        session.add(
+            AuditLog(
+                action="user_register",
+                entity_type="user",
+                entity_id=str(user.id),
+                actor_id=user.id,
+                actor_role=user.role.value,
+                ip_address=client_ip,
+                details={"email": user.email, "name": user.name},
+            )
         )
         await session.commit()
         await session.refresh(user)
@@ -112,6 +129,23 @@ async def login(
         raise HTTPException(status_code=403, detail="Account is deactivated. Contact support.")
 
     await repo.update_last_login(user.id)
+
+    # M-01 FIX: Audit log user login with client IP
+    client_ip = request.client.host if request.client else None
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    session.add(
+        AuditLog(
+            action="user_login",
+            entity_type="user",
+            entity_id=str(user.id),
+            actor_id=user.id,
+            actor_role=user.role.value,
+            ip_address=client_ip,
+            details={"email": user.email, "method": "oauth2"},
+        )
+    )
     await session.commit()
 
     token = create_access_token(
@@ -144,6 +178,23 @@ async def login_json(
         raise HTTPException(status_code=403, detail="Account is deactivated. Contact support.")
 
     await repo.update_last_login(user.id)
+
+    # M-01 FIX: Audit log JSON login with client IP
+    client_ip = request.client.host if request.client else None
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    session.add(
+        AuditLog(
+            action="user_login",
+            entity_type="user",
+            entity_id=str(user.id),
+            actor_id=user.id,
+            actor_role=user.role.value,
+            ip_address=client_ip,
+            details={"email": user.email, "method": "json"},
+        )
+    )
     await session.commit()
 
     token = create_access_token(

@@ -345,7 +345,7 @@ async def upload_inspection_proof(
             continue
 
         try:
-            s3_key, file_url, file_size = await process_and_store_image(
+            s3_key, file_url, file_size, exif_meta = await process_and_store_image(
                 file=file,
                 complaint_id=complaint.id,
                 media_type=MediaType.INSPECTION_PHOTO,
@@ -357,6 +357,10 @@ async def upload_inspection_proof(
                 file_name=os.path.basename(s3_key),
                 file_size_bytes=file_size,
                 mime_type=file.content_type or "image/jpeg",
+                latitude=exif_meta.get("latitude") if exif_meta else None,
+                longitude=exif_meta.get("longitude") if exif_meta else None,
+                captured_at=exif_meta.get("captured_at") if exif_meta else None,
+                device_info=exif_meta.get("device_info") if exif_meta else None,
                 uploaded_by=current_user.id,
             )
             uploaded.append(file_url)
@@ -438,7 +442,7 @@ async def upload_resolution_proof(
             )
 
         try:
-            s3_key, file_url, file_size = await process_and_store_image(
+            s3_key, file_url, file_size, exif_meta = await process_and_store_image(
                 file=file,
                 complaint_id=complaint.id,
                 media_type=MediaType.RESOLUTION_PHOTO,
@@ -450,6 +454,10 @@ async def upload_resolution_proof(
                 file_name=os.path.basename(s3_key),
                 file_size_bytes=file_size,
                 mime_type=file.content_type or "image/jpeg",
+                latitude=exif_meta.get("latitude") if exif_meta else None,
+                longitude=exif_meta.get("longitude") if exif_meta else None,
+                captured_at=exif_meta.get("captured_at") if exif_meta else None,
+                device_info=exif_meta.get("device_info") if exif_meta else None,
                 uploaded_by=current_user.id,
             )
             uploaded.append(file_url)
@@ -851,6 +859,30 @@ async def update_task_status(
             remarks=update_data.remarks or update_data.notes,
         )
 
+        # M-10 FIX: Update assigned officer resolution metrics upon complaint resolution
+        if new_status == ComplaintStatus.RESOLVED:
+            complaint.resolved_at = datetime.now(timezone.utc)
+            target_officer_id = complaint.assigned_officer_id
+            if not target_officer_id:
+                u_repo = UserRepository(session)
+                acting_off = await u_repo.get_officer_by_user_id(current_user.id)
+                if acting_off:
+                    target_officer_id = acting_off.id
+            if target_officer_id:
+                from ..models.orm import Officer
+                off_stmt = select(Officer).where(Officer.id == target_officer_id)
+                off_obj = (await session.execute(off_stmt)).scalar_one_or_none()
+                if off_obj:
+                    off_obj.total_resolved = (off_obj.total_resolved or 0) + 1
+                    if complaint.created_at:
+                        now_res = datetime.now(timezone.utc)
+                        res_hrs = max(0.1, (now_res - complaint.created_at).total_seconds() / 3600.0)
+                        prev_total = off_obj.total_resolved - 1
+                        prev_avg = off_obj.avg_resolution_hours or 0.0
+                        off_obj.avg_resolution_hours = round(
+                            ((prev_avg * prev_total) + res_hrs) / off_obj.total_resolved, 2
+                        )
+
     await session.commit()
 
     user_repo2 = UserRepository(session)
@@ -961,6 +993,8 @@ async def confirm_or_override_triage(
         new_dept = await dept_repo.get_by_category(new_category)
         if new_dept and new_dept.id != complaint.department_id:
             complaint.department_id = new_dept.id
+            # L-04 FIX: Clear assigned officer from previous department when re-routing
+            complaint.assigned_officer_id = None
             re_routed_dept_name = new_dept.name
 
     sla_hours = None

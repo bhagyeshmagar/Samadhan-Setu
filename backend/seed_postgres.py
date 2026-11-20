@@ -150,7 +150,8 @@ async def seed_data():
         session.add_all(sla_rules)
 
         # 4. USERS
-        pwd = get_password_hash("demo123")
+        default_pwd = os.getenv("SEED_DEFAULT_PASSWORD", "demo123")
+        pwd = get_password_hash(default_pwd)
 
         citizen1 = User(
             id=uuid.uuid4(),
@@ -415,6 +416,21 @@ async def seed_data():
             created_at=c1.created_at + timedelta(hours=6),
         )
         session.add_all([t1, t2])
+
+        # Ensure synthetic proof image exists on disk (L-12 fix)
+        proof_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "proofs", "2026", "10")
+        os.makedirs(proof_dir, exist_ok=True)
+        proof_file_path = os.path.join(proof_dir, "pothole_dadar_proof.jpg")
+        if not os.path.exists(proof_file_path):
+            try:
+                from PIL import Image, ImageDraw
+                img = Image.new("RGB", (640, 480), color=(100, 100, 100))
+                d = ImageDraw.Draw(img)
+                d.text((40, 40), "Sample Pothole Evidence - Dadar", fill=(255, 255, 255))
+                img.save(proof_file_path, "JPEG")
+            except Exception:
+                with open(proof_file_path, "wb") as pf:
+                    pf.write(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00\xff\xd9")
 
         # Proof Media with GPS metadata (matching Mobile App requirement!)
         media1 = ComplaintMedia(

@@ -263,7 +263,7 @@ export default function OfficersManagementPage() {
     const [deleteOfficer, setDeleteOfficer] = useState(null);
 
     useEffect(() => {
-        if (!authLoading && (!user || user.role !== 'admin')) router.push('/login');
+        if (!authLoading && (!user || (user.role !== 'admin' && user.role !== 'super_admin'))) router.push('/login');
     }, [user, authLoading, router]);
 
     const fetchData = useCallback(async () => {
@@ -271,7 +271,7 @@ export default function OfficersManagementPage() {
         setError('');
         try {
             const [officersData, deptsData] = await Promise.all([
-                adminAPI.getOfficers(deptFilter || undefined),
+                adminAPI.getOfficers(deptFilter || undefined, false),
                 adminAPI.getDepartments(),
             ]);
             setOfficers(Array.isArray(officersData) ? officersData : []);
@@ -284,7 +284,7 @@ export default function OfficersManagementPage() {
     }, [deptFilter]);
 
     useEffect(() => {
-        if (user?.role === 'admin') fetchData();
+        if (user?.role === 'admin' || user?.role === 'super_admin') fetchData();
     }, [fetchData, user]);
 
     const handleDeactivate = async () => {

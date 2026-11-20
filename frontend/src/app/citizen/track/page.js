@@ -349,41 +349,48 @@ export default function TrackGrievance() {
                                                     )}
                                                 </div>
 
-                                                {/* AI Insights Panel */}
-                                                {aiData[complaint.id] && (
+                                                {/* AI Insights Panel (M-14 FIX) */}
+                                                {(aiData[complaint.id] || complaint.ai_category) && (
                                                     <div className="gov-card p-5">
                                                         <h4 className="text-[10px] font-bold tracking-widest uppercase mb-4 flex items-center gap-2"
                                                             style={{ color: 'var(--navy)' }}>
-                                                            <Brain size={12} /> AI Verification
+                                                            <Brain size={12} /> AI Verification & Triage
                                                         </h4>
                                                         <div className="space-y-4">
-                                                            {aiData[complaint.id].text_analysis && (
-                                                                <div className="p-3 rounded-lg mb-3" style={{ background: 'var(--navy-xlight)', border: '1px solid var(--border)' }}>
-                                                                    <div className="flex justify-between items-center mb-2">
-                                                                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Category</span>
-                                                                        <span className="badge badge-submitted">
-                                                                            {aiData[complaint.id].text_analysis.category}
+                                                            <div className="p-3 rounded-lg mb-3" style={{ background: 'var(--navy-xlight)', border: '1px solid var(--border)' }}>
+                                                                <div className="flex justify-between items-center mb-2">
+                                                                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>AI Assessed Category</span>
+                                                                    <span className="badge badge-submitted font-semibold">
+                                                                        {aiData[complaint.id]?.text_analysis?.category || complaint.ai_category || complaint.category}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex flex-wrap gap-2 text-xs">
+                                                                    {(aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) && (
+                                                                        <span className="badge badge-closed">
+                                                                            Confidence: {Math.round((aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) > 1 ? (aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) : (aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) * 100)}%
                                                                         </span>
-                                                                    </div>
-                                                                    <div className="flex gap-2">
+                                                                    )}
+                                                                    {aiData[complaint.id]?.text_analysis?.urgency_level && (
                                                                         <span className="badge badge-closed">
                                                                             Urgency: {aiData[complaint.id].text_analysis.urgency_level}
                                                                         </span>
+                                                                    )}
+                                                                    {aiData[complaint.id]?.text_analysis?.severity_level && (
                                                                         <span className="badge badge-closed">
                                                                             Severity: {aiData[complaint.id].text_analysis.severity_level}
                                                                         </span>
-                                                                    </div>
+                                                                    )}
                                                                 </div>
-                                                            )}
+                                                            </div>
 
-                                                            {aiData[complaint.id].priority?.score && (
+                                                            {(aiData[complaint.id]?.priority?.score || complaint.priority_score) && (
                                                                 <div className="p-3 rounded-lg flex justify-between items-center"
                                                                     style={{ background: 'var(--navy-light)', border: '1px solid rgba(0,53,128,0.2)' }}>
                                                                     <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: 'var(--navy)' }}>
-                                                                        <BarChart3 size={12} /> Escalation Score
+                                                                        <BarChart3 size={12} /> Priority Score
                                                                     </span>
                                                                     <span className="text-sm font-bold" style={{ color: 'var(--navy)' }}>
-                                                                        {aiData[complaint.id].priority.score.toFixed(2)} → {aiData[complaint.id].priority.priority}
+                                                                        {(aiData[complaint.id]?.priority?.score || complaint.priority_score)?.toFixed?.(2) ?? '—'} → {aiData[complaint.id]?.priority?.priority || complaint.priority}
                                                                     </span>
                                                                 </div>
                                                             )}

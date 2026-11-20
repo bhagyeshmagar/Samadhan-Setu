@@ -29,7 +29,10 @@ from ..models.orm import User, Complaint, CitizenFeedback
 from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole, VoteType, MediaType
 from ..repositories.complaint_repo import ComplaintRepository
 from ..repositories.department_repo import DepartmentRepository
-from ..schemas import ComplaintCreate, ComplaintResponse, ComplaintAIResponse, StatusLogResponse, ComplaintFeedback as FeedbackSchema
+from ..schemas import (
+    ComplaintCreate, ComplaintResponse, ComplaintAIResponse,
+    StatusLogResponse, ComplaintFeedback as FeedbackSchema, ComplaintAppeal,
+)
 from ..config import settings
 from ..services.ai_bridge import ai_bridge
 from ..ai.priority import calculate_priority
@@ -169,8 +172,32 @@ async def submit_complaint(
     complaint_repo = ComplaintRepository(session)
     dept_repo = DepartmentRepository(session)
 
+    # L-18 FIX: Check for duplicate submission within 60s
+    recent_dup = await session.execute(
+        select(Complaint.id).where(
+            Complaint.citizen_id == current_user.id,
+            Complaint.description == complaint_data.description,
+            Complaint.created_at >= datetime.now(timezone.utc) - timedelta(seconds=60),
+        )
+    )
+    if recent_dup.scalar_one_or_none():
+        raise HTTPException(
+            status_code=429,
+            detail="Duplicate submission detected. Please wait 60 seconds before submitting the same grievance again."
+        )
+
     classification = ai_bridge.classify_complaint(complaint_data.description)
-    category = complaint_data.category or classification["category"]
+
+    # M-07 FIX: Validate category against official municipal departments; fallback to AI triage
+    valid_categories = {
+        "Roads & Transport", "Water Supply", "Electricity",
+        "Sanitation & Waste", "Health & Safety", "General"
+    }
+    raw_cat = (complaint_data.category or "").strip()
+    category = raw_cat if raw_cat in valid_categories else classification["category"]
+
+    # M-15 FIX: Clean and validate ward string
+    clean_ward = (complaint_data.ward or "").strip() or None
 
     priority_result = calculate_priority(complaint_data.description, category, upvotes=0)
     priority_map = {
@@ -195,7 +222,7 @@ async def submit_complaint(
         description=complaint_data.description,
         category=category,
         address=complaint_data.location,
-        ward=complaint_data.ward,
+        ward=clean_ward,
         latitude=complaint_data.latitude,
         longitude=complaint_data.longitude,
         priority=priority_enum,
@@ -349,6 +376,7 @@ async def get_public_complaints(
         category=category,
         ward=ward,
         is_public_only=True,
+        exclude_statuses=[ComplaintStatus.REJECTED],
         sort_by=sort_by,
         limit=per_page,
         offset=offset,
@@ -414,6 +442,13 @@ async def upload_complaint_images(
     if complaint.citizen_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the complaint owner can upload images")
 
+    # L-03 FIX: Block evidence upload to closed or rejected complaints
+    if complaint.status in (ComplaintStatus.CLOSED, ComplaintStatus.REJECTED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot upload evidence images to a {complaint.status.value} complaint.",
+        )
+
     existing_count = len(complaint.media or [])
     if existing_count >= settings.MAX_ATTACHMENTS_PER_COMPLAINT:
         raise HTTPException(status_code=400, detail=f"Maximum {settings.MAX_ATTACHMENTS_PER_COMPLAINT} attachments allowed.")
@@ -430,8 +465,9 @@ async def upload_complaint_images(
         # BUG-07 FIX: Route ALL citizen uploads through process_and_store_image so
         # that EXIF metadata is stripped, perceptual hash is computed, and dedup
         # is applied — previously was writing raw bytes directly to disk.
+        # M-03 FIX: Capture extracted EXIF metadata before stripping
         try:
-            s3_key, file_url, file_size = await process_and_store_image(
+            s3_key, file_url, file_size, exif_meta = await process_and_store_image(
                 file=file,
                 complaint_id=complaint.id,
                 media_type=MediaType.PROOF_PHOTO,
@@ -447,6 +483,10 @@ async def upload_complaint_images(
             file_name=os.path.basename(s3_key),
             file_size_bytes=file_size,
             mime_type=file.content_type or "image/jpeg",
+            latitude=exif_meta.get("latitude") if exif_meta else None,
+            longitude=exif_meta.get("longitude") if exif_meta else None,
+            captured_at=exif_meta.get("captured_at") if exif_meta else None,
+            device_info=exif_meta.get("device_info") if exif_meta else None,
             uploaded_by=current_user.id,
         )
         uploaded.append(file_url)
@@ -483,13 +523,12 @@ async def upvote_complaint(
     if complaint.citizen_id == current_user.id:
         raise HTTPException(status_code=400, detail="Citizens cannot upvote their own grievances")
 
-    voted = await repo.upvote(complaint.id, current_user.id, VoteType.UPVOTE)
+    voted, new_votes = await repo.upvote(complaint.id, current_user.id, VoteType.UPVOTE)
     await session.commit()
 
     if not voted:
-        return {"message": "Already upvoted", "upvotes": complaint.vote_count}
+        return {"message": "Already upvoted", "upvotes": new_votes, "has_upvoted": True}
 
-    new_votes = complaint.vote_count + 1
     # H-08 FIX: Only recompute priority at vote milestones if no Nodal Officer
     # has manually overridden the AI triage. When AIResult.overridden is True,
     # vote-based priority recalculation must be skipped.
@@ -507,12 +546,12 @@ async def upvote_complaint(
             complaint.priority = ComplaintPriority(priority_res["priority"].lower())
         await session.commit()
 
-    return {"message": "Upvoted successfully", "upvotes": new_votes}
+    return {"message": "Upvoted successfully", "upvotes": new_votes, "has_upvoted": True}
 # POST /{complaint_id}/feedback
 @router.post("/{complaint_id}/feedback")
 async def submit_feedback(
     complaint_id: str,
-    payload: dict,
+    payload: FeedbackSchema,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -520,6 +559,7 @@ async def submit_feedback(
     Samadhan Setu Citizen Resolution Gate:
     - If satisfied=True (default when rating >= 3): stores rating/comment and closes complaint.
     - If satisfied=False: redirects citizen to Appeal Level 1 flow.
+    M-17 FIX: Uses typed FeedbackSchema Pydantic model.
     """
     repo = ComplaintRepository(session)
     try:
@@ -541,16 +581,9 @@ async def submit_feedback(
     if status_val not in ("resolved", "closed"):
         raise HTTPException(status_code=400, detail="Feedback can only be submitted after resolution (ATR)")
 
-    if "rating" not in payload or payload.get("rating") is None:
-        raise HTTPException(status_code=400, detail="Rating is required (1 to 5 stars)")
-    try:
-        rating = int(payload["rating"])
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Rating must be an integer between 1 and 5")
-    if rating < 1 or rating > 5:
-        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
-    comment = (payload.get("feedback_text") or payload.get("comment") or "").strip()
-    satisfied = payload.get("satisfied", rating >= 3)
+    rating = payload.rating
+    comment = (payload.feedback_text or payload.comment or "").strip()
+    satisfied = payload.satisfied if payload.satisfied is not None else (rating >= 3)
 
     # Save on both Complaint columns (added in migration a1b2c3d4e5f6) and CitizenFeedback table
     complaint.citizen_rating = rating
@@ -623,7 +656,7 @@ async def submit_feedback(
 @router.post("/{complaint_id}/appeal")
 async def file_citizen_appeal(
     complaint_id: str,
-    payload: dict,
+    payload: ComplaintAppeal,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -632,6 +665,7 @@ async def file_citizen_appeal(
     - Level 1: Nodal Appellate Authority (APPEALED_L1)
     - Level 2: Sub / Appellate Authority (APPEALED_L2)
     Appeals are strictly restricted to resolved, closed, or rejected complaints.
+    M-17 FIX: Uses typed ComplaintAppeal Pydantic model.
     """
     repo = ComplaintRepository(session)
     try:
@@ -668,9 +702,7 @@ async def file_citizen_appeal(
             detail="Maximum appeal level (Level 2) reached. No further appeals permitted."
         )
 
-    reason = (payload.get("reason") or "").strip()
-    if len(reason) < 10:
-        raise HTTPException(status_code=400, detail="Please provide a clear appeal reason (at least 10 characters)")
+    reason = payload.reason.strip()
 
     next_level = curr_level + 1
     authority_name = "Appellate Authority (Level 2)" if next_level == 2 else "Nodal Authority (Level 1)"

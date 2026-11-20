@@ -504,9 +504,11 @@ async def daily_trends(
     # H-10 FIX: Scope to officer's department
     dept_id = await _get_officer_department_id(current_user, session)
 
+    # L-05 FIX: Truncate dates in Indian Standard Time (Asia/Kolkata) to avoid UTC day-boundary slippage
+    ist_day = func.date(func.timezone("Asia/Kolkata", Complaint.created_at))
     query = (
         select(
-            func.date(Complaint.created_at).label("day"),
+            ist_day.label("day"),
             func.count().label("n"),
         )
         .where(Complaint.created_at >= since)
@@ -515,7 +517,7 @@ async def daily_trends(
         query = query.where(Complaint.department_id == dept_id)
     if category:
         query = query.where(func.lower(Complaint.category) == category.lower())
-    query = query.group_by(func.date(Complaint.created_at)).order_by(func.date(Complaint.created_at))
+    query = query.group_by(ist_day).order_by(ist_day)
 
     res = await session.execute(query)
     return [TrendPoint(date=str(r.day), count=r.n, category=category) for r in res.all()]

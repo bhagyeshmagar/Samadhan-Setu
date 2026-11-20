@@ -153,9 +153,8 @@ async def get_officer_ai_queue(
 # AI model health
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/health")
-@router.get("/admin/model-health")
-async def ai_health(current_user: User = Depends(get_current_user)):
-    """Check availability of AI service components."""
+async def ai_health():
+    """Public health ping for AI service subsystems."""
     try:
         result = ai_bridge.classify_complaint("Test road pothole issue near bus stop")
         classifier_ok = bool(result and result.get("category"))
@@ -176,6 +175,12 @@ async def ai_health(current_user: User = Depends(get_current_user)):
         "overall": "healthy" if classifier_ok else "degraded",
         "note": "Classification and priority use rule-based heuristics. ML models (DistilBERT, YOLO) are not yet wired.",
     }
+
+
+@router.get("/admin/model-health")
+async def ai_admin_model_health(current_user: User = Depends(require_admin)):
+    """L-09 FIX: Administrative inspection of model versions and engine health (requires admin)."""
+    return await ai_health()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -199,14 +204,24 @@ async def get_complaint_ai_summary(
     if c.sla_deadline:
         summary_text += f" Mandated SLA resolution target is {c.sla_deadline.strftime('%Y-%m-%d %H:%M UTC')}."
 
+    # M-14 & M-16 FIX: Return both flat and structured payload matching frontend expectations
+    prio_score = c.priority_score or 0.0
     return {
         "complaint_id": str(c.id),
         "complaint_number": c.complaint_number,
         "summary": summary_text,
         "key_entities": [c.category, c.ward or "District", c.priority.value],
         "category": c.category,
-        "priority": c.priority.value,
-        "priority_score": c.priority_score,
+        "priority": {
+            "priority": c.priority.value.upper(),
+            "score": prio_score,
+        },
+        "text_analysis": {
+            "category": c.category,
+            "urgency_level": c.urgency_score or 1,
+            "severity_level": c.priority.value,
+        },
+        "priority_score": prio_score,
         "status": c.status.value,
         "sla_breached": c.sla_breached,
     }
@@ -297,7 +312,8 @@ async def get_complaint_routing(
         "complaint_id": str(c.id),
         "recommended_department_id": str(c.department_id) if c.department_id else None,
         "recommended_department_name": dept_name,
-        "confidence": c.ai_confidence or 85,
+        # M-16 FIX: Consistent 0-100 percentage scale for confidence
+        "confidence": round((c.ai_confidence * 100) if (c.ai_confidence and c.ai_confidence <= 1.0) else (c.ai_confidence or 85.0), 1),
         "routing_reason": f"Matched classification tokens in category '{c.category}'.",
     }
 

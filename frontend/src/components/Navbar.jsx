@@ -56,16 +56,19 @@ const NAV_LINKS = {
     ],
     supervisor: [
         { href: '/department', label: 'Dashboard',  labelHi: 'डैशबोर्ड' },
+        { href: '/department?status_filter=appealed_l1', label: 'Appeals', labelHi: 'अपील' },
         { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
     ],
     admin: [
         { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
+        { href: '/admin/analytics',    label: 'Analytics',    labelHi: 'विश्लेषण' },
         { href: '/admin/officers',     label: 'Officers',     labelHi: 'अधिकारी' },
         { href: '/admin/departments',  label: 'Departments',  labelHi: 'विभाग' },
         { href: '/admin/map',          label: 'Districts',    labelHi: 'जिले' },
     ],
     super_admin: [
         { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
+        { href: '/admin/analytics',    label: 'Analytics',    labelHi: 'विश्लेषण' },
         { href: '/admin/officers',     label: 'Officers',     labelHi: 'अधिकारी' },
         { href: '/admin/departments',  label: 'Departments',  labelHi: 'विभाग' },
         { href: '/admin/map',          label: 'Districts',    labelHi: 'जिले' },
@@ -100,31 +103,38 @@ export default function Navbar() {
     const notifRef = useRef(null);
 
     // Poll unread count every 30 s when user is logged in
-    const fetchCount = useCallback(async () => {
-        if (!user) return;
-        try {
-            const data = await notificationsAPI.getCount();
-            setUnreadCount(data?.unread_count ?? 0);
-        } catch { /* silent – don't break navbar on API errors */ }
-    }, [user]);
-
     useEffect(() => {
-        fetchCount();
-        const interval = setInterval(fetchCount, 30_000);
-        return () => clearInterval(interval);
-    }, [fetchCount]);
-
-    // Reload count on route change
-    useEffect(() => { fetchCount(); }, [pathname, fetchCount]);
+        let active = true;
+        const checkCount = async () => {
+            if (!user) return;
+            try {
+                const data = await notificationsAPI.getCount();
+                if (active) setUnreadCount(data?.unread_count ?? 0);
+            } catch { /* silent */ }
+        };
+        checkCount();
+        const interval = setInterval(checkCount, 30_000);
+        return () => {
+            active = false;
+            clearInterval(interval);
+        };
+    }, [user, pathname]);
 
     // Load notification items when dropdown opens
     useEffect(() => {
         if (!notifOpen || !user) return;
-        setNotifLoading(true);
+        let active = true;
         notificationsAPI.getNotifications(1, 10)
-            .then(data => setNotifications(data?.items ?? []))
-            .catch(() => {})
-            .finally(() => setNotifLoading(false));
+            .then(data => {
+                if (active) {
+                    setNotifications(data?.items ?? []);
+                    setNotifLoading(false);
+                }
+            })
+            .catch(() => {
+                if (active) setNotifLoading(false);
+            });
+        return () => { active = false; };
     }, [notifOpen, user]);
 
     // Close notification dropdown on outside click
@@ -221,7 +231,10 @@ export default function Navbar() {
                             /* ── Notification Bell ── */
                             <div className="relative" ref={notifRef}>
                                 <button
-                                    onClick={() => setNotifOpen(!notifOpen)}
+                                    onClick={() => {
+                                        if (!notifOpen) setNotifLoading(true);
+                                        setNotifOpen(!notifOpen);
+                                    }}
                                     className="relative p-1.5 rounded-lg text-(--text-secondary) hover:bg-(--navy-xlight) transition-colors"
                                     aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ''}`}
                                 >
@@ -343,15 +356,41 @@ export default function Navbar() {
                         )}
                     </div>
 
-                    {/* Mobile hamburger */}
-                    <button
-                        className="md:hidden p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
-                        onClick={() => setMobileOpen(!mobileOpen)}
-                        aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-                        aria-expanded={mobileOpen}
-                    >
-                        {mobileOpen ? <X size={20} /> : <Menu size={20} />}
-                    </button>
+                    {/* Mobile: Notification Bell & Hamburger (M-21 fix) */}
+                    <div className="flex md:hidden items-center gap-1.5">
+                        {user && (
+                            <button
+                                onClick={() => {
+                                    if (!notifOpen) setNotifLoading(true);
+                                    setNotifOpen(!notifOpen);
+                                    setMobileOpen(false);
+                                }}
+                                className="relative p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
+                                aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ''}`}
+                            >
+                                <Bell size={18} />
+                                {unreadCount > 0 && (
+                                    <span
+                                        className="absolute top-1 right-1 min-w-[14px] h-3.5 flex items-center justify-center rounded-full text-[8px] font-bold text-white px-0.5"
+                                        style={{ background: '#DC2626' }}
+                                    >
+                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                    </span>
+                                )}
+                            </button>
+                        )}
+                        <button
+                            className="p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
+                            onClick={() => {
+                                setMobileOpen(!mobileOpen);
+                                setNotifOpen(false);
+                            }}
+                            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                            aria-expanded={mobileOpen}
+                        >
+                            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+                        </button>
+                    </div>
                 </div>
             </div>
 

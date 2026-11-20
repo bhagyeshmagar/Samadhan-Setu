@@ -11,7 +11,17 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
-    role: Optional[UserRole] = UserRole.CITIZEN
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_length(cls, v: str) -> str:
+        if len(v.strip()) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        return v
+
+class AdminUserCreate(UserBase):
+    password: str
+    role: UserRole = UserRole.CITIZEN
     department_id: Optional[str] = None
 
     @field_validator("password")

@@ -47,7 +47,8 @@ class LocalStorage:
         if clean.startswith("uploads/"):
             clean = clean[len("uploads/"):]
         target = os.path.abspath(os.path.join(self._dir, *clean.split("/")))
-        if not target.startswith(self._dir):
+        # M-05 FIX: Exact directory boundary check preventing sibling prefix collisions (e.g. uploads_evil)
+        if target != self._dir and not target.startswith(self._dir + os.sep):
             raise PermissionError("Directory traversal detected")
         return target
 

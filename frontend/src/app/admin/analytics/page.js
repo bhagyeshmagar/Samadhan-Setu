@@ -23,13 +23,13 @@ export default function AdminAnalyticsDashboard() {
 
     useEffect(() => {
         if (!authLoading && !user) router.push('/login');
-        if (!authLoading && user && user.role !== 'admin') {
+        if (!authLoading && user && user.role !== 'admin' && user.role !== 'super_admin') {
             router.push('/');
         }
     }, [user, authLoading, router]);
 
     useEffect(() => {
-        if (user && user.role === 'admin') {
+        if (user && (user.role === 'admin' || user.role === 'super_admin')) {
             fetchAnalytics();
         }
     }, [user]);

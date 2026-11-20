@@ -36,25 +36,24 @@ The system is built in two phases:
  3. SYSTEM ARCHITECTURE
 ===============================================================================
 
-Frontend: Next.js 14 (React 18)
+Frontend: Next.js (React App Router, Tailwind CSS)
   - Citizen Portal: Lodge, Track, Community pages
   - Officer Dashboard: Task management + AI-ranked queue
-  - Admin Oversight: Telemetry, AI health, override statistics
+  - Admin Oversight: Telemetry, AI health, override statistics, department/officer CRUD
 
 Backend: FastAPI (Python 3.11+)
-  - Auth: JWT + Argon2 + RBAC (citizen/officer/admin)
-  - Workflow: Complaint state machine + Task state machine
-  - AI Pipeline: 9-step orchestrator (background tasks)
-  - Routing: Multi-department detection + officer load balancing
+  - Auth: JWT + Argon2 async thread-pool hashing + 5-tier RBAC (citizen, officer, supervisor, admin, super_admin)
+  - Workflow: Complaint state machine + Task assignment lifecycle
+  - Autonomous SLA daemon: transaction-bound advisory lock (pg_try_advisory_xact_lock)
+  - Storage: S3 presigned URLs / protected local media storage with access checks
+  - Routing: Multi-department triage + officer load balancing
   - Analytics: Heatmaps, clustering, hotspot detection
 
-Database: Firebase Firestore
-  Collections: users, complaints, tasks, complaint_status_logs,
-               audit_logs, category_mappings, departments,
-               complaint_ai_results, complaint_embeddings,
-               similarity_links, routing_suggestions,
-               image_analysis_results, inference_logs,
-               complaint_clusters
+Database: PostgreSQL (Async SQLAlchemy 2.0 + asyncpg + Alembic migrations)
+  Tables: users, complaints, departments, officers, teams, tasks,
+          complaint_media, complaint_timelines, complaint_votes,
+          citizen_feedback, audit_logs, sla_rules, category_mappings,
+          ai_results
 
 ===============================================================================
  4. AI INTELLIGENCE LAYER (PHASE 2)

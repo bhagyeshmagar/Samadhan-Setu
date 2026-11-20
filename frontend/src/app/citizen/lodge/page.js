@@ -118,8 +118,13 @@ export default function LodgeGrievance() {
                 latitude: coordinates.lat, longitude: coordinates.lng, ward, is_public: isPublic,
             });
             if (images.length > 0 && result.id) {
-                try { await complaintsAPI.uploadImages(result.id, images.map(i => i.file)); }
-                catch { /* image upload non-blocking */ }
+                try {
+                    await complaintsAPI.uploadImages(result.id, images.map(i => i.file));
+                } catch (imgErr) {
+                    setError(`Grievance recorded, but photo upload failed: ${imgErr.message}`);
+                    setLoading(false);
+                    return;
+                }
             }
             setSuccess(true);
             setTimeout(() => router.push('/citizen/track'), 2000);
@@ -273,7 +278,10 @@ export default function LodgeGrievance() {
                                             <input
                                                 type="text"
                                                 value={location}
-                                                onChange={e => setLocation(e.target.value)}
+                                                onChange={e => {
+                                                    setLocation(e.target.value);
+                                                    setCoordinates(null);
+                                                }}
                                                 className="gov-input pl-9"
                                                 placeholder="Enter exact address or landmark"
                                             />

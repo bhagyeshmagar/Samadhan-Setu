@@ -71,7 +71,7 @@ export default function AdminDashboard() {
     const { getInsights, insights, loading: insightsLoading } = useAIServices();
 
     useEffect(() => {
-        if (!authLoading && (!user || user.role !== 'admin')) {
+        if (!authLoading && (!user || (user.role !== 'admin' && user.role !== 'super_admin'))) {
             router.push('/login');
         }
     }, [user, authLoading, router]);
@@ -247,7 +247,7 @@ export default function AdminDashboard() {
                                     </div>
                                     <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                                         <strong>{insight.support_count ?? insight.count ?? 0}</strong> parallel anomalies across{' '}
-                                        {insight.locations?.join(', ')}.
+                                        {insight.locations?.filter(Boolean).length > 0 ? insight.locations.filter(Boolean).join(', ') : 'multiple wards'}.
                                     </p>
                                     {insight.top_keywords?.length > 0 && (
                                         <div className="flex flex-wrap gap-1.5 mt-2">
@@ -302,15 +302,16 @@ export default function AdminDashboard() {
 
                 {/* Urgency / Priority */}
                 <Section title="Urgency Distribution" icon={<TrendingUp size={12} />}>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-4 gap-3">
                         {[
-                            { label: 'Critical', labelHi: 'गंभीर', count: (stats?.by_priority?.critical ?? stats?.by_priority?.Critical ?? stats?.by_priority?.high ?? stats?.by_priority?.High ?? 0), color: 'var(--status-critical)', bg: 'var(--status-critical-bg)' },
-                            { label: 'Elevated', labelHi: 'उच्च', count: (stats?.by_priority?.medium ?? stats?.by_priority?.Medium ?? 0), color: 'var(--saffron-dark)', bg: 'var(--saffron-light)' },
-                            { label: 'Normal', labelHi: 'सामान्य', count: (stats?.by_priority?.low ?? stats?.by_priority?.Low ?? 0), color: 'var(--india-green)', bg: 'var(--india-green-light)' },
+                            { label: 'Critical', labelHi: 'अति गंभीर', count: (stats?.by_priority?.critical ?? stats?.by_priority?.Critical ?? 0), color: 'var(--status-critical)', bg: 'var(--status-critical-bg)' },
+                            { label: 'High', labelHi: 'उच्च', count: (stats?.by_priority?.high ?? stats?.by_priority?.High ?? 0), color: 'var(--saffron-dark)', bg: 'var(--saffron-light)' },
+                            { label: 'Medium', labelHi: 'मध्यम', count: (stats?.by_priority?.medium ?? stats?.by_priority?.Medium ?? 0), color: 'var(--navy)', bg: 'var(--navy-light)' },
+                            { label: 'Low', labelHi: 'सामान्य', count: (stats?.by_priority?.low ?? stats?.by_priority?.Low ?? 0), color: 'var(--india-green)', bg: 'var(--india-green-light)' },
                         ].map(p => (
-                            <div key={p.label} className="gov-card p-4 text-center"
+                            <div key={p.label} className="gov-card p-3 text-center"
                                 style={{ borderTop: `3px solid ${p.color}` }}>
-                                <div className="text-2xl font-bold mb-1" style={{ color: p.color }}>
+                                <div className="text-xl font-bold mb-1" style={{ color: p.color }}>
                                     {p.count ?? '—'}
                                 </div>
                                 <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
@@ -495,14 +496,14 @@ export default function AdminDashboard() {
                         <Section title="AI Model Health" icon={<Cpu size={12} />}>
                             <div className="space-y-3">
                                 {[
-                                    { name: 'DistilBERT (Classification)', key: 'distilbert_available', compKey: 'classifier' },
-                                    { name: 'SBERT (Similarity)',          key: 'sbert_available', compKey: 'sbert' },
-                                    { name: 'YOLOv8 (Image Analysis)',     key: 'yolo_available', compKey: 'yolo' },
+                                    { name: 'DistilBERT (Classification)', key: 'distilbert', compKey: 'classifier' },
+                                    { name: 'SBERT (Similarity)',          key: 'sbert', compKey: 'sbert' },
+                                    { name: 'YOLOv8 (Image Analysis)',     key: 'yolo', compKey: 'yolo' },
                                 ].map(m => (
                                     <div key={m.key} className="flex items-center justify-between py-2 border-b last:border-0"
                                         style={{ borderColor: 'var(--border)' }}>
                                         <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{m.name}</span>
-                                        <ModelBadge available={modelHealth[m.key] ?? modelHealth.components?.[m.compKey]} />
+                                        <ModelBadge available={Boolean(modelHealth[m.key] ?? modelHealth.models?.[m.key] ?? modelHealth[m.key + '_available'] ?? modelHealth.components?.[m.compKey])} />
                                     </div>
                                 ))}
                                 <div className="flex justify-between text-xs pt-2" style={{ color: 'var(--text-muted)' }}>

@@ -328,7 +328,7 @@ export default function HandleComplaint() {
                                         const notes = prompt('Enter Appellate Rework Directive for Field Team (min 10 chars):', 'Field inspection incomplete. Re-verify on site and upload fresh geo-tagged proof within 24 hours.');
                                         if (notes && notes.length >= 10) {
                                             await departmentAPI.adjudicateAppeal(complaint.id, 'reopen_rework', notes);
-                                            window.location.reload();
+                                            await fetchComplaint();
                                         }
                                     }}
                                     className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-sm"
@@ -341,7 +341,7 @@ export default function HandleComplaint() {
                                         const notes = prompt('Enter Final Binding Appellate Closure Order (min 10 chars):', 'Verified before/after evidence and departmental logs. Work meets municipal specifications. Appeal disposed.');
                                         if (notes && notes.length >= 10) {
                                             await departmentAPI.adjudicateAppeal(complaint.id, 'final_close', notes);
-                                            window.location.reload();
+                                            await fetchComplaint();
                                         }
                                     }}
                                     className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm"
@@ -461,7 +461,7 @@ export default function HandleComplaint() {
                                         AI Recommended Category
                                     </span>
                                     <span className="text-sm font-bold text-gray-900">
-                                        {complaint.category || 'General Civic'}
+                                        {complaint.ai_results?.[0]?.predicted_category || complaint.ai_category || complaint.category || 'General Civic'}
                                     </span>
                                 </div>
                                 <div className="p-3 bg-white rounded border border-purple-100 shadow-sm">

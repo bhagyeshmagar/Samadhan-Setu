@@ -5,12 +5,13 @@ Main FastAPI Application Entry Point (PostgreSQL edition)
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from .config import settings
-from .db.session import async_engine
+from .db.session import async_engine, get_async_session
 from .routers import (
     auth_router, citizens_router, departments_router,
     admin_router, assignments_router, analytics_router, ai_insights_router,
@@ -122,8 +123,16 @@ async def root():
 
 
 @app.get("/health", tags=["Root"])
-async def health_check():
-    return {"status": "healthy", "database": "postgresql"}
+async def health_check(session=Depends(get_async_session)):
+    try:
+        await session.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "database": "disconnected", "detail": str(e)}
+        )
+    return {"status": "healthy", "database": "postgresql", "db_status": "connected"}
 
 
 @app.get("/api", tags=["Root"])

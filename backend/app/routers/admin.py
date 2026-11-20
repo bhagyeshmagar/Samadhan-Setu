@@ -160,13 +160,13 @@ async def get_stats_summary(
     )
     closed = closed_res.scalar() or 0
 
+    # M-13 FIX: Accurately count all non-terminal complaints (includes escalated, reopened, appealed)
     active_res = await session.execute(
         select(func.count()).where(
-            Complaint.status.in_([
-                ComplaintStatus.SUBMITTED,
-                ComplaintStatus.VERIFIED,
-                ComplaintStatus.ASSIGNED,
-                ComplaintStatus.IN_PROGRESS,
+            Complaint.status.not_in([
+                ComplaintStatus.RESOLVED,
+                ComplaintStatus.CLOSED,
+                ComplaintStatus.REJECTED,
             ])
         )
     )
@@ -381,7 +381,7 @@ async def list_audit_logs(
 @router.get("/officers", response_model=List[OfficerResponse])
 async def list_officers(
     department_id: Optional[str] = None,
-    active_only: bool = Query(True),
+    active_only: bool = Query(False),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
     current_user: User = Depends(require_admin),
@@ -428,19 +428,19 @@ async def create_officer(
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
 
-    # Check email uniqueness
+    # Check email uniqueness (M-12 fix: 409)
     email_clean = officer_data.email.strip().lower()
     email_res = await session.execute(select(User).where(User.email == email_clean))
     if email_res.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=409, detail="Email already registered")
 
-    # Check employee_id uniqueness
+    # Check employee_id uniqueness (M-12 fix: 409)
     emp_clean = officer_data.employee_id.strip()
     emp_res = await session.execute(
         select(Officer).where(Officer.employee_id == emp_clean)
     )
     if emp_res.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Employee ID already in use")
+        raise HTTPException(status_code=409, detail="Employee ID already in use")
 
     phone_clean = officer_data.phone.strip() if officer_data.phone and officer_data.phone.strip() else None
     if phone_clean:
@@ -516,7 +516,21 @@ async def update_officer(
         dept_res = await session.execute(select(Department).where(Department.id == dept_uuid))
         if not dept_res.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Department not found")
-        officer.department_id = dept_uuid
+        if dept_uuid != officer.department_id:
+            # M-12 FIX: Unassign open complaints assigned to this officer to avoid orphaned tasks in old dept
+            await session.execute(
+                update(Complaint)
+                .where(
+                    Complaint.assigned_officer_id == officer.id,
+                    Complaint.status.not_in([
+                        ComplaintStatus.RESOLVED,
+                        ComplaintStatus.CLOSED,
+                        ComplaintStatus.REJECTED,
+                    ]),
+                )
+                .values(assigned_officer_id=None, status=ComplaintStatus.SUBMITTED)
+            )
+            officer.department_id = dept_uuid
 
     if designation is not None:
         officer.designation = designation
@@ -558,6 +572,38 @@ async def deactivate_officer(
     officer.is_active = False
     if officer.user:
         officer.user.is_active = False
+
+    # L-13 FIX: Unassign active grievances from deactivated officer to prevent orphaned tickets
+    from ..models.orm import ComplaintTimeline
+    from ..models.orm.team import TaskAssignment
+
+    open_comps_res = await session.execute(
+        select(Complaint).where(
+            Complaint.assigned_officer_id == officer.id,
+            Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]),
+        )
+    )
+    open_complaints = open_comps_res.scalars().all()
+    for c in open_complaints:
+        c.assigned_officer_id = None
+        session.add(
+            ComplaintTimeline(
+                complaint_id=c.id,
+                status_from=c.status.value,
+                status_to=c.status.value,
+                changed_by=current_user.id,
+                actor_role="admin",
+                notes=f"[REASSIGNMENT MANDATE] Assigned officer {officer.employee_id} deactivated. Grievance returned to unassigned departmental pool.",
+            )
+        )
+
+    # Deactivate active task assignments
+    await session.execute(
+        update(TaskAssignment)
+        .where(TaskAssignment.officer_id == officer.id, TaskAssignment.is_active == True)
+        .values(is_active=False)
+    )
+
     await session.commit()
     return {"message": f"Officer {officer_id} deactivated"}
 
@@ -684,9 +730,13 @@ async def create_department(
 ):
     """Create a new government department."""
     repo = DepartmentRepository(session)
+    # M-11 FIX: 409 on duplicate code or name
     existing = await repo.get_by_code(dept_data.code.upper())
     if existing:
-        raise HTTPException(status_code=400, detail=f"Department code '{dept_data.code}' already exists")
+        raise HTTPException(status_code=409, detail=f"Department code '{dept_data.code}' already exists")
+    existing_name = (await session.execute(select(Department).where(Department.name == dept_data.name))).scalar_one_or_none()
+    if existing_name:
+        raise HTTPException(status_code=409, detail=f"Department name '{dept_data.name}' already exists")
 
     dept = Department(
         id=uuid.uuid4(),

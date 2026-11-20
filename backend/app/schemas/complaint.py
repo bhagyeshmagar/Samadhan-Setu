@@ -32,6 +32,13 @@ class ComplaintFeedback(BaseModel):
     """Schema for a citizen submitting feedback on a resolved complaint."""
     rating: int = Field(..., ge=1, le=5, description="1 to 5 star rating")
     feedback_text: Optional[str] = Field(None, max_length=2000)
+    comment: Optional[str] = Field(None, max_length=2000)
+    satisfied: Optional[bool] = None
+
+
+class ComplaintAppeal(BaseModel):
+    """Schema for citizen filing an appeal."""
+    reason: str = Field(..., min_length=10, max_length=2000, description="Detailed reason for appeal")
 
 
 class ComplaintAIResponse(BaseModel):

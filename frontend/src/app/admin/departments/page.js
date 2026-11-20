@@ -262,12 +262,21 @@ function DeptCard({ dept, onEdit, onDelete }) {
                         className="btn-ghost p-1.5 rounded-lg" title="Edit">
                         <Edit2 size={13} />
                     </button>
-                    <button onClick={() => onDelete(dept)}
-                        className="btn-ghost p-1.5 rounded-lg"
-                        style={{ color: 'var(--status-critical)' }}
-                        title="Deactivate">
-                        <Trash2 size={13} />
-                    </button>
+                    {dept.is_active !== false ? (
+                        <button onClick={() => onDelete(dept)}
+                            className="btn-ghost p-1.5 rounded-lg"
+                            style={{ color: 'var(--status-critical)' }}
+                            title="Deactivate">
+                            <Trash2 size={13} />
+                        </button>
+                    ) : (
+                        <button onClick={() => onReactivate && onReactivate(dept)}
+                            className="btn-ghost p-1.5 rounded-lg"
+                            style={{ color: 'var(--india-green)' }}
+                            title="Reactivate">
+                            <RefreshCw size={13} />
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -298,9 +307,15 @@ function DeptCard({ dept, onEdit, onDelete }) {
             {/* Footer */}
             <div className="flex items-center justify-between pt-2"
                 style={{ borderTop: '1px solid var(--border)' }}>
-                <span className="badge badge-resolved">
-                    <span className="badge-dot" /> Active
-                </span>
+                {dept.is_active !== false ? (
+                    <span className="badge badge-resolved">
+                        <span className="badge-dot" /> Active
+                    </span>
+                ) : (
+                    <span className="badge badge-critical">
+                        <span className="badge-dot" /> Inactive
+                    </span>
+                )}
                 <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
                     {new Date(dept.created_at).toLocaleDateString('en-IN')}
                 </span>
@@ -322,7 +337,7 @@ export default function DepartmentsManagementPage() {
     const [deleteDept, setDeleteDept] = useState(null);
 
     useEffect(() => {
-        if (!authLoading && (!user || user.role !== 'admin')) router.push('/login');
+        if (!authLoading && (!user || (user.role !== 'admin' && user.role !== 'super_admin'))) router.push('/login');
     }, [user, authLoading, router]);
 
     const fetchData = useCallback(async () => {
@@ -339,8 +354,17 @@ export default function DepartmentsManagementPage() {
     }, []);
 
     useEffect(() => {
-        if (user?.role === 'admin') fetchData();
+        if (user?.role === 'admin' || user?.role === 'super_admin') fetchData();
     }, [fetchData, user]);
+
+    const handleReactivate = async (dept) => {
+        try {
+            await adminAPI.updateDepartment(dept.id, { is_active: true });
+            setDepartments(prev => prev.map(d => d.id === dept.id ? { ...d, is_active: true } : d));
+        } catch (err) {
+            setError(err.message);
+        }
+    };
 
     const handleDelete = async () => {
         try {
@@ -431,7 +455,7 @@ export default function DepartmentsManagementPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
                 {[
                     { label: 'Total Departments', val: departments.length, color: 'var(--navy)', icon: <Building2 size={18}/> },
-                    { label: 'Active', val: departments.length, color: 'var(--india-green)', icon: <Check size={18}/> },
+                    { label: 'Active', val: departments.filter(d => d.is_active !== false).length, color: 'var(--india-green)', icon: <Check size={18}/> },
                     { label: 'With Contact', val: departments.filter(d => d.contact_email || d.contact_phone).length, color: 'var(--saffron-dark)', icon: <Mail size={18}/> },
                 ].map(s => (
                     <div key={s.label} className="gov-card p-4 flex items-center gap-4">
@@ -467,6 +491,7 @@ export default function DepartmentsManagementPage() {
                             dept={dept}
                             onEdit={setEditDept}
                             onDelete={setDeleteDept}
+                            onReactivate={handleReactivate}
                         />
                     ))}
                 </div>

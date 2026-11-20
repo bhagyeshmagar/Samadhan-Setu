@@ -23,10 +23,13 @@ async def get_visible_complaint(
     user: Optional[User],
     session: AsyncSession,
     allow_public: bool = True,
+    lightweight: bool = False,
 ) -> Complaint:
     """
     Central authorization chokepoint for complaint access.
     Returns the Complaint ORM object or raises 404 (never 403 to avoid enumeration).
+    M-06 FIX: Supports lightweight=True to skip loading heavy relations (media, timeline, feedback)
+    when only verifying complaint visibility (e.g. for media streaming).
     """
     if isinstance(complaint_id, str):
         try:
@@ -36,9 +39,9 @@ async def get_visible_complaint(
     else:
         cid = complaint_id
 
-    query = (
-        select(Complaint)
-        .options(
+    query = select(Complaint).where(Complaint.id == cid)
+    if not lightweight:
+        query = query.options(
             selectinload(Complaint.citizen),
             selectinload(Complaint.department),
             selectinload(Complaint.assigned_officer).selectinload(Officer.user),
@@ -47,8 +50,6 @@ async def get_visible_complaint(
             selectinload(Complaint.feedback),
             selectinload(Complaint.task_assignments),
         )
-        .where(Complaint.id == cid)
-    )
     res = await session.execute(query)
     c = res.scalar_one_or_none()
 

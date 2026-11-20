@@ -25,7 +25,13 @@ export const removeToken = () => {
 export const getStoredUser = () => {
     if (typeof window !== 'undefined') {
         const user = localStorage.getItem('user');
-        return user ? JSON.parse(user) : null;
+        if (!user) return null;
+        try {
+            return JSON.parse(user);
+        } catch {
+            localStorage.removeItem('user');
+            return null;
+        }
     }
     return null;
 };
@@ -52,6 +58,13 @@ async function apiRequest(endpoint, options = {}) {
         ...options,
         headers,
     });
+
+    if (response.status === 401) {
+        removeToken();
+        if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+            window.location.href = '/login?expired=true';
+        }
+    }
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Request failed' }));
@@ -95,17 +108,20 @@ export const complaintsAPI = {
     }),
 
     uploadImages: async (complaintId, files) => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         const formData = new FormData();
         files.forEach(file => formData.append('files', file));
 
         const response = await fetch(`${API_BASE_URL}/api/complaints/${complaintId}/upload-images`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
             body: formData,
         });
 
-        if (!response.ok) throw new Error('Failed to upload images');
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to upload images');
+        }
         return response.json();
     },
 
@@ -198,13 +214,13 @@ export const departmentAPI = {
 
 
     uploadProof: async (complaintId, files) => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         const formData = new FormData();
         files.forEach(file => formData.append('files', file));
 
         const response = await fetch(`${API_BASE_URL}/api/department/complaints/${complaintId}/upload-proof`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
             body: formData,
         });
 
@@ -216,13 +232,13 @@ export const departmentAPI = {
     },
 
     uploadInspectionProof: async (taskId, files) => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         const formData = new FormData();
         files.forEach(file => formData.append('files', file));
 
         const response = await fetch(`${API_BASE_URL}/api/department/tasks/${taskId}/inspection-proof`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
             body: formData,
         });
 
@@ -234,13 +250,13 @@ export const departmentAPI = {
     },
 
     uploadResolutionProof: async (taskId, files) => {
-        const token = localStorage.getItem('token');
+        const token = getToken();
         const formData = new FormData();
         files.forEach(file => formData.append('files', file));
 
         const response = await fetch(`${API_BASE_URL}/api/department/tasks/${taskId}/resolution-proof`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
             body: formData,
         });
 

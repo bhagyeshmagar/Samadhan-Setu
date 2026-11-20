@@ -70,7 +70,7 @@ class Department(Base):
         cats = [self.name]
         name_lower = self.name.lower()
         if "road" in name_lower or "transport" in name_lower:
-            cats.extend(["roads", "transport", "roads & transport", "roads and transport", "potholes", "traffic", "general"])
+            cats.extend(["roads", "transport", "roads & transport", "roads and transport", "potholes", "traffic"])
         elif "water" in name_lower:
             cats.extend(["water", "water supply", "drainage", "sewage", "leakage"])
         elif "electr" in name_lower or "power" in name_lower:

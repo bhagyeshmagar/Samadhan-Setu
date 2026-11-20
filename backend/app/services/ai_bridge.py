@@ -6,8 +6,12 @@ Single point of integration between backend and AI modules.
 """
 
 import asyncio
+import logging
 from typing import List, Dict, Optional, Any
 from collections import namedtuple
+from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 from .complaint_clustering import cluster_complaints_by_text
 from ..ai import classify_complaint as fallback_classify
@@ -17,18 +21,13 @@ from ..ai.priority import get_urgency_score
 SBERT_AVAILABLE = False
 sbert_model = None
 
-# BUG-12 FIX: LRU embedding cache — keyed by text string, capped at 512 entries.
-# Prevents re-encoding the same candidate texts on every request (was O(50)
-# encodes per keystroke on the check-similar endpoint).
-from functools import lru_cache
-
 try:
     from sentence_transformers import SentenceTransformer
     import numpy as np
     SBERT_AVAILABLE = True
-    print("[AI Bridge] sentence-transformers available, loading model...")
+    logger.info("[AI Bridge] sentence-transformers available, ready to load model")
 except ImportError as e:
-    print(f"[AI Bridge] sentence-transformers not available: {e}")
+    logger.warning(f"[AI Bridge] sentence-transformers not available: {e}")
     np = None
 
 ComplaintWrapper = namedtuple("ComplaintWrapper", ["id", "description", "category", "ward"])
@@ -38,9 +37,9 @@ def _get_sbert_model():
     """Lazy-load the SBERT model on first use."""
     global sbert_model
     if sbert_model is None and SBERT_AVAILABLE:
-        print("[AI Bridge] Loading SBERT model (first request may take time)...")
+        logger.info("[AI Bridge] Loading SBERT model (first request may take time)...")
         sbert_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-        print("[AI Bridge] SBERT model loaded!")
+        logger.info("[AI Bridge] SBERT model loaded!")
     return sbert_model
 
 
@@ -123,7 +122,7 @@ class AIBridge:
             return results
 
         except Exception as e:
-            print(f"[AI Bridge] Similarity check failed: {e}")
+            logger.warning(f"[AI Bridge] Similarity check failed: {e}")
             return []
 
     @staticmethod

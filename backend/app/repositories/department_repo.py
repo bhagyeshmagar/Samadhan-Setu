@@ -96,7 +96,7 @@ class DepartmentRepository:
         """
         priority_clean = priority.strip().lower()
 
-        # 1. Category + Priority rule
+        # 1. Category + Priority specific rule
         if category:
             res = await self.session.execute(
                 select(SLARule)
@@ -110,20 +110,7 @@ class DepartmentRepository:
             if rule and rule.resolution_hours:
                 return rule.resolution_hours
 
-            # 2. Category-only rule (where priority IS NULL)
-            res = await self.session.execute(
-                select(SLARule)
-                .where(
-                    SLARule.category.ilike(category.strip()),
-                    SLARule.priority.is_(None),
-                )
-                .order_by(SLARule.id.asc())
-            )
-            rule = res.scalars().first()
-            if rule and rule.resolution_hours:
-                return rule.resolution_hours
-
-        # 3. Priority-only rule (strictly where category IS NULL)
+        # 2. Priority-only rule (M-08 FIX: Priority urgency takes precedence over generic category-wide rules)
         res = await self.session.execute(
             select(SLARule)
             .where(
@@ -135,6 +122,20 @@ class DepartmentRepository:
         rule = res.scalars().first()
         if rule and rule.resolution_hours:
             return rule.resolution_hours
+
+        # 3. Category-only rule (where priority IS NULL)
+        if category:
+            res = await self.session.execute(
+                select(SLARule)
+                .where(
+                    SLARule.category.ilike(category.strip()),
+                    SLARule.priority.is_(None),
+                )
+                .order_by(SLARule.id.asc())
+            )
+            rule = res.scalars().first()
+            if rule and rule.resolution_hours:
+                return rule.resolution_hours
 
         # 4. Standard statutory fallback defaults:
         if priority_clean == "critical":

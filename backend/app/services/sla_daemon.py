@@ -62,13 +62,20 @@ async def run_sla_governance_sweep() -> dict:
 
         # All work inside a single transaction — the xact lock is held until commit/rollback.
         # 1. Check all non-terminal complaints for 75% warning and 100% breach
+        # M-09 FIX: Filter for complaints with deadlines and paginate with a batch limit
         stmt = (
             select(Complaint)
             .options(
                 selectinload(Complaint.timeline),
                 selectinload(Complaint.assigned_officer),
             )
-            .where(Complaint.status.in_(NON_TERMINAL_STATUSES))
+            .where(
+                Complaint.status.in_(NON_TERMINAL_STATUSES),
+                Complaint.sla_deadline.is_not(None),
+                Complaint.created_at.is_not(None),
+            )
+            .order_by(Complaint.sla_deadline.asc())
+            .limit(500)
         )
         active_complaints = (await session.execute(stmt)).scalars().all()
 
