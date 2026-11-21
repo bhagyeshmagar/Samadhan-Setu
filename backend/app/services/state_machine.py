@@ -82,6 +82,9 @@ VALID_TRANSITIONS: dict[ComplaintStatus, list[ComplaintStatus]] = {
         ComplaintStatus.ASSIGNED,
         ComplaintStatus.IN_PROGRESS,
         ComplaintStatus.VERIFIED,
+        ComplaintStatus.RESOLVED,
+        ComplaintStatus.CLOSED,
+        ComplaintStatus.ESCALATED,
     ],
     ComplaintStatus.REJECTED: [
         ComplaintStatus.REOPENED,

@@ -161,6 +161,10 @@ export default function HandleComplaint() {
             setError('Official resolution remarks are required by administrative policy.');
             return;
         }
+        if (remarks.trim().length < 20) {
+            setError('Resolution remarks must be at least 20 characters describing the remediation action taken.');
+            return;
+        }
 
         setSubmitting(true);
         setError('');

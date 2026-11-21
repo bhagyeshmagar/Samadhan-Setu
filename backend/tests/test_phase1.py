@@ -73,6 +73,11 @@ class TestComplaintStateMachine:
         from app.services.state_machine import is_valid_transition
         assert is_valid_transition(ComplaintStatus.REOPENED, ComplaintStatus.ASSIGNED) is True
 
+    def test_reopened_to_resolved(self):
+        from app.models.orm.enums import ComplaintStatus
+        from app.services.state_machine import is_valid_transition
+        assert is_valid_transition(ComplaintStatus.REOPENED, ComplaintStatus.RESOLVED) is True
+
     def test_appealed_to_in_progress(self):
         from app.models.orm.enums import ComplaintStatus
         from app.services.state_machine import is_valid_transition
