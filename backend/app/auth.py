@@ -9,7 +9,6 @@ import uuid
 
 import jwt as pyjwt
 from jwt.exceptions import InvalidTokenError
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +19,17 @@ from .models.orm import User
 from .models.orm.enums import UserRole
 from .repositories.user_repo import UserRepository
 
-# Password hashing — argon2 for modern, reliable hashing
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+# Password hashing — argon2 with passlib or direct argon2-cffi fallback
+import argon2
+_ph = argon2.PasswordHasher()
+
+try:
+    from passlib.context import CryptContext
+    pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+    _has_passlib = True
+except ImportError:
+    _has_passlib = False
+    pwd_context = None
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -73,7 +81,12 @@ def extract_token_from_request(request: Request, header_token: Optional[str] = N
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    if _has_passlib:
+        return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return _ph.verify(hashed_password, plain_password)
+    except Exception:
+        return False
 
 
 DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$dGVzdF9kdW1teV9zYWx0$dGVzdF9kdW1teV9oYXNoX3ZhbHVlX2Zvcl90aW1pbmc"
@@ -85,7 +98,7 @@ async def verify_password_async(plain_password: str, hashed_password: Optional[s
     """
     target_hash = hashed_password or DUMMY_HASH
     try:
-        is_valid = await asyncio.to_thread(pwd_context.verify, plain_password, target_hash)
+        is_valid = await asyncio.to_thread(verify_password, plain_password, target_hash)
     except Exception:
         is_valid = False
     return is_valid and (hashed_password is not None)
@@ -98,7 +111,9 @@ def get_password_hash(password: str) -> str:
     event loop if called directly from an async context.  Always call this
     function via ``asyncio.to_thread`` from async endpoints (BUG-11 fix).
     """
-    return pwd_context.hash(password)
+    if _has_passlib:
+        return pwd_context.hash(password)
+    return _ph.hash(password)
 
 
 async def hash_password_async(password: str) -> str:
