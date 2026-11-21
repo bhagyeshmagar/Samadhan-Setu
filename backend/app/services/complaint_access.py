@@ -8,7 +8,7 @@ Guarantees:
 4. Provides role-tailored representations: ComplaintPublic, ComplaintOwner, ComplaintStaff.
 """
 import uuid
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload

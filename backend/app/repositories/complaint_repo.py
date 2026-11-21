@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Tuple, Union
-from sqlalchemy import select, update, func, desc, or_, text, case
+from sqlalchemy import select, update, func, desc, text, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,11 +12,8 @@ from app.models.orm import (
     ComplaintMedia,
     ComplaintTimeline,
     ComplaintVote,
-    CitizenFeedback,
     VoteType,
     MediaType,
-    User,
-    Department,
     Officer,
     AuditLog,
     Notification,
@@ -231,7 +228,7 @@ class ComplaintRepository:
                 selectinload(Complaint.citizen),
                 selectinload(Complaint.feedback),
             )
-            .where(Complaint.is_public == True)
+            .where(Complaint.is_public.is_(True))
             .order_by(desc(Complaint.created_at))
             .limit(limit)
             .offset(offset)
@@ -317,7 +314,7 @@ class ComplaintRepository:
         if ward:
             query = query.where(func.lower(Complaint.ward) == ward.lower())
         if is_public_only:
-            query = query.where(Complaint.is_public == True)
+            query = query.where(Complaint.is_public.is_(True))
 
         # Count total
         count_query = select(func.count()).select_from(query.subquery())

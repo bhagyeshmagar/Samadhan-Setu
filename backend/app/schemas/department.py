@@ -26,7 +26,7 @@ class DepartmentResponse(DepartmentBase):
     is_active: bool = True
     keywords: Optional[List[str]] = []
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -40,7 +40,7 @@ class CategoryMappingCreate(CategoryMappingBase):
 
 class CategoryMappingResponse(CategoryMappingBase):
     id: str
-    
+
     class Config:
         from_attributes = True
 
@@ -56,6 +56,6 @@ class SLARuleCreate(SLARuleBase):
 class SLARuleResponse(SLARuleBase):
     id: str
     created_at: datetime
-    
+
     class Config:
         from_attributes = True

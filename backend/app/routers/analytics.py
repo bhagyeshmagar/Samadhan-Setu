@@ -5,10 +5,10 @@ department performance metrics, and anomaly smart alerts.
 All queries run directly against PostgreSQL — no Firestore.
 """
 import uuid
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,8 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.session import get_async_session
 from ..auth import require_officer
 from ..models.orm import User, Complaint, Department, Officer
-from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole
-from ..repositories.user_repo import UserRepository
+from ..models.orm.enums import ComplaintStatus, UserRole
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
@@ -173,7 +172,7 @@ async def get_analytics_summary(
     breached = (await session.execute(
         _dept_filter(select(func.count(Complaint.id)).where(
             Complaint.created_at >= since,
-            Complaint.sla_breached == True,
+            Complaint.sla_breached.is_(True),
         ))
     )).scalar() or 0
 
@@ -370,7 +369,7 @@ async def get_smart_alerts(
                 Complaint.created_at >= since,
                 Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]),
                 or_(
-                    Complaint.sla_breached == True,
+                    Complaint.sla_breached.is_(True),
                     and_(Complaint.sla_deadline.is_not(None), Complaint.sla_deadline < now),
                 )
             )
@@ -541,7 +540,7 @@ async def sla_breach_summary(
             func.count().label("breached_count"),
         )
         .where(
-            Complaint.sla_breached == True,
+            Complaint.sla_breached.is_(True),
             Complaint.status.not_in([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED, ComplaintStatus.REJECTED]),
         )
     )

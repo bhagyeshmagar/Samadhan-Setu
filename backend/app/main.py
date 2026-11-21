@@ -2,7 +2,6 @@
 Samadhan Setu — AI-Powered Grievance Redressal Platform
 Main FastAPI Application Entry Point (PostgreSQL edition)
 """
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Depends
@@ -86,7 +85,9 @@ async def security_headers_middleware(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    import logging, traceback, uuid
+    import logging
+    import traceback
+    import uuid
     req_id = str(uuid.uuid4())
     logging.error(f"[{req_id}] Unhandled server error on {request.method} {request.url}: {exc}")
     traceback.print_exc()
@@ -136,7 +137,6 @@ async def root():
 async def health_check(session=Depends(get_async_session)):
     try:
         await session.execute(text("SELECT 1"))
-        db_ok = True
     except Exception as e:
         return JSONResponse(
             status_code=503,

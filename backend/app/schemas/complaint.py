@@ -1,8 +1,6 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-import uuid
 from datetime import datetime
-from ..models.orm.enums import ComplaintStatus, ComplaintPriority
 
 
 class ComplaintBase(BaseModel):

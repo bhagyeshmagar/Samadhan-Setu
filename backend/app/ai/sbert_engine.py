@@ -11,7 +11,6 @@ Lazy-loads model on first use. Falls back gracefully when unavailable.
 import os
 import logging
 import hashlib
-import json
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 

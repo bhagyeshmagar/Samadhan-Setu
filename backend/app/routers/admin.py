@@ -5,16 +5,16 @@ System administration: stats, departments, officers, users, category mappings, S
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..db.session import get_async_session
-from ..auth import get_current_user, require_admin, require_officer, get_password_hash, hash_password_async
+from ..auth import get_current_user, require_admin, require_officer, hash_password_async
 from ..models.orm import User, Complaint, Department, CategoryMapping, Officer
 from ..models.orm.department import SLARule
-from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole
+from ..models.orm.enums import ComplaintStatus, UserRole
 from ..repositories.user_repo import UserRepository
 from ..repositories.department_repo import DepartmentRepository
 from ..schemas import (
@@ -23,7 +23,6 @@ from ..schemas import (
     CategoryMappingCreate, CategoryMappingResponse,
     SLARuleCreate, SLARuleResponse,
     OfficerCreate, OfficerResponse,
-    ComplaintResponse, TaskResponse, AuditLogResponse,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
@@ -290,7 +289,7 @@ async def list_all_tasks(
         if status_filter.lower() == "completed":
             query = query.where(TaskAssignment.completed_at.is_not(None))
         elif status_filter.lower() in ("active", "assigned", "in_progress", "pending"):
-            query = query.where(TaskAssignment.is_active == True)
+            query = query.where(TaskAssignment.is_active.is_(True))
     if department_id:
         try:
             dept_uuid = uuid.UUID(department_id)
@@ -395,7 +394,7 @@ async def list_officers(
     )
 
     if active_only:
-        query = query.where(Officer.is_active == True)
+        query = query.where(Officer.is_active.is_(True))
     if department_id:
         try:
             dept_uuid = uuid.UUID(department_id)
@@ -600,7 +599,7 @@ async def deactivate_officer(
     # Deactivate active task assignments
     await session.execute(
         update(TaskAssignment)
-        .where(TaskAssignment.officer_id == officer.id, TaskAssignment.is_active == True)
+        .where(TaskAssignment.officer_id == officer.id, TaskAssignment.is_active.is_(True))
         .values(is_active=False)
     )
 
@@ -805,7 +804,7 @@ async def delete_department(
 
     # Check if department has active officers
     officer_res = await session.execute(
-        select(func.count()).where(Officer.department_id == did, Officer.is_active == True)
+        select(func.count()).where(Officer.department_id == did, Officer.is_active.is_(True))
     )
     active_officers = officer_res.scalar() or 0
     if active_officers > 0:

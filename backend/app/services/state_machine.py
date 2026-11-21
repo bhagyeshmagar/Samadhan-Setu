@@ -6,7 +6,7 @@ SINGLE SOURCE OF TRUTH: Only VALID_TRANSITIONS is used.
 STRING_VALID_TRANSITIONS was removed — it had wider gaps that allowed skipping
 steps (e.g. submitted → closed, assigned → resolved).
 """
-from typing import Union, List
+from typing import Union
 from ..models.orm.enums import ComplaintStatus
 
 # Valid transitions between ORM ComplaintStatus values.

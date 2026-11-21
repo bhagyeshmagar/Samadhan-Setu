@@ -10,8 +10,7 @@ Falls back gracefully if model/image is unavailable.
 """
 import os
 import logging
-from typing import Dict, Any, List, Optional
-from pathlib import Path
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +212,6 @@ class YOLOValidator:
         object_count = len(detections)
         has_person = any(d["class"] == "person" for d in detections)
         has_vehicle = any(d["class"] in ["car", "truck", "bus"] for d in detections)
-        high_conf_count = sum(1 for d in detections if d["confidence"] > 0.7)
 
         # Scoring
         if object_count >= 5 and has_person:

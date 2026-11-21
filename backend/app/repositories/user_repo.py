@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -97,8 +97,8 @@ class UserRepository:
             .options(selectinload(Officer.user), selectinload(Officer.department))
             .where(
                 Officer.user_id == user_id,
-                Officer.is_active == True,
-                User.is_active == True,
+                Officer.is_active.is_(True),
+                User.is_active.is_(True),
             )
         )
         return res.scalar_one_or_none()

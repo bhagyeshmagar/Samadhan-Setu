@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from sqlalchemy import String, Boolean, DateTime, Text, func
-from sqlalchemy.dialects.postgresql import UUID, ENUM
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from .enums import UserRole, pg_enum
@@ -10,7 +10,7 @@ from .enums import UserRole, pg_enum
 if TYPE_CHECKING:
     from .officer import Officer
     from .complaint import Complaint, ComplaintTimeline, ComplaintVote, CitizenFeedback
-    from .audit import AuditLog, Notification
+    from .audit import Notification
 
 class User(Base):
     __tablename__ = "users"

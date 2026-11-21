@@ -3,7 +3,6 @@ Department / Officer Router — PostgreSQL edition.
 Handles officer task workflows: viewing complaints, updating status,
 resolution proofs, and complaint history.
 """
-import io
 import logging
 import os
 import uuid
@@ -11,14 +10,12 @@ from typing import Any, List, Optional
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
-from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session, get_db_session
-from ..auth import get_current_user, require_officer, require_officer_or_admin
-from ..models.orm import User, Complaint, Department, Officer
+from ..auth import require_officer, require_officer_or_admin
+from ..models.orm import User, Complaint
 from ..models.orm.enums import ComplaintStatus, UserRole, MediaType, ComplaintPriority
 from ..repositories.complaint_repo import ComplaintRepository
 from ..repositories.department_repo import DepartmentRepository
@@ -26,7 +23,6 @@ from ..repositories.user_repo import UserRepository
 from ..schemas import ComplaintResponse, ComplaintUpdate, StatusLogResponse
 from ..services.state_machine import is_valid_transition
 from ..services.media_service import process_and_store_image
-from ..services.ai_bridge import get_ai_bridge
 from ..ai.priority import calculate_priority
 from ..config import settings
 
@@ -789,15 +785,6 @@ async def update_task_status(
     Update task status from the Officer Task Desk.
     Translates task-UI status labels back to ComplaintStatus enums.
     """
-    # Label → enum mapping (frontend sends label strings like "In Progress")
-    label_to_enum = {
-        "pending": ComplaintStatus.SUBMITTED,
-        "assigned": ComplaintStatus.ASSIGNED,
-        "in progress": ComplaintStatus.IN_PROGRESS,
-        "completed": ComplaintStatus.RESOLVED,
-        "rejected": ComplaintStatus.REJECTED,
-    }
-
     try:
         cid = uuid.UUID(task_id)
     except ValueError:
@@ -1170,6 +1157,9 @@ async def adjudicate_citizen_appeal(
     if len(order_notes) < 10:
         raise HTTPException(status_code=400, detail="Appellate order remarks (min 10 chars) are required.")
 
+    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
+    user_role = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
+
     if decision == "final_close":
         target_status = ComplaintStatus.CLOSED
         timeline_note = f"[FINAL APPELLATE RESOLUTION] Appellate Authority issued final closure order: {order_notes}"
@@ -1199,9 +1189,6 @@ async def adjudicate_citizen_appeal(
             actor_role=user_role,
             notes=f"Appellate rework order: {order_notes}",
         )
-
-    user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
-    user_role = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
 
     await repo.add_status_transition(
         complaint_id=cid,

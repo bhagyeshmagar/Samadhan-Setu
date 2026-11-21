@@ -214,7 +214,7 @@ async def run_sla_governance_sweep() -> dict:
         resolved_cutoff = now - timedelta(days=7)
         resolved_stmt = select(Complaint).where(
             Complaint.status == ComplaintStatus.RESOLVED,
-            Complaint.resolved_at != None,
+            Complaint.resolved_at.is_not(None),
             Complaint.resolved_at <= resolved_cutoff,
         )
         stale_resolved = (await session.execute(resolved_stmt)).scalars().all()

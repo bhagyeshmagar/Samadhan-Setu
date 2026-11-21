@@ -4,19 +4,18 @@ Task assignment management: teams, load balancing, manual overrides.
 """
 import uuid
 from typing import List, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ..db.session import get_async_session
-from ..auth import get_current_user, require_officer, require_admin
-from ..models.orm import User, Complaint
+from ..auth import require_officer
+from ..models.orm import User
 from ..models.orm.team import Team, TaskAssignment
-from ..models.orm.enums import UserRole, ComplaintStatus
+from ..models.orm.enums import UserRole
 from ..repositories.user_repo import UserRepository
 
 router = APIRouter(prefix="/api/assignments", tags=["Assignments"])
@@ -66,7 +65,7 @@ async def list_teams(
 ):
     """List all active teams with their current load."""
     user_repo = UserRepository(session)
-    query = select(Team).where(Team.is_active == True)
+    query = select(Team).where(Team.is_active.is_(True))
     if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         officer = await user_repo.get_officer_by_user_id(current_user.id)
         if not officer or not officer.department_id:
@@ -106,7 +105,7 @@ async def list_assignments(
     user_repo = UserRepository(session)
     query = select(TaskAssignment)
     if active_only:
-        query = query.where(TaskAssignment.is_active == True)
+        query = query.where(TaskAssignment.is_active.is_(True))
 
     if current_user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         officer = await user_repo.get_officer_by_user_id(current_user.id)

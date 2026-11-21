@@ -7,7 +7,7 @@ from typing import List, Set
 
 class TextProcessor:
     """Handles text cleaning and preprocessing for AI classification"""
-    
+
     # Common stopwords for Indian English context
     STOPWORDS: Set[str] = {
         'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
@@ -26,7 +26,7 @@ class TextProcessor:
         'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which',
         'who', 'whom', 'this', 'that', 'these', 'those', 'am'
     }
-    
+
     @staticmethod
     def clean_text(text: str) -> str:
         if not text:
@@ -38,7 +38,7 @@ class TextProcessor:
         # Preserve ASCII alphanumeric + full Devanagari Unicode block (\u0900-\u097F)
         text = re.sub(r"[^a-z0-9\u0900-\u097f\s]", " ", text)
         return re.sub(r"\s+", " ", text).strip()
-    
+
     @staticmethod
     def tokenize(text: str, remove_stopwords: bool = True) -> List[str]:
         """
@@ -47,12 +47,12 @@ class TextProcessor:
         """
         cleaned = TextProcessor.clean_text(text)
         tokens = cleaned.split()
-        
+
         if remove_stopwords:
             tokens = [t for t in tokens if t not in TextProcessor.STOPWORDS]
-        
+
         return tokens
-    
+
     @staticmethod
     def extract_keywords(text: str, min_length: int = 3) -> List[str]:
         """
@@ -63,7 +63,7 @@ class TextProcessor:
         tokens = TextProcessor.tokenize(text, remove_stopwords=True)
         keywords = [t for t in tokens if len(t) >= min_length]
         return keywords
-    
+
     @staticmethod
     def contains_any(text: str, keywords: List[str]) -> bool:
         """Check if text contains any of the given keywords as full words/phrases"""
@@ -78,7 +78,7 @@ class TextProcessor:
             if re.search(pattern, cleaned):
                 return True
         return False
-    
+
     @staticmethod
     def count_keyword_matches(text: str, keywords: List[str]) -> int:
         """
@@ -88,12 +88,12 @@ class TextProcessor:
         cleaned = TextProcessor.clean_text(text)
         if not cleaned:
             return 0
-        
+
         # Sort keywords by length descending so longer phrases match first
         sorted_kw = sorted(set(k.strip().lower() for k in keywords if k.strip()), key=len, reverse=True)
         matched_spans = []
         count = 0
-        
+
         for kw in sorted_kw:
             pattern = r'(?u)\b' + re.escape(kw) + r'\b'
             for match in re.finditer(pattern, cleaned):

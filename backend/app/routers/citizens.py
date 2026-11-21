@@ -9,7 +9,6 @@ parameter and return 405 Method Not Allowed for the wrong HTTP method.
 """
 from __future__ import annotations
 
-import io
 import os
 import uuid
 from typing import List, Optional, Any, Dict
@@ -19,13 +18,12 @@ from fastapi import (
     APIRouter, Depends, HTTPException, status,
     Query, File, UploadFile, BackgroundTasks,
 )
-from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session, get_db_session
-from ..auth import get_current_user, require_citizen
-from ..models.orm import User, Complaint, CitizenFeedback
+from ..auth import get_current_user
+from ..models.orm import User, Complaint, CitizenFeedback, AuditLog
 from ..models.orm.enums import ComplaintStatus, ComplaintPriority, UserRole, VoteType, MediaType
 from ..repositories.complaint_repo import ComplaintRepository
 from ..repositories.department_repo import DepartmentRepository
@@ -41,7 +39,6 @@ from ..services.complaint_access import (
     get_visible_complaint,
     serialize_public,
     serialize_owner,
-    serialize_staff,
     serialize_complaint,
 )
 
@@ -533,7 +530,6 @@ async def upvote_complaint(
     # has manually overridden the AI triage. When AIResult.overridden is True,
     # vote-based priority recalculation must be skipped.
     if new_votes in (5, 10, 25, 50, 100):
-        from app.models.orm.complaint import AIResult
         ai_results = getattr(complaint, "ai_results", None)
         human_overridden = ai_results and any(getattr(r, "overridden", False) for r in ai_results)
         if not human_overridden:
@@ -572,7 +568,6 @@ async def submit_feedback(
         raise HTTPException(status_code=404, detail="Complaint not found")
 
     user_id_str = str(user.id) if hasattr(user, "id") else str(user.get("id"))
-    user_role_str = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))
 
     if str(complaint.citizen_id) != user_id_str:
         raise HTTPException(status_code=403, detail="Only the complainant can submit resolution feedback")

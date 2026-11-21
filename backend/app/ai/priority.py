@@ -22,8 +22,8 @@ Phase 2 upgrades:
 Upvotes do NOT determine priority. Crowd impact is capped and comes from
 local confirmations, not popularity. AI suggests, officers decide.
 """
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Any
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 from .text_processor import TextProcessor
 
 

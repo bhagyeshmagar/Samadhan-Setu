@@ -7,15 +7,15 @@ Single point of integration between backend and AI modules.
 
 import asyncio
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any
 from collections import namedtuple
 from functools import lru_cache
-
-logger = logging.getLogger(__name__)
 
 from .complaint_clustering import cluster_complaints_by_text
 from ..ai import classify_complaint as fallback_classify
 from ..ai.priority import get_urgency_score
+
+logger = logging.getLogger(__name__)
 
 # Try to import sentence-transformers for similarity detection
 SBERT_AVAILABLE = False

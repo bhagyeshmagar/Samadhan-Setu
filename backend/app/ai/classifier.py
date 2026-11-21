@@ -3,7 +3,7 @@ AI Category Classification Module for Samadhan Setu
 Rule-based classification using keyword matching
 Designed to be easily replaceable with ML models (DistilBERT) in production
 """
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Dict, List
 from .text_processor import TextProcessor
 
 def _matches_kw(kw: str, cleaned_text: str, tokens: set[str]) -> bool:
@@ -16,11 +16,11 @@ def _matches_kw(kw: str, cleaned_text: str, tokens: set[str]) -> bool:
 class CategoryClassifier:
     """
     Rule-based complaint category classifier
-    
+
     Uses keyword matching for hackathon demo.
     Architecture supports swapping to DistilBERT/BERT for production.
     """
-    
+
     # Department categories with associated keywords
     # Keywords are ordered by specificity (more specific first)
     CATEGORY_KEYWORDS: Dict[str, List[str]] = {
@@ -60,14 +60,14 @@ class CategoryClassifier:
             'रुग्णालय', 'आजार', 'डास', 'मलेरिया', 'डेंग्यू', 'धोका', 'आग', 'अस्पताल', 'बीमारी', 'मच्छर', 'खतरा'
         ]
     }
-    
+
     # Default category when no match is found
     DEFAULT_CATEGORY = 'General'
-    
+
     def __init__(self):
         """Initialize the classifier"""
         self.text_processor = TextProcessor()
-    
+
     # C-06 FIX: Multi-word phrase weight multiplier to prevent misrouting
     MULTI_WORD_WEIGHT = 3
 
@@ -127,33 +127,33 @@ class CategoryClassifier:
         confidence = min(95, 40 + (best_score * 15))
 
         return (best_category, confidence)
-    
+
     def classify_with_details(self, text: str) -> Dict:
         """
         Classify with detailed information for debugging/display
         """
         category, confidence = self.classify(text)
-        
+
         cleaned = self.text_processor.clean_text(text)
         tokens = set(cleaned.split())
 
         all_scores = {}
         matched_keywords = []
-        
+
         for cat, keywords in self.CATEGORY_KEYWORDS.items():
             score = sum(1 for kw in keywords if _matches_kw(kw, cleaned, tokens))
             all_scores[cat] = score
-            
+
             if cat == category:
                 matched_keywords = [kw for kw in keywords if _matches_kw(kw, cleaned, tokens)]
-        
+
         return {
             'category': category,
             'confidence': confidence,
             'all_scores': all_scores,
             'matched_keywords': matched_keywords[:5]  # Top 5 matches
         }
-    
+
     def get_categories(self) -> List[str]:
         """Return list of all available categories"""
         return list(self.CATEGORY_KEYWORDS.keys()) + [self.DEFAULT_CATEGORY]

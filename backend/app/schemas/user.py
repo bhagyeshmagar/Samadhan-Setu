@@ -1,6 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List
-import uuid
 from datetime import datetime
 from ..models.orm.enums import UserRole
 
@@ -44,7 +43,7 @@ class UserResponse(UserBase):
     role: UserRole
     department_id: Optional[str] = None
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 

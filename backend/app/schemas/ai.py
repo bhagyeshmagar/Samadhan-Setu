@@ -5,7 +5,6 @@ Pydantic models for all AI service responses.
 """
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from datetime import datetime
 
 
 class TextAnalysisResult(BaseModel):

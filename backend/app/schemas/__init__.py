@@ -16,7 +16,7 @@ from .department import (
 )
 
 __all__ = [
-    "UserBase", "UserCreate", "AdminUserCreate", "UserLogin", "UserResponse",
+    "UserBase", "UserCreate", "AdminUserCreate", "UserUpdate", "UserLogin", "UserResponse",
     "UserWithToken", "Token", "TokenData",
     "OfficerCreate", "OfficerResponse",
     "ComplaintBase", "ComplaintCreate", "ComplaintUpdate",

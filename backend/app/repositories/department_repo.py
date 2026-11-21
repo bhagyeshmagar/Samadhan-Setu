@@ -13,7 +13,7 @@ class DepartmentRepository:
     async def list_all(self, active_only: bool = True) -> List[Department]:
         query = select(Department).order_by(Department.name.asc())
         if active_only:
-            query = query.where(Department.is_active == True)
+            query = query.where(Department.is_active.is_(True))
         res = await self.session.execute(query)
         return list(res.scalars().all())
 
@@ -48,7 +48,7 @@ class DepartmentRepository:
         stmt = (
             select(Department)
             .options(selectinload(Department.category_mappings))
-            .where(Department.is_active == True)
+            .where(Department.is_active.is_(True))
         )
         result = await self.session.execute(stmt)
         departments = result.scalars().all()
@@ -74,7 +74,7 @@ class DepartmentRepository:
         # 2. Try by name pattern
         res = await self.session.execute(
             select(Department)
-            .where(Department.is_active == True)
+            .where(Department.is_active.is_(True))
             .order_by(Department.name.asc())
         )
         departments = list(res.scalars().all())

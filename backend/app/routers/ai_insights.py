@@ -3,11 +3,10 @@ AI Insights Router — PostgreSQL edition.
 Provides AI classification preview, duplicate detection, priority explanation,
 and officer AI-ranked queue. All AI outputs are advisory — officers decide.
 """
-import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -243,7 +242,7 @@ async def get_similar_for_complaint(
         select(Complaint)
         # BUG-08 FIX: Only expose public complaints in similarity results — previously
         # private (is_public=False) complaints were leaking into the response.
-        .where(Complaint.id != c.id, Complaint.category == c.category, Complaint.is_public == True)
+        .where(Complaint.id != c.id, Complaint.category == c.category, Complaint.is_public.is_(True))
         .order_by(Complaint.created_at.desc())
         .limit(30)
     )
@@ -584,7 +583,7 @@ async def get_override_stats(
     from ..models.orm import AIResult
 
     total_stmt = select(func.count(AIResult.id))
-    overridden_stmt = select(func.count(AIResult.id)).where(AIResult.overridden == True)
+    overridden_stmt = select(func.count(AIResult.id)).where(AIResult.overridden.is_(True))
 
     total_reviewed = (await session.execute(total_stmt)).scalar() or 0
     total_overridden = (await session.execute(overridden_stmt)).scalar() or 0
@@ -609,7 +608,7 @@ async def get_override_stats(
 
     recent_stmt = (
         select(AIResult)
-        .where(AIResult.overridden == True)
+        .where(AIResult.overridden.is_(True))
         .order_by(AIResult.created_at.desc())
         .limit(5)
     )

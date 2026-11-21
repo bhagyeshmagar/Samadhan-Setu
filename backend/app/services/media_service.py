@@ -15,10 +15,11 @@ import os
 import io
 import uuid
 import asyncio
+import hashlib
 from datetime import datetime, timezone
 from typing import Tuple, Dict, Any, Optional
 from fastapi import UploadFile, HTTPException, status
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageStat
 
 from app.config import settings
 from app.models.orm.enums import MediaType
@@ -105,7 +106,7 @@ def _process_and_save_sync(raw_bytes: bytes, target_path: str) -> Tuple[int, int
             # Normalize to RGB for JPEG
             if transposed.mode not in ("RGB", "L"):
                 transposed = transposed.convert("RGB")
-            
+
             width, height = transposed.size
 
             # Save clean sanitized JPEG (strips all EXIF, GPS, and malicious payloads)
@@ -184,11 +185,6 @@ async def process_and_store_image(
             pass
 
     return s3_key, relative_url, file_size, metadata
-
-
-import hashlib
-from typing import Optional
-from PIL import ImageStat
 
 
 def verify_before_after_authenticity(

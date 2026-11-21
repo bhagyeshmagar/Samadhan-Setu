@@ -2,7 +2,6 @@
 Authentication Router — PostgreSQL edition.
 Handles user registration, login, and profile management.
 """
-import uuid
 from datetime import timedelta
 from typing import Optional
 
@@ -13,9 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.session import get_async_session
 from ..auth import (
-    get_password_hash,
     hash_password_async,
-    verify_password,
     verify_password_async,
     create_access_token,
     get_current_user,
@@ -28,7 +25,7 @@ from ..services.rate_limiter import limit_login_attempts
 from ..models.orm import User, AuditLog
 from ..models.orm.enums import UserRole
 from ..repositories.user_repo import UserRepository
-from ..schemas import UserCreate, UserUpdate, UserResponse, UserWithToken, Token, UserLogin
+from ..schemas import UserCreate, UserUpdate, UserResponse, UserWithToken, UserLogin
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
