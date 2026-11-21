@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from app.db.session import AsyncSessionLocal
-from app.models.orm.complaint import Complaint, ComplaintTimeline
+from app.models.orm.complaint import Complaint, ComplaintTimeline, SLAEvent
 from app.models.orm.audit import AuditLog, Notification
 from app.models.orm.enums import ComplaintStatus, NotificationType
 
@@ -140,6 +140,18 @@ async def run_sla_governance_sweep() -> dict:
                         },
                     )
                 )
+                # Immutable SLA Event Ledger (H-01 FIX)
+                session.add(
+                    SLAEvent(
+                        complaint_id=c.id,
+                        event_type="breached",
+                        previous_deadline=c.sla_deadline,
+                        new_deadline=c.sla_deadline,
+                        actor_role="sla_engine",
+                        notes=f"Statutory deadline breached. Urgency score escalated to {c.priority_score:.2f}.",
+                        created_at=now,
+                    )
+                )
                 breached_count += 1
 
             # 75% SLA Warning -> Emit warning timeline & notification once
@@ -155,6 +167,18 @@ async def run_sla_governance_sweep() -> dict:
                             status_to=c.status.value,
                             actor_role="sla_engine",
                             notes="[SLA 75% WARNING] 75% of statutory SLA window consumed. Immediate action mandated.",
+                        )
+                    )
+
+                    session.add(
+                        SLAEvent(
+                            complaint_id=c.id,
+                            event_type="warning_75",
+                            previous_deadline=c.sla_deadline,
+                            new_deadline=c.sla_deadline,
+                            actor_role="sla_engine",
+                            notes="75% of statutory SLA consumed. Auto-warning broadcasted to assigned department.",
+                            created_at=now,
                         )
                     )
 
@@ -251,3 +275,7 @@ async def sla_background_loop(interval_seconds: int = 300):
         except Exception as exc:
             logger.warning(f"SLA sweep error: {exc}")
         await asyncio.sleep(interval_seconds)
+
+
+# Alias for backward compatibility and test runners
+run_sla_sweep = run_sla_governance_sweep

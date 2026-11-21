@@ -55,7 +55,7 @@ export default function DepartmentDashboard() {
 
     useEffect(() => {
         if (!authLoading && !user) router.push('/login');
-        if (!authLoading && user && user.role !== 'officer' && user.role !== 'admin') {
+        if (!authLoading && user && !['officer', 'supervisor', 'admin', 'super_admin'].includes(user.role)) {
             router.push('/');
         }
     }, [user, authLoading, router]);
@@ -76,7 +76,7 @@ export default function DepartmentDashboard() {
     }, [statusFilter]);
 
     useEffect(() => {
-        if (user && (user.role === 'officer' || user.role === 'admin')) {
+        if (user && ['officer', 'supervisor', 'admin', 'super_admin'].includes(user.role)) {
             fetchData();
         }
     }, [user, fetchData]);

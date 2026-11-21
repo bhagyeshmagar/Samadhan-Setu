@@ -1,10 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* ================================================================
    SAMADHAN SETU — Modern Indian Gov Design System
    Inspired by: ONDC, DigiLocker 2024, UMANG, Aadhaar portal
-   NOT: Old legacy portal tables. NOT: Glassmorphism.
+   H-12 / L-11 FIX: Self-contained typography without 3rd-party font tracking.
    ================================================================ */
 
 
@@ -179,6 +178,16 @@ html.dark, .dark {
 *, *::before, *::after { box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }
+
+/* Accessibility: respect user preference for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 body {
   background:          var(--bg-page);

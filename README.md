@@ -211,6 +211,18 @@ Samadhan-Setu/
 
 ---
 
+## Docker Deployment (Single-Command Launch)
+
+To run the entire ecosystem (PostgreSQL, Redis, FastAPI Backend with 4 workers, and volume persistence):
+
+```bash
+docker compose up -d --build
+```
+
+Healthchecks automatically verify database and redis readiness before launching the backend worker cluster on port `8000`.
+
+---
+
 ## Installation & Setup
 
 ### Prerequisites

@@ -6,7 +6,7 @@ import uuid
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,9 @@ from ..auth import (
     verify_password_async,
     create_access_token,
     get_current_user,
+    get_current_user_optional,
+    revoke_token,
+    extract_token_from_request,
     settings,
 )
 from ..services.rate_limiter import limit_login_attempts
@@ -105,6 +108,7 @@ async def register(
 @router.post("/login", response_model=UserWithToken)
 async def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -152,12 +156,22 @@ async def login(
         data={"sub": str(user.id), "role": user.role.value},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    is_prod = settings.ENVIRONMENT.lower() in ("production", "prod")
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
     return UserWithToken(user=_user_to_response(user), access_token=token, token_type="bearer")
 
 
 @router.post("/login/json", response_model=UserWithToken)
 async def login_json(
     request: Request,
+    response: Response,
     login_data: UserLogin,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -201,7 +215,30 @@ async def login_json(
         data={"sub": str(user.id), "role": user.role.value},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    is_prod = settings.ENVIRONMENT.lower() in ("production", "prod")
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
     return UserWithToken(user=_user_to_response(user), access_token=token, token_type="bearer")
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Revoke JWT access token and clear authentication cookie (H-07 fix)."""
+    token = extract_token_from_request(request)
+    if token:
+        revoke_token(token)
+    response.delete_cookie("access_token")
+    return {"message": "Logged out successfully", "revoked": bool(token)}
 
 
 @router.get("/me", response_model=UserResponse)

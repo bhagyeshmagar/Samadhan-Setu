@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect } from 'react';
-import { getStoredUser, setStoredUser, setToken, removeToken } from './api';
+import { getStoredUser, setStoredUser, setToken, removeToken, authAPI } from './api';
 
 const AuthContext = createContext(null);
 
@@ -27,7 +27,12 @@ export function AuthProvider({ children }) {
         setToken(token);
     };
 
-    const logout = () => {
+    const logout = async () => {
+        try {
+            await authAPI.logout();
+        } catch {
+            // Ignore network errors on logout to allow clean local exit
+        }
         setUser(null);
         removeToken();
     };

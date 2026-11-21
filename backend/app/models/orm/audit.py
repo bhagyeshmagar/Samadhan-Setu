@@ -1,4 +1,6 @@
 import uuid
+import hashlib
+import json
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 from sqlalchemy import String, Boolean, DateTime, Text, ForeignKey, func, JSON
@@ -10,6 +12,30 @@ from .enums import NotificationType, pg_enum
 if TYPE_CHECKING:
     from .user import User
     from .complaint import Complaint
+
+
+def compute_audit_hash(
+    previous_hash: Optional[str],
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    actor_id: Optional[str],
+    created_at_iso: str,
+    details: Optional[dict] = None
+) -> str:
+    """Compute cryptographic SHA-256 hash for tamper-evident audit ledger chaining."""
+    payload = {
+        "prev": previous_hash or "GENESIS",
+        "act": action,
+        "type": entity_type,
+        "id": str(entity_id),
+        "actor": str(actor_id) if actor_id else "SYSTEM",
+        "time": created_at_iso,
+        "details": details or {}
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -27,6 +53,10 @@ class AuditLog(Base):
     actor_role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # Tamper-evident SHA-256 hash chaining (M-21 FIX)
+    previous_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    record_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True

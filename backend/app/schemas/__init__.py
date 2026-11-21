@@ -1,13 +1,13 @@
 from .user import (
-    UserBase, UserCreate, UserUpdate, UserLogin, UserResponse,
+    UserBase, UserCreate, AdminUserCreate, UserUpdate, UserLogin, UserResponse,
     UserWithToken, Token, TokenData,
     OfficerCreate, OfficerResponse,
 )
 from .complaint import (
     ComplaintBase, ComplaintCreate, ComplaintUpdate,
     ComplaintAIResponse, ComplaintResponse, ComplaintListResponse,
-    ComplaintStats, StatusLogResponse, ComplaintFeedback,
-    TaskResponse, TaskUpdate, AuditLogResponse
+    ComplaintStats, StatusLogResponse, ComplaintFeedback, ComplaintAppeal,
+    SLAEventResponse, TaskResponse, TaskUpdate, AuditLogResponse
 )
 from .department import (
     DepartmentBase, DepartmentCreate, DepartmentUpdate, DepartmentResponse,
@@ -16,13 +16,13 @@ from .department import (
 )
 
 __all__ = [
-    "UserBase", "UserCreate", "UserLogin", "UserResponse",
+    "UserBase", "UserCreate", "AdminUserCreate", "UserLogin", "UserResponse",
     "UserWithToken", "Token", "TokenData",
     "OfficerCreate", "OfficerResponse",
     "ComplaintBase", "ComplaintCreate", "ComplaintUpdate",
     "ComplaintAIResponse", "ComplaintResponse", "ComplaintListResponse",
-    "ComplaintStats", "StatusLogResponse", "ComplaintFeedback",
-    "TaskResponse", "TaskUpdate", "AuditLogResponse",
+    "ComplaintStats", "StatusLogResponse", "ComplaintFeedback", "ComplaintAppeal",
+    "SLAEventResponse", "TaskResponse", "TaskUpdate", "AuditLogResponse",
     "DepartmentBase", "DepartmentCreate", "DepartmentUpdate", "DepartmentResponse",
     "CategoryMappingBase", "CategoryMappingCreate", "CategoryMappingResponse",
     "SLARuleBase", "SLARuleCreate", "SLARuleResponse",

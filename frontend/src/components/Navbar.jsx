@@ -7,6 +7,7 @@ import { Menu, X, User, LogOut, ChevronDown, Bell } from 'lucide-react';
 import { useState, useSyncExternalStore, useEffect, useRef, useCallback } from 'react';
 import { notificationsAPI } from '@/lib/api';
 import ThemeToggle from './ThemeToggle';
+import LanguageToggle from './LanguageToggle';
 
 const emptySubscribe = () => () => {};
 
@@ -55,8 +56,8 @@ const NAV_LINKS = {
         { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
     ],
     supervisor: [
-        { href: '/department', label: 'Dashboard',  labelHi: 'डैशबोर्ड' },
-        { href: '/department?status_filter=appealed_l1', label: 'Appeals', labelHi: 'अपील' },
+        { href: '/supervisor', label: 'Appellate Desk', labelHi: 'अपील' },
+        { href: '/department', label: 'Department Tasks', labelHi: 'डैशबोर्ड' },
         { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
     ],
     admin: [
@@ -226,6 +227,7 @@ export default function Navbar() {
 
                     {/* Desktop: User actions */}
                     <div className="hidden md:flex items-center gap-3 shrink-0">
+                        <LanguageToggle />
                         <ThemeToggle />
                         {user && (
                             /* ── Notification Bell ── */
@@ -433,6 +435,10 @@ export default function Navbar() {
                         ))}
 
                         <div className="my-2 border-t" style={{ borderColor: 'var(--border)' }} />
+                        <div className="px-3 py-1.5 flex items-center justify-between">
+                            <span className="text-xs font-medium text-(--text-muted)">Language / भाषा</span>
+                            <LanguageToggle />
+                        </div>
                         <div className="px-3 py-1 flex items-center justify-between">
                             <span className="text-xs font-medium text-(--text-muted)">Display Theme</span>
                             <ThemeToggle />

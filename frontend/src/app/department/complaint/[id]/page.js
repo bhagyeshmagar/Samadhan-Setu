@@ -7,6 +7,8 @@ import { useAuth } from '@/lib/auth';
 import { departmentAPI, complaintsAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
+import AppellateAdjudicationModal from '@/components/AppellateAdjudicationModal';
+import AuthImage from '@/components/AuthImage';
 import {
     MapPin, Clock, User, Phone, Mail, FileText, Upload, CheckCircle,
     AlertTriangle, ArrowLeft, Loader2, ImagePlus, X,
@@ -67,6 +69,7 @@ export default function HandleComplaint() {
     const [triageSuccess, setTriageSuccess] = useState('');
     const [swarmSubmitting, setSwarmSubmitting] = useState(false);
     const [swarmResult, setSwarmResult] = useState(null);
+    const [showAdjudicationModal, setShowAdjudicationModal] = useState(false);
 
     const complaintId = params?.id;
 
@@ -228,7 +231,7 @@ export default function HandleComplaint() {
                     Grievance Marked as Resolved
                 </h2>
                 <p className="text-xs text-gray-600 mb-2">
-                    शिकायत निवारण दर्ज — The citizen will receive SMS and digital notification regarding this resolution.
+                    शिकायत निवारण दर्ज — The citizen will receive digital email and portal notifications regarding this resolution.
                 </p>
                 <p className="text-[11px] text-gray-400">Redirecting to Department Task Desk…</p>
             </div>
@@ -306,49 +309,37 @@ export default function HandleComplaint() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Content */}
                 <div className="lg:col-span-2 space-y-6">
-                    {/* Appellate Authority Adjudication Panel (H3 FIX) */}
+                    {/* Appellate Authority Adjudication Panel (H-06 FIX) */}
                     {(complaint.status || '').toLowerCase().startsWith('appealed') && (
-                        <div className="p-5 rounded-2xl border-2 border-rose-400 bg-rose-50/90 shadow-sm space-y-3">
-                            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-800 flex items-center gap-2">
+                        <div className="p-5 rounded-2xl border-2 border-rose-400 bg-rose-50/90 dark:bg-rose-950/20 shadow-sm space-y-3">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-800 dark:text-rose-300 flex items-center gap-2">
                                 ⚖️ Appellate Authority Adjudication ({String(complaint.status || '').toLowerCase() === 'appealed_l2' ? 'Level 2 Appellate Review' : 'Level 1 Nodal Review'})
                             </h3>
-                            <p className="text-xs text-rose-900 leading-relaxed">
-                                The citizen challenged the Action Taken Report. As an Appellate Authority (Supervisor / Admin), issue a binding order:
-                            </p>
                             {complaint.appeal_remarks && (
-                                <div className="p-3 bg-white/80 rounded-lg border border-rose-200 text-xs text-rose-950">
+                                <div className="p-3 bg-white/90 dark:bg-gray-800 rounded-lg border border-rose-200 dark:border-rose-900/60 text-xs text-rose-950 dark:text-rose-200">
                                     <span className="font-bold">Citizen Appeal Reason: </span>
                                     <span>{complaint.appeal_remarks}</span>
                                 </div>
                             )}
-                            <div className="flex flex-wrap gap-3 pt-1">
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        const notes = prompt('Enter Appellate Rework Directive for Field Team (min 10 chars):', 'Field inspection incomplete. Re-verify on site and upload fresh geo-tagged proof within 24 hours.');
-                                        if (notes && notes.length >= 10) {
-                                            await departmentAPI.adjudicateAppeal(complaint.id, 'reopen_rework', notes);
-                                            await fetchComplaint();
-                                        }
-                                    }}
-                                    className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-sm"
-                                >
-                                    ↺ Uphold Citizen Appeal — Reopen for Field Rework (24h SLA)
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        const notes = prompt('Enter Final Binding Appellate Closure Order (min 10 chars):', 'Verified before/after evidence and departmental logs. Work meets municipal specifications. Appeal disposed.');
-                                        if (notes && notes.length >= 10) {
-                                            await departmentAPI.adjudicateAppeal(complaint.id, 'final_close', notes);
-                                            await fetchComplaint();
-                                        }
-                                    }}
-                                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-sm"
-                                >
-                                    ✓ Dispose Appeal — Issue Final Resolution & Close
-                                </button>
-                            </div>
+
+                            {['supervisor', 'admin', 'super_admin'].includes(user?.role) ? (
+                                <div className="pt-1">
+                                    <p className="text-xs text-rose-900 dark:text-rose-300 mb-3 leading-relaxed">
+                                        As an authorized Appellate Authority, review the evidence and citizen grounds to issue a binding administrative order:
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAdjudicationModal(true)}
+                                        className="btn-primary text-xs px-5 py-2.5 flex items-center gap-2 rounded-xl shadow-sm bg-rose-700 hover:bg-rose-800 text-white font-bold"
+                                    >
+                                        ⚖️ Open Appellate Adjudication Console
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300">
+                                    ℹ️ This complaint is currently under official Appellate Review. Only designated Supervisors and Admins may adjudicate appeals and issue rework directives.
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -894,6 +885,14 @@ export default function HandleComplaint() {
                     </div>
                 </div>
             </div>
+
+            {/* Appellate Adjudication Modal (H-06 FIX) */}
+            <AppellateAdjudicationModal
+                isOpen={showAdjudicationModal}
+                onClose={() => setShowAdjudicationModal(false)}
+                complaint={complaint}
+                onSuccess={fetchComplaint}
+            />
         </div>
     );
 }

@@ -67,6 +67,22 @@ class StatusLogResponse(BaseModel):
         from_attributes = True
 
 
+class SLAEventResponse(BaseModel):
+    id: str
+    complaint_id: str
+    event_type: str
+    sla_hours: Optional[int] = None
+    previous_deadline: Optional[datetime] = None
+    new_deadline: Optional[datetime] = None
+    actor_id: Optional[str] = None
+    actor_role: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ComplaintResponse(BaseModel):
     id: str
     complaint_number: Optional[str] = None  # H-11 FIX: tracking number was missing
@@ -89,7 +105,12 @@ class ComplaintResponse(BaseModel):
     department_id: Optional[str] = None
     assigned_officer_id: Optional[str] = None
 
-    # H-11 FIX: SLA & appeal fields were missing
+    # H-08 / H-09 FIX: Separate AI priority vs human verified priority
+    ai_priority: Optional[Any] = None
+    ai_priority_score: Optional[float] = 0.0
+
+    # H-11 / H-01 FIX: SLA & appeal fields & immutable ledger
+    sla_started_at: Optional[Any] = None
     sla_breached: Optional[bool] = None
     appeal_level: Optional[int] = None
     action_taken_report: Optional[str] = None
@@ -111,6 +132,7 @@ class ComplaintResponse(BaseModel):
     user: Optional[Dict[str, Any]] = None
     status_logs: Optional[List[Any]] = []
     status_history: Optional[List[Any]] = []
+    sla_events: Optional[List[Any]] = []
     tasks: Optional[List[Dict[str, Any]]] = []
 
     class Config:

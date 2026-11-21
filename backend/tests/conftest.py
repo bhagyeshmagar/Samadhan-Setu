@@ -54,10 +54,6 @@ _firestore_mod  = _stub_module("firebase_admin.firestore")
 _credentials    = _stub_module("firebase_admin.credentials")
 _stub_module("google.cloud.firestore")
 
-# Patch init_db so startup doesn't try to connect to Firebase
-import unittest.mock as _um
-_um.patch("app.database.init_db", return_value=None).start()
-
 # Also patch the AI bridge / pipeline at module level so importing them is safe
 for _ai_mod in [
     "app.services.ai_bridge",

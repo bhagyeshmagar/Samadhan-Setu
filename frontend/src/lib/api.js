@@ -56,6 +56,7 @@ async function apiRequest(endpoint, options = {}) {
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
+        credentials: 'include',
         headers,
     });
 
@@ -97,6 +98,7 @@ export const authAPI = {
         method: 'POST',
         body: JSON.stringify({ email, password }),
     }),
+    logout: () => apiRequest('/api/auth/logout', { method: 'POST' }),
     getProfile: () => apiRequest('/api/auth/me'),
 };
 
@@ -394,6 +396,32 @@ export const aiAPI = {
     getHotspots: (days = 30, minSize = 3) =>
         apiRequest(`/api/ai/admin/hotspots?days=${days}&min_size=${minSize}`),
     getOverrideStats: () => apiRequest('/api/ai/admin/override-stats'),
+};
+
+// DPDP Act Compliance API (H-12 / L-11 FIX)
+export const dpdpAPI = {
+    exportData: () => apiRequest('/api/citizen/dpdp/export'),
+    requestErasure: (reason) => apiRequest('/api/citizen/dpdp/erasure-request', {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+    }),
+};
+
+// Authenticated Media URL Generator (H-02 FIX)
+export const getImageUrl = (img) => {
+    const raw = typeof img === 'string' ? img : (img?.url || img?.path || img?.s3_key);
+    if (!raw) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    let url = raw;
+    if (url.startsWith('/api/')) url = `${API_BASE_URL}${url}`;
+    else if (url.startsWith('/uploads/')) url = `${API_BASE_URL}${url}`;
+    else url = `${API_BASE_URL}/api/media/${url.replace(/^\//, '')}`;
+
+    const token = getToken();
+    if (token && !url.includes('token=')) {
+        url += (url.includes('?') ? '&' : '?') + `token=${encodeURIComponent(token)}`;
+    }
+    return url;
 };
 
 export default apiRequest;

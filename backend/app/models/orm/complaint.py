@@ -74,6 +74,13 @@ class Complaint(Base):
     sentiment_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
     vote_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
+    # Distinct AI vs Human Priority (H-08 / H-09 FIX)
+    ai_priority: Mapped[Optional[ComplaintPriority]] = mapped_column(
+        pg_enum(ComplaintPriority, "complaint_priority"),
+        nullable=True,
+    )
+    ai_priority_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
+
     # Location (GPS + Address)
     address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ward: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
@@ -105,7 +112,10 @@ class Complaint(Base):
         index=True,
     )
 
-    # SLA Tracking
+    # SLA Tracking (H-01 Immutable SLA Ledger)
+    sla_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     sla_deadline: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
@@ -165,6 +175,9 @@ class Complaint(Base):
     )
     ai_results: Mapped[List["AIResult"]] = relationship(
         "AIResult", back_populates="complaint", cascade="all, delete-orphan", order_by="desc(AIResult.created_at)"
+    )
+    sla_events: Mapped[List["SLAEvent"]] = relationship(
+        "SLAEvent", back_populates="complaint", cascade="all, delete-orphan", order_by="desc(SLAEvent.created_at)"
     )
 
 
@@ -330,4 +343,33 @@ class AIResult(Base):
     )
 
     complaint: Mapped["Complaint"] = relationship("Complaint", back_populates="ai_results")
+
+
+class SLAEvent(Base):
+    __tablename__ = "sla_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    complaint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("complaints.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    sla_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    previous_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    new_deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    actor_role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    complaint: Mapped["Complaint"] = relationship("Complaint", back_populates="sla_events")
+
 

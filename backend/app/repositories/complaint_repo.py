@@ -21,6 +21,7 @@ from app.models.orm import (
     AuditLog,
     Notification,
     NotificationType,
+    SLAEvent,
 )
 
 class ComplaintRepository:
@@ -59,6 +60,8 @@ class ComplaintRepository:
         priority_score: float = 0.0,
         urgency_score: int = 0,
         sentiment_score: float = 0.0,
+        ai_priority: Optional[ComplaintPriority] = None,
+        ai_priority_score: Optional[float] = None,
         department_id: Optional[uuid.UUID] = None,
         sla_hours: int = 72,
         is_public: bool = True,
@@ -67,6 +70,17 @@ class ComplaintRepository:
         now = datetime.now(timezone.utc)
         complaint_num = await self.generate_complaint_number()
         sla_deadline = now + timedelta(hours=sla_hours)
+
+        norm_score = (
+            round(float(priority_score) / 100.0, 4)
+            if float(priority_score) > 10.0
+            else round(float(priority_score), 4)
+        )
+        norm_ai_score = (
+            round(float(ai_priority_score) / 100.0, 4)
+            if ai_priority_score is not None and float(ai_priority_score) > 10.0
+            else (round(float(ai_priority_score), 4) if ai_priority_score is not None else norm_score)
+        )
 
         complaint = Complaint(
             id=uuid.uuid4(),
@@ -85,18 +99,14 @@ class ComplaintRepository:
             longitude=longitude,
             location_accuracy=location_accuracy,
             priority=priority,
-            # BUG-06 FIX: Normalize priority_score to 1.0-3.0 scale.
-            # Seed data used a 0-100 scale; runtime uses 1.0-3.0. If a value > 10
-            # is passed, divide by 100 to bring it into range.
-            priority_score=(
-                round(float(priority_score) / 100.0, 4)
-                if float(priority_score) > 10.0
-                else round(float(priority_score), 4)
-            ),
+            priority_score=norm_score,
             urgency_score=urgency_score,
             sentiment_score=sentiment_score,
+            ai_priority=ai_priority or priority,
+            ai_priority_score=norm_ai_score,
             status=ComplaintStatus.SUBMITTED,
             department_id=department_id,
+            sla_started_at=now,
             sla_deadline=sla_deadline,
             is_public=is_public,
             is_anonymous=is_anonymous,
@@ -117,9 +127,51 @@ class ComplaintRepository:
             created_at=now,
         )
         self.session.add(timeline)
+
+        # Log initial SLA event in immutable ledger (H-01 FIX)
+        sla_event = SLAEvent(
+            complaint_id=complaint.id,
+            event_type="started",
+            sla_hours=sla_hours,
+            previous_deadline=None,
+            new_deadline=sla_deadline,
+            actor_id=citizen_id,
+            actor_role="citizen",
+            notes=f"Statutory resolution SLA window started ({sla_hours}h target).",
+            created_at=now,
+        )
+        self.session.add(sla_event)
         await self.session.flush()
 
         return complaint
+
+    async def record_sla_event(
+        self,
+        complaint_id: uuid.UUID,
+        event_type: str,
+        previous_deadline: Optional[datetime],
+        new_deadline: Optional[datetime],
+        sla_hours: Optional[int] = None,
+        actor_id: Optional[uuid.UUID] = None,
+        actor_role: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> SLAEvent:
+        """Record an immutable SLA transition event in the audit ledger (H-01 FIX)."""
+        now = datetime.now(timezone.utc)
+        event = SLAEvent(
+            complaint_id=complaint_id,
+            event_type=event_type,
+            sla_hours=sla_hours,
+            previous_deadline=previous_deadline,
+            new_deadline=new_deadline,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            notes=notes,
+            created_at=now,
+        )
+        self.session.add(event)
+        await self.session.flush()
+        return event
 
     async def get_by_id(self, complaint_id: uuid.UUID) -> Optional[Complaint]:
         res = await self.session.execute(
@@ -128,6 +180,7 @@ class ComplaintRepository:
                 selectinload(Complaint.media),
                 selectinload(Complaint.timeline).selectinload(ComplaintTimeline.actor),
                 selectinload(Complaint.ai_results),
+                selectinload(Complaint.sla_events),
                 selectinload(Complaint.department),
                 selectinload(Complaint.citizen),
                 selectinload(Complaint.feedback),

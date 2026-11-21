@@ -17,9 +17,10 @@ from .complaint import (
     ComplaintVote,
     CitizenFeedback,
     AIResult,
+    SLAEvent,
 )
 from .team import Team, TaskAssignment, AssignmentLog
-from .audit import AuditLog, Notification
+from .audit import AuditLog, Notification, compute_audit_hash
 from .ai import AIAnalysisResult
 
 
@@ -48,4 +49,6 @@ __all__ = [
     "Notification",
     "AIAnalysisResult",
     "AIResult",
+    "SLAEvent",
+    "compute_audit_hash",
 ]

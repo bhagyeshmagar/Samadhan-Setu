@@ -1173,12 +1173,32 @@ async def adjudicate_citizen_appeal(
     if decision == "final_close":
         target_status = ComplaintStatus.CLOSED
         timeline_note = f"[FINAL APPELLATE RESOLUTION] Appellate Authority issued final closure order: {order_notes}"
+        await repo.record_sla_event(
+            complaint_id=cid,
+            event_type="adjudication_final_close",
+            previous_deadline=complaint.sla_deadline,
+            new_deadline=None,
+            actor_id=user_id,
+            actor_role=user_role,
+            notes=f"Final closure order: {order_notes}",
+        )
     else:
         target_status = ComplaintStatus.IN_PROGRESS
         # H-01 FIX: Never clear historical breach flag on rework order.
         # Only set a new deadline for the rework period.
+        prev_deadline = complaint.sla_deadline
         complaint.sla_deadline = datetime.now(timezone.utc) + timedelta(hours=24)
         timeline_note = f"[APPEAL UPHELD — REOPENED FOR FIELD REWORK] Appellate Authority ordered immediate rework (24h SLA): {order_notes}"
+        await repo.record_sla_event(
+            complaint_id=cid,
+            event_type="adjudication_rework",
+            sla_hours=24,
+            previous_deadline=prev_deadline,
+            new_deadline=complaint.sla_deadline,
+            actor_id=user_id,
+            actor_role=user_role,
+            notes=f"Appellate rework order: {order_notes}",
+        )
 
     user_id = user.id if hasattr(user, "id") else (uuid.UUID(str(user["id"])) if isinstance(user, dict) else user)
     user_role = user.role.value if hasattr(user, "role") and hasattr(user.role, "value") else (user.get("role") if isinstance(user, dict) else str(user))

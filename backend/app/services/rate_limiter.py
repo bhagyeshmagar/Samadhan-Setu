@@ -1,19 +1,25 @@
 """
-In-memory Rate Limiter for Samadhan Setu
+Rate Limiter for Samadhan Setu
 Provides sliding-window rate limiting for authentication and grievance lodging.
-Thread-safe and async-friendly without external dependencies.
+Thread-safe and async-friendly with Redis support and in-memory fallback.
 
 H-03 FIX:
-- Added periodic TTL cleanup of expired entries to prevent unbounded memory growth.
+- Redis-backed distributed sliding-window rate limiting for multi-worker deployments.
+- Automatic seamless fallback to local in-memory sliding-window limiter if Redis is offline/unconfigured.
+- Added periodic TTL cleanup of expired in-memory entries to prevent unbounded memory growth.
 - Added rate limiting for complaint submission (not just login).
 - X-Forwarded-For is only trusted when the immediate peer IP is in TRUSTED_PROXY_IPS.
 - Per-email lockouts keyed by IP+email pair to prevent cross-user DoS.
 """
 import os
 import time
+import logging
 from collections import defaultdict, deque
 from typing import Optional, Set
 from fastapi import Request, HTTPException, status
+from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 # H-03 FIX: Only trust forwarded headers from known reverse proxies
 TRUSTED_PROXY_IPS: Set[str] = set(
@@ -24,6 +30,19 @@ TRUSTED_PROXY_IPS: Set[str] = set(
 
 # Maximum unique keys before triggering a full cleanup sweep
 _MAX_KEYS_BEFORE_CLEANUP = 50_000
+
+# Redis client initialization (lazy-loaded, graceful fallback)
+_redis_client = None
+if getattr(settings, "REDIS_URL", None):
+    try:
+        import redis
+        _client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        _client.ping()
+        _redis_client = _client
+        logger.info("Connected to Redis for distributed multi-worker rate limiting.")
+    except Exception as exc:
+        logger.warning(f"Redis unavailable ({exc}). Using thread-safe in-memory rate limiter.")
+        _redis_client = None
 
 
 class SlidingWindowRateLimiter:
@@ -46,11 +65,40 @@ class SlidingWindowRateLimiter:
         for k in expired_keys:
             del self._records[k]
 
+    def _check_redis(self, key: str, max_requests: int, window_seconds: int) -> Optional[bool]:
+        """Check rate limit via Redis sorted set. Returns None if Redis fails."""
+        if not _redis_client:
+            return None
+        try:
+            now = time.time()
+            cutoff = now - window_seconds
+            rkey = f"rl:{key}"
+            pipe = _redis_client.pipeline()
+            pipe.zremrangebyscore(rkey, 0, cutoff)
+            pipe.zcard(rkey)
+            results = pipe.execute()
+            current_count = results[1]
+            if current_count >= max_requests:
+                return False
+            pipe = _redis_client.pipeline()
+            pipe.zadd(rkey, {f"{now}:{time.time_ns()}": now})
+            pipe.expire(rkey, window_seconds + 30)
+            pipe.execute()
+            return True
+        except Exception as exc:
+            logger.debug(f"Redis rate limit check error ({exc}), falling back to in-memory.")
+            return None
+
     def check_rate_limit(self, key: str, max_requests: int, window_seconds: int) -> bool:
         """
         Check if an action is within allowed rate limits.
+        Attempts Redis first; falls back to in-memory sliding window.
         Returns True if allowed, False if limit exceeded.
         """
+        redis_result = self._check_redis(key, max_requests, window_seconds)
+        if redis_result is not None:
+            return redis_result
+
         now = time.time()
         cutoff = now - window_seconds
         queue = self._records[key]

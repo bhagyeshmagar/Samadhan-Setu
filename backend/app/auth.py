@@ -4,13 +4,13 @@ Uses PostgreSQL via UserRepository (no Firestore).
 """
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Set
 import uuid
 
 import jwt as pyjwt
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,49 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+# Server-side in-memory token revocation blocklist (H-07 fix)
+REVOKED_TOKENS: Set[str] = set()
+
+
+def revoke_token(token: str) -> None:
+    """Add a JWT token to the revocation blacklist upon logout."""
+    if token:
+        clean_token = token.replace("Bearer ", "").strip()
+        REVOKED_TOKENS.add(clean_token)
+
+
+def is_token_revoked(token: str) -> bool:
+    """Check if token was explicitly revoked on logout."""
+    if not token:
+        return True
+    clean_token = token.replace("Bearer ", "").strip()
+    return clean_token in REVOKED_TOKENS
+
+
+def extract_token_from_request(request: Request, header_token: Optional[str] = None) -> Optional[str]:
+    """
+    Extract JWT token with multi-source fallback:
+    1. Authorization: Bearer <token>
+    2. HttpOnly Cookie: access_token
+    3. Query parameter: ?token=... (scoped for media / <img> elements)
+    """
+    if header_token and header_token.strip():
+        return header_token.strip()
+
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header[7:].strip()
+
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token and cookie_token.strip():
+        return cookie_token.strip()
+
+    query_token = request.query_params.get("token")
+    if query_token and query_token.strip():
+        return query_token.strip()
+
+    return None
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -87,17 +130,22 @@ def decode_token(token: str) -> Optional[dict]:
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme_optional),
     session: AsyncSession = Depends(get_async_session),
 ) -> User:
-    """Resolve the JWT token to the authenticated User row."""
+    """Resolve the JWT token to the authenticated User row (checks Bearer, Cookie, and revocation)."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    payload = decode_token(token)
+    effective_token = extract_token_from_request(request, token)
+    if not effective_token or is_token_revoked(effective_token):
+        raise credentials_exception
+
+    payload = decode_token(effective_token)
     if payload is None:
         raise credentials_exception
 
@@ -128,14 +176,16 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
+    request: Request,
     token: Optional[str] = Depends(oauth2_scheme_optional),
     session: AsyncSession = Depends(get_async_session),
 ) -> Optional[User]:
     """Resolve the JWT token to the authenticated User row, or None if unauthenticated."""
-    if not token:
+    effective_token = extract_token_from_request(request, token)
+    if not effective_token or is_token_revoked(effective_token):
         return None
 
-    payload = decode_token(token)
+    payload = decode_token(effective_token)
     if payload is None:
         return None
 

@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,6 +53,17 @@ class Settings:
     MAX_UPLOAD_SIZE_BYTES: int = 5 * 1024 * 1024   # 5 MB
     MAX_ATTACHMENTS_PER_COMPLAINT: int = 5
     ALLOWED_IMAGE_TYPES: set = {"image/jpeg", "image/png", "image/webp"}
+
+    # Redis Cache & Multi-Worker Rate Limiting (H-03 FIX)
+    REDIS_URL: Optional[str] = os.getenv("REDIS_URL", None)
+
+    # Event-Driven Notification & SMTP Service (Track B Upgrade)
+    SMTP_HOST: Optional[str] = os.getenv("SMTP_HOST", None)
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: Optional[str] = os.getenv("SMTP_USER", None)
+    SMTP_PASSWORD: Optional[str] = os.getenv("SMTP_PASSWORD", None)
+    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "samadhan-setu@nic.in")
+    SMTP_TLS: bool = os.getenv("SMTP_TLS", "true").lower() == "true"
 
     def validate(self) -> None:
         """Fail fast on dangerous misconfigurations.
