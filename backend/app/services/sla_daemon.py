@@ -272,9 +272,15 @@ async def sla_background_loop(interval_seconds: int = 300):
     while True:
         try:
             await run_sla_governance_sweep()
+        except asyncio.CancelledError:
+            break
         except Exception as exc:
             logger.warning(f"SLA sweep error: {exc}")
-        await asyncio.sleep(interval_seconds)
+
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            break
 
 
 # Alias for backward compatibility and test runners

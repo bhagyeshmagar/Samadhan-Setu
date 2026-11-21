@@ -35,8 +35,18 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Graceful shutdown: cancel SLA background task and await its completion
     sla_task.cancel()
-    await async_engine.dispose()
+    try:
+        await sla_task
+    except (asyncio.CancelledError, Exception):
+        pass
+
+    # Graceful disposal of pooled database connections
+    try:
+        await async_engine.dispose()
+    except (asyncio.CancelledError, Exception):
+        pass
     print("[OK] PostgreSQL connection pool closed.")
 
 
