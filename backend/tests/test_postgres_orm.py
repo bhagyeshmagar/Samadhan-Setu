@@ -230,7 +230,31 @@ async def test_repositories_flow(db_session):
     )
     assert citizen.id is not None
 
-    # 2. Get Department via Category Mapping
+    # 2. Get Department via Category Mapping (ensure fixture exists for isolated test runs)
+    dept = await dept_repo.get_by_category("Roads & Transport")
+    if not dept:
+        dept = await dept_repo.get_by_code("dept_roads")
+    if not dept:
+        dept = Department(
+            id=uuid.uuid4(),
+            name="Roads & Traffic Administration",
+            code="dept_roads",
+            sla_high=120,
+            sla_medium=168,
+            sla_low=504,
+            is_active=True,
+        )
+        db_session.add(dept)
+        await db_session.flush()
+
+        mapping = CategoryMapping(
+            id=uuid.uuid4(),
+            category="Roads & Transport",
+            department_id=dept.id,
+        )
+        db_session.add(mapping)
+        await db_session.commit()
+
     dept = await dept_repo.get_by_category("Roads & Transport")
     assert dept is not None
     assert dept.code == "dept_roads"
@@ -282,10 +306,12 @@ async def test_repositories_flow(db_session):
     )
     assert complaint.status == ComplaintStatus.IN_PROGRESS
 
-    # 7. Upvote
-    voted = await complaint_repo.upvote(complaint.id, citizen.id)
+    # 7. Upvote (returns Tuple[bool, int] as per L-07 atomic vote update)
+    voted_res = await complaint_repo.upvote(complaint.id, citizen.id)
+    voted = voted_res[0] if isinstance(voted_res, tuple) else voted_res
     assert voted is True
-    duplicate_vote = await complaint_repo.upvote(complaint.id, citizen.id)
+    dup_res = await complaint_repo.upvote(complaint.id, citizen.id)
+    duplicate_vote = dup_res[0] if isinstance(dup_res, tuple) else dup_res
     assert duplicate_vote is False
 
     await db_session.commit()

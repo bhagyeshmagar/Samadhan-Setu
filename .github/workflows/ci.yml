@@ -65,6 +65,7 @@ jobs:
         run: |
           cd backend
           alembic upgrade head
+          python seed_postgres.py
 
       - name: Run Pytest Suite
         env:
