@@ -15,7 +15,7 @@ import {
     Calendar, Activity, ChevronRight, CheckCircle2, Brain
 } from 'lucide-react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 const MAX_PROOF_FILES = 5;
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // backend limit is 5 MB
 

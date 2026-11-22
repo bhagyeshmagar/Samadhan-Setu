@@ -1,0 +1,7 @@
+{
+  "name": "Samadhan Setu",
+  "description": "AI-powered government civic grievance redressal portal for filing, tracking, and resolving municipal complaints transparently.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

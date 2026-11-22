@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 const TASK_STATUS_OPTIONS = ['Pending', 'Assigned', 'In Progress', 'Appeals', 'Completed', 'Rejected'];
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 const formatImageUrl = (url) => {
     if (!url) return '';

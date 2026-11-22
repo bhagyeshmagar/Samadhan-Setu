@@ -9,7 +9,7 @@ import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
 import { MapPin, Loader2, ArrowRight, ExternalLink, Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ListTodo, Brain, Link2, BarChart3, Search, Camera } from 'lucide-react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 const getImageUrl = (img) => {
     const raw = typeof img === 'string' ? img : img?.path || img?.url;
     if (!raw) return '';
@@ -149,7 +149,7 @@ export default function TrackGrievance() {
 
     const getImageUrl = (img) => {
         if (!img) return '';
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
         const raw = typeof img === 'string' ? img : (img?.s3_key || img?.path || img?.url || '');
         if (!raw) return '';
         if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
