@@ -235,8 +235,128 @@ function ConfirmDeleteModal({ dept, onClose, onConfirm }) {
     );
 }
 
+/* ── Create / Edit Field Team Modal ── */
+function TeamModal({ team, departments, teamLeads, onClose, onSaved }) {
+    const isEdit = Boolean(team);
+    const [form, setForm] = useState({
+        name: team?.name || '',
+        code: team?.code || '',
+        department_id: team?.department_id || departments[0]?.id || '',
+        team_lead_officer_id: team?.team_lead_officer_id || '',
+        ward_coverage: Array.isArray(team?.ward_coverage) ? team.ward_coverage.join(', ') : '',
+        specialization: team?.specialization || '',
+        member_count: team?.member_count || 6,
+        daily_capacity: team?.daily_capacity || 10,
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const eligibleLeads = teamLeads.filter(
+        o => o.is_active !== false && (!form.department_id || o.department_id === form.department_id)
+    );
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        if (!form.name || !form.department_id) {
+            setError('Team Name and Department are required.');
+            return;
+        }
+        setLoading(true);
+        try {
+            const payload = {
+                ...form,
+                member_count: Number(form.member_count) || 6,
+                daily_capacity: Number(form.daily_capacity) || 10,
+                ward_coverage: form.ward_coverage
+                    .split(',')
+                    .map(w => w.trim())
+                    .filter(Boolean),
+            };
+            const saved = isEdit
+                ? await adminAPI.updateTeam(team.id, payload)
+                : await adminAPI.createTeam(payload);
+            onSaved(saved);
+            onClose();
+        } catch (err) {
+            setError(err.message || 'Failed to save field team.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Modal title={isEdit ? `Edit Field Team — ${team.name}` : 'Create Departmental Field Team'} onClose={onClose}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                    <div className="gov-alert error text-sm flex gap-2">
+                        <AlertTriangle size={14} className="shrink-0 mt-0.5" /> {error}
+                    </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                    <Field label="Team Name" required>
+                        <input style={inputStyle} placeholder="Dadar Quick Response Squad"
+                            value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                    </Field>
+                    <Field label="Team Code">
+                        <input style={inputStyle} placeholder="ROADS-T3"
+                            value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} />
+                    </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <Field label="Department" required>
+                        <select style={inputStyle} value={form.department_id}
+                            onChange={e => setForm(f => ({ ...f, department_id: e.target.value, team_lead_officer_id: '' }))}>
+                            <option value="">Select department…</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </Field>
+                    <Field label="Assigned Team Lead">
+                        <select style={inputStyle} value={form.team_lead_officer_id}
+                            onChange={e => setForm(f => ({ ...f, team_lead_officer_id: e.target.value }))}>
+                            <option value="">Unassigned</option>
+                            {eligibleLeads.map(o => (
+                                <option key={o.id} value={o.id}>{o.name} ({o.employee_id})</option>
+                            ))}
+                        </select>
+                    </Field>
+                </div>
+                <Field label="Specialization">
+                    <input style={inputStyle} placeholder="Hot-Mix Asphalt & Pothole Patching"
+                        value={form.specialization} onChange={e => setForm(f => ({ ...f, specialization: e.target.value }))} />
+                </Field>
+                <Field label="Ward Coverage (comma-separated)">
+                    <input style={inputStyle} placeholder="Ward 12 - Dadar, Ward 14 - Mahim"
+                        value={form.ward_coverage} onChange={e => setForm(f => ({ ...f, ward_coverage: e.target.value }))} />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                    <Field label="Crew Members">
+                        <input style={inputStyle} type="number" min={1} max={50}
+                            value={form.member_count} onChange={e => setForm(f => ({ ...f, member_count: e.target.value }))} />
+                    </Field>
+                    <Field label="Daily Capacity (Tasks)">
+                        <input style={inputStyle} type="number" min={1} max={100}
+                            value={form.daily_capacity} onChange={e => setForm(f => ({ ...f, daily_capacity: e.target.value }))} />
+                    </Field>
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                    <button type="button" onClick={onClose} className="btn-ghost text-sm px-4 py-2">Cancel</button>
+                    <button type="submit" disabled={loading}
+                        className="flex items-center gap-2 text-sm px-5 py-2 rounded-lg font-semibold"
+                        style={{ background: 'var(--navy)', color: 'white', opacity: loading ? 0.7 : 1 }}>
+                        {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                        {loading ? 'Saving…' : isEdit ? 'Save Team' : 'Create Field Team'}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
 /* ── Department Card ── */
-function DeptCard({ dept, onEdit, onDelete }) {
+function DeptCard({ dept, onEdit, onDelete, onReactivate }) {
     return (
         <div className="gov-card p-5 flex flex-col gap-4 transition-shadow hover:shadow-lg"
             style={{ borderTop: `3px solid var(--navy)` }}>
@@ -330,11 +450,15 @@ export default function DepartmentsManagementPage() {
     const router = useRouter();
 
     const [departments, setDepartments] = useState([]);
+    const [teams, setTeams] = useState([]);
+    const [teamLeads, setTeamLeads] = useState([]);
+    const [activeTab, setActiveTab] = useState('departments'); // departments | teams
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showCreate, setShowCreate] = useState(false);
     const [editDept, setEditDept] = useState(null);
     const [deleteDept, setDeleteDept] = useState(null);
+    const [teamModalState, setTeamModalState] = useState(null); // null | { team: null | obj }
 
     useEffect(() => {
         if (!authLoading && (!user || (user.role !== 'admin' && user.role !== 'super_admin'))) router.push('/login');
@@ -344,17 +468,30 @@ export default function DepartmentsManagementPage() {
         setLoading(true);
         setError('');
         try {
-            const data = await adminAPI.getDepartments();
-            setDepartments(Array.isArray(data) ? data : []);
+            const [deptsData, teamsData, leadsData] = await Promise.all([
+                adminAPI.getDepartments(),
+                adminAPI.getTeams(),
+                adminAPI.getOfficers(undefined, 'team_lead'),
+            ]);
+            setDepartments(Array.isArray(deptsData) ? deptsData : []);
+            setTeams(Array.isArray(teamsData) ? teamsData : []);
+            setTeamLeads(Array.isArray(leadsData) ? leadsData : []);
         } catch (err) {
-            setError(err.message || 'Failed to load departments');
+            setError(err.message || 'Failed to load departments & field teams');
         } finally {
             setLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        if (user?.role === 'admin' || user?.role === 'super_admin') fetchData();
+        if (user?.role === 'admin' || user?.role === 'super_admin') {
+            let cancelled = false;
+            async function run() {
+                if (!cancelled) await fetchData();
+            }
+            run();
+            return () => { cancelled = true; };
+        }
     }, [fetchData, user]);
 
     const handleReactivate = async (dept) => {
@@ -377,12 +514,21 @@ export default function DepartmentsManagementPage() {
         }
     };
 
+    const handleDeactivateTeam = async (teamId) => {
+        try {
+            await adminAPI.deleteTeam(teamId);
+            await fetchData();
+        } catch (err) {
+            setError(err.message);
+        }
+    };
+
     if (authLoading || (loading && departments.length === 0)) {
         return (
             <div className="flex justify-center items-center h-[60vh]">
                 <div className="flex flex-col items-center gap-3">
                     <Loader2 className="animate-spin" size={32} style={{ color: 'var(--navy)' }} />
-                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading departments…</p>
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading departments & teams…</p>
                 </div>
             </div>
         );
@@ -414,6 +560,15 @@ export default function DepartmentsManagementPage() {
                     onConfirm={handleDelete}
                 />
             )}
+            {teamModalState && (
+                <TeamModal
+                    team={teamModalState.team}
+                    departments={departments}
+                    teamLeads={teamLeads}
+                    onClose={() => setTeamModalState(null)}
+                    onSaved={() => fetchData()}
+                />
+            )}
 
             {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -421,25 +576,34 @@ export default function DepartmentsManagementPage() {
                     <div className="breadcrumb mb-2">
                         <span>Admin</span>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span className="breadcrumb-current">Departments</span>
+                        <span className="breadcrumb-current">Departments & Field Teams</span>
                     </div>
                     <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                        Department Management
+                        Departments & Field Teams
                     </h1>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        Manage government departments — विभाग प्रबंधन
+                        Manage municipal departments and their isolated field redressal squads — विभाग व दल प्रबंधन
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={fetchData} className="btn-ghost flex items-center gap-1.5 text-xs">
                         <RefreshCw size={13} /> Refresh
                     </button>
-                    <button
-                        onClick={() => setShowCreate(true)}
-                        className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white' }}>
-                        <Plus size={15} /> New Department
-                    </button>
+                    {activeTab === 'departments' ? (
+                        <button
+                            onClick={() => setShowCreate(true)}
+                            className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
+                            style={{ background: 'var(--navy)', color: 'white' }}>
+                            <Plus size={15} /> New Department
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => setTeamModalState({ team: null })}
+                            className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
+                            style={{ background: 'var(--navy)', color: 'white' }}>
+                            <Plus size={15} /> New Field Team
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -451,48 +615,126 @@ export default function DepartmentsManagementPage() {
                 </div>
             )}
 
-            {/* Summary bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
-                {[
-                    { label: 'Total Departments', val: departments.length, color: 'var(--navy)', icon: <Building2 size={18}/> },
-                    { label: 'Active', val: departments.filter(d => d.is_active !== false).length, color: 'var(--india-green)', icon: <Check size={18}/> },
-                    { label: 'With Contact', val: departments.filter(d => d.contact_email || d.contact_phone).length, color: 'var(--saffron-dark)', icon: <Mail size={18}/> },
-                ].map(s => (
-                    <div key={s.label} className="gov-card p-4 flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                            style={{ background: 'var(--bg-section)', color: s.color }}>
-                            {s.icon}
-                        </div>
-                        <div>
-                            <div className="text-2xl font-bold" style={{ color: s.color }}>{s.val}</div>
-                            <div className="text-[11px] font-medium uppercase tracking-wide"
-                                style={{ color: 'var(--text-muted)' }}>{s.label}</div>
-                        </div>
-                    </div>
-                ))}
+            {/* Tabs */}
+            <div className="flex items-center gap-1 p-1 rounded-lg border mb-6 w-fit"
+                style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('departments')}
+                    className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                        activeTab === 'departments' ? 'bg-[#003580] text-white' : 'text-(--text-secondary) hover:bg-(--bg-section)'
+                    }`}
+                >
+                    Departments ({departments.length})
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('teams')}
+                    className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                        activeTab === 'teams' ? 'bg-[#003580] text-white' : 'text-(--text-secondary) hover:bg-(--bg-section)'
+                    }`}
+                >
+                    Field Redressal Teams ({teams.length})
+                </button>
             </div>
 
-            {/* Grid of department cards */}
-            {departments.length === 0 ? (
-                <div className="flex flex-col items-center py-20 gap-4">
-                    <Building2 size={48} style={{ color: 'var(--border-mid)' }} />
-                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No departments created yet</p>
-                    <button onClick={() => setShowCreate(true)}
-                        className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white' }}>
-                        <Plus size={14} /> Create First Department
-                    </button>
-                </div>
+            {activeTab === 'departments' ? (
+                <>
+                    {/* Summary bar */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+                        {[
+                            { label: 'Total Departments', val: departments.length, color: 'var(--navy)', icon: <Building2 size={18}/> },
+                            { label: 'Active Field Teams', val: teams.filter(t => t.is_active !== false).length, color: 'var(--india-green)', icon: <Users size={18}/> },
+                            { label: 'With Contact', val: departments.filter(d => d.contact_email || d.contact_phone).length, color: 'var(--saffron-dark)', icon: <Mail size={18}/> },
+                        ].map(s => (
+                            <div key={s.label} className="gov-card p-4 flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                                    style={{ background: 'var(--bg-section)', color: s.color }}>
+                                    {s.icon}
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-bold tabular-nums" style={{ color: s.color }}>{s.val}</div>
+                                    <div className="text-[11px] font-medium uppercase tracking-wide"
+                                        style={{ color: 'var(--text-muted)' }}>{s.label}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Grid of department cards */}
+                    {departments.length === 0 ? (
+                        <div className="flex flex-col items-center py-20 gap-4">
+                            <Building2 size={48} style={{ color: 'var(--border-mid)' }} />
+                            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No departments created yet</p>
+                            <button onClick={() => setShowCreate(true)}
+                                className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
+                                style={{ background: 'var(--navy)', color: 'white' }}>
+                                <Plus size={14} /> Create First Department
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                            {departments.map(dept => (
+                                <DeptCard
+                                    key={dept.id}
+                                    dept={dept}
+                                    onEdit={setEditDept}
+                                    onDelete={setDeleteDept}
+                                    onReactivate={handleReactivate}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </>
             ) : (
+                /* Field Teams Management Grid */
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {departments.map(dept => (
-                        <DeptCard
-                            key={dept.id}
-                            dept={dept}
-                            onEdit={setEditDept}
-                            onDelete={setDeleteDept}
-                            onReactivate={handleReactivate}
-                        />
+                    {teams.map(team => (
+                        <div key={team.id} className="gov-card p-5 flex flex-col gap-3">
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                    <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded"
+                                        style={{ background: 'var(--navy-light)', color: 'var(--navy)' }}>
+                                        {team.code}
+                                    </span>
+                                    <h3 className="font-bold text-sm mt-1.5" style={{ color: 'var(--text-primary)' }}>
+                                        {team.name}
+                                    </h3>
+                                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                        {team.department_name}
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                    <button onClick={() => setTeamModalState({ team })} className="btn-ghost p-1.5 rounded-lg" title="Edit team">
+                                        <Edit2 size={13} />
+                                    </button>
+                                    {team.is_active !== false && (
+                                        <button onClick={() => handleDeactivateTeam(team.id)} className="btn-ghost p-1.5 rounded-lg"
+                                            style={{ color: 'var(--status-critical)' }} title="Deactivate team">
+                                            <Trash2 size={13} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="text-xs space-y-1" style={{ color: 'var(--text-secondary)' }}>
+                                <div>Team Lead: <strong style={{ color: 'var(--text-primary)' }}>{team.team_lead_name || 'Unassigned'}</strong></div>
+                                <div>Specialization: {team.specialization || 'General Maintenance'}</div>
+                                <div>Wards: {(team.ward_coverage || []).join(', ') || 'All Department Wards'}</div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2.5 mt-auto text-xs border-t"
+                                style={{ borderColor: 'var(--border)' }}>
+                                <span className="font-mono tabular-nums" style={{ color: 'var(--text-primary)' }}>
+                                    Load: <strong>{team.active_work_orders ?? 0}</strong>/{team.daily_capacity} · {team.member_count} staff
+                                </span>
+                                {team.is_active !== false ? (
+                                    <span className="badge badge-resolved"><span className="badge-dot" /> Active</span>
+                                ) : (
+                                    <span className="badge badge-critical"><span className="badge-dot" /> Inactive</span>
+                                )}
+                            </div>
+                        </div>
                     ))}
                 </div>
             )}

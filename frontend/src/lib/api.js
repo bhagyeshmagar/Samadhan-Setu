@@ -325,22 +325,37 @@ export const adminAPI = {
         return apiRequest(`/api/admin/users${params}`);
     },
 
-    getOfficers: (departmentId) => {
-        const params = departmentId ? `?department_id=${departmentId}` : '';
-        return apiRequest(`/api/admin/officers${params}`);
+    getOfficers: (departmentId, role) => {
+        const params = new URLSearchParams();
+        if (departmentId) params.append('department_id', departmentId);
+        if (role) params.append('role', role);
+        const qs = params.toString();
+        return apiRequest(`/api/admin/officers${qs ? `?${qs}` : ''}`);
     },
     createOfficer: (data) => apiRequest('/api/admin/officers', {
         method: 'POST',
         body: JSON.stringify(data),
     }),
-    updateOfficer: (officerId, params) => {
-        const qs = new URLSearchParams();
-        if (params.department_id) qs.append('department_id', params.department_id);
-        if (params.designation !== undefined) qs.append('designation', params.designation);
-        if (params.is_active !== undefined) qs.append('is_active', params.is_active);
-        return apiRequest(`/api/admin/officers/${officerId}?${qs}`, { method: 'PUT' });
-    },
+    updateOfficer: (officerId, data) => apiRequest(`/api/admin/officers/${officerId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+    }),
     deleteOfficer: (officerId) => apiRequest(`/api/admin/officers/${officerId}`, { method: 'DELETE' }),
+
+    // Field Teams Management
+    getTeams: (departmentId) => {
+        const params = departmentId ? `?department_id=${departmentId}` : '';
+        return apiRequest(`/api/admin/teams${params}`);
+    },
+    createTeam: (data) => apiRequest('/api/admin/teams', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    }),
+    updateTeam: (teamId, data) => apiRequest(`/api/admin/teams/${teamId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+    }),
+    deleteTeam: (teamId) => apiRequest(`/api/admin/teams/${teamId}`, { method: 'DELETE' }),
 
     updateDepartment: (deptId, data) => apiRequest(`/api/admin/departments/${deptId}`, {
         method: 'PUT',
@@ -349,6 +364,124 @@ export const adminAPI = {
     deleteDepartment: (deptId) => apiRequest(`/api/admin/departments/${deptId}`, { method: 'DELETE' }),
 
     deleteMapping: (mappingId) => apiRequest(`/api/admin/mappings/${mappingId}`, { method: 'DELETE' }),
+};
+
+// Multi-Role Governance Workflow API (Strictly Role-Isolated)
+export const workflowAPI = {
+    // Nodal Officer
+    getNodalDashboard: (departmentId) => {
+        const qs = departmentId ? `?department_id=${departmentId}` : '';
+        return apiRequest(`/api/workflow/nodal/dashboard${qs}`);
+    },
+    assignInspector: (complaintId, inspectorId, notes = '', priority = undefined) =>
+        apiRequest(`/api/workflow/nodal/complaints/${complaintId}/assign-inspector`, {
+            method: 'POST',
+            body: JSON.stringify({
+                inspector_id: inspectorId,
+                notes,
+                ...(priority ? { priority } : {}),
+            }),
+        }),
+    reviewInspection: (complaintId, payload) =>
+        apiRequest(`/api/workflow/nodal/complaints/${complaintId}/review-inspection`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+    assignTeam: (complaintId, teamId, notes = '', priority = undefined) =>
+        apiRequest(`/api/workflow/nodal/complaints/${complaintId}/assign-team`, {
+            method: 'POST',
+            body: JSON.stringify({
+                team_id: teamId,
+                notes,
+                ...(priority ? { priority } : {}),
+            }),
+        }),
+    assignVerifier: (complaintId, inspectorId, notes = '', priority = undefined) =>
+        apiRequest(`/api/workflow/nodal/complaints/${complaintId}/assign-verifier`, {
+            method: 'POST',
+            body: JSON.stringify({
+                inspector_id: inspectorId,
+                notes,
+                ...(priority ? { priority } : {}),
+            }),
+        }),
+    finalDecision: (complaintId, payload) =>
+        apiRequest(`/api/workflow/nodal/complaints/${complaintId}/final-decision`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    // Inspection Officer (Isolated)
+    getInspectorDashboard: () => apiRequest('/api/workflow/inspector/dashboard'),
+    submitInitialInspection: async (complaintId, { files, notes, latitude, longitude, gps_source }) => {
+        const token = getToken();
+        const formData = new FormData();
+        files.forEach((f) => formData.append('files', f));
+        formData.append('notes', notes || '');
+        if (latitude !== null && latitude !== undefined) formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined) formData.append('longitude', String(longitude));
+        if (gps_source) formData.append('gps_source', gps_source);
+
+        const response = await fetch(`${API_BASE_URL}/api/workflow/inspector/complaints/${complaintId}/submit-inspection`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to submit inspection proof');
+        }
+        return response.json();
+    },
+    submitPostVerification: async (complaintId, { files, notes, verdict, latitude, longitude, gps_source }) => {
+        const token = getToken();
+        const formData = new FormData();
+        files.forEach((f) => formData.append('files', f));
+        formData.append('notes', notes || '');
+        formData.append('verdict', verdict || 'verified');
+        if (latitude !== null && latitude !== undefined) formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined) formData.append('longitude', String(longitude));
+        if (gps_source) formData.append('gps_source', gps_source);
+
+        const response = await fetch(`${API_BASE_URL}/api/workflow/inspector/complaints/${complaintId}/submit-verification`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to submit post-repair verification');
+        }
+        return response.json();
+    },
+
+    // Field Team Lead (Isolated)
+    getTeamDashboard: () => apiRequest('/api/workflow/team/dashboard'),
+    startFieldWork: (complaintId, notes = '') =>
+        apiRequest(`/api/workflow/team/complaints/${complaintId}/start-work`, {
+            method: 'POST',
+            body: JSON.stringify({ notes }),
+        }),
+    submitResolutionProof: async (complaintId, { files, atr_notes, latitude, longitude, gps_source }) => {
+        const token = getToken();
+        const formData = new FormData();
+        files.forEach((f) => formData.append('files', f));
+        formData.append('atr_notes', atr_notes || '');
+        if (latitude !== null && latitude !== undefined) formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined) formData.append('longitude', String(longitude));
+        if (gps_source) formData.append('gps_source', gps_source);
+
+        const response = await fetch(`${API_BASE_URL}/api/workflow/team/complaints/${complaintId}/submit-resolution`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to submit resolution proof');
+        }
+        return response.json();
+    },
 };
 
 // Analytics API

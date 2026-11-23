@@ -111,6 +111,31 @@ class Complaint(Base):
         nullable=True,
         index=True,
     )
+    nodal_officer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("officers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    assigned_inspector_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("officers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    verification_inspector_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("officers.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    assigned_team_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    rework_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # SLA Tracking (H-01 Immutable SLA Ledger)
     sla_started_at: Mapped[Optional[datetime]] = mapped_column(
@@ -153,7 +178,9 @@ class Complaint(Base):
         "Department", back_populates="complaints"
     )
     assigned_officer: Mapped[Optional["Officer"]] = relationship(
-        "Officer", back_populates="assigned_complaints"
+        "Officer",
+        back_populates="assigned_complaints",
+        foreign_keys=[assigned_officer_id],
     )
     media: Mapped[List["ComplaintMedia"]] = relationship(
         "ComplaintMedia", back_populates="complaint", cascade="all, delete-orphan"

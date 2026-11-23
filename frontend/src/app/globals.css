@@ -273,6 +273,7 @@ body {
   color:       var(--text-primary);
   line-height: 1.1;
   letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 .metric-label {
   font-size:      0.7rem;

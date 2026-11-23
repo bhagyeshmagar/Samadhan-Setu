@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { authAPI } from '@/lib/api';
+import { getPostLoginDestination } from '@/lib/roleRouting';
 import { ShieldCheck, Lock, Mail, User, ArrowRight, CheckCircle2, AlertCircle, HelpCircle, PhoneCall } from 'lucide-react';
 
 export default function LoginPage() {
@@ -32,14 +33,15 @@ export default function LoginPage() {
 
             login(response.user, response.access_token);
 
-            // Redirect based on role
-            if (response.user.role === 'citizen') {
-                router.push('/citizen/lodge');
-            } else if (response.user.role === 'officer' || response.user.role === 'supervisor') {
-                router.push('/department');
-            } else if (response.user.role === 'admin' || response.user.role === 'super_admin') {
-                router.push('/admin');
-            }
+            // Redirect based on role (honoring safe, role-authorized ?next= parameter)
+            const role = response.user.role;
+            const params =
+                typeof window !== 'undefined'
+                    ? new URLSearchParams(window.location.search)
+                    : null;
+            const nextParam = params?.get('next') || null;
+            const destination = getPostLoginDestination(role, nextParam);
+            router.push(destination);
         } catch (err) {
             setError(err.message || 'Authentication failed. Please verify your credentials.');
         } finally {
@@ -47,18 +49,22 @@ export default function LoginPage() {
         }
     };
 
-    // Quick demo autofill helper for easy review
-    const setDemoCredentials = (demoRole) => {
-        if (demoRole === 'citizen') {
-            setEmail('citizen@demo.com');
-            setPassword('demo123');
-        } else if (demoRole === 'officer') {
-            setEmail('officer@roads.gov.in');
-            setPassword('demo123');
-        } else if (demoRole === 'admin') {
-            setEmail('admin@samadhan.gov.in');
-            setPassword('demo123');
-        }
+    const DEMO_ACCOUNTS = [
+        { key: 'citizen', label: 'Citizen', sub: 'Rajesh Kumar', email: 'citizen@demo.com' },
+        { key: 'nodal', label: 'Nodal Officer', sub: 'Roads Dept · Amit', email: 'nodal@roads.gov.in' },
+        { key: 'inspector1', label: 'Inspector 1', sub: 'Zone A · Sneha', email: 'inspector1@roads.gov.in' },
+        { key: 'inspector2', label: 'Inspector 2', sub: 'Zone B · Rohan', email: 'inspector2@roads.gov.in' },
+        { key: 'teamlead1', label: 'Team Lead 1', sub: 'Pothole Squad · Suresh', email: 'teamlead1@roads.gov.in' },
+        { key: 'teamlead2', label: 'Team Lead 2', sub: 'Drain Squad · Deepak', email: 'teamlead2@roads.gov.in' },
+        { key: 'supervisor', label: 'Supervisor', sub: 'Appellate · Vikram', email: 'supervisor@samadhan.gov.in' },
+        { key: 'admin', label: 'Admin', sub: 'District Collector', email: 'admin@samadhan.gov.in' },
+    ];
+
+    const setDemoCredentials = (demoEmail) => {
+        setMode('login');
+        setError('');
+        setEmail(demoEmail);
+        setPassword('demo123');
     };
 
     return (
@@ -245,40 +251,35 @@ export default function LoginPage() {
                             </button>
                         </form>
 
-                        {/* Quick Demo Credentials Selector (only shown in development or when NEXT_PUBLIC_DEMO is true) */}
-                        {(process.env.NEXT_PUBLIC_DEMO === 'true' || process.env.NODE_ENV === 'development') && (
-                            <div className="mt-6 pt-5 border-t border-gray-100">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1">
-                                        <HelpCircle size={12} /> Quick Demo Fill
-                                    </span>
-                                    <span className="text-[10px] text-gray-400">Click to autofill</span>
-                                </div>
-                                <div className="grid grid-cols-3 gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setDemoCredentials('citizen')}
-                                        className="px-2.5 py-1.5 text-xs rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium text-center transition-colors"
-                                    >
-                                        Citizen
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setDemoCredentials('officer')}
-                                        className="px-2.5 py-1.5 text-xs rounded border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-800 font-medium text-center transition-colors"
-                                    >
-                                        Officer
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setDemoCredentials('admin')}
-                                        className="px-2.5 py-1.5 text-xs rounded border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-800 font-medium text-center transition-colors"
-                                    >
-                                        Admin
-                                    </button>
-                                </div>
+                        {/* Quick Demo Credentials Selector for testing multi-role workflow & isolation */}
+                        <div className="mt-6 pt-5 border-t border-gray-100">
+                            <div className="flex items-center justify-between mb-2.5">
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex items-center gap-1">
+                                    <HelpCircle size={12} /> Quick Role Switcher (Demo)
+                                </span>
+                                <span className="text-[10px] text-gray-400">Password: <span className="font-mono">demo123</span></span>
                             </div>
-                        )}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                                {DEMO_ACCOUNTS.map((acc) => {
+                                    const selected = email.toLowerCase() === acc.email.toLowerCase();
+                                    return (
+                                        <button
+                                            key={acc.key}
+                                            type="button"
+                                            onClick={() => setDemoCredentials(acc.email)}
+                                            className={`px-2 py-1.5 text-left rounded-md border transition-colors ${
+                                                selected
+                                                    ? 'border-[#003580] bg-[#EEF3FB] text-[#003580]'
+                                                    : 'border-gray-200 bg-gray-50/70 hover:bg-gray-100 text-gray-800'
+                                            }`}
+                                        >
+                                            <div className="text-[11px] font-semibold leading-tight truncate">{acc.label}</div>
+                                            <div className="text-[10px] text-gray-500 leading-tight truncate mt-0.5">{acc.sub}</div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
 
                     {/* Footer note */}

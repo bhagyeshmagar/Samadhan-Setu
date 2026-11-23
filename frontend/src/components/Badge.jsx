@@ -1,10 +1,25 @@
 'use client';
 
 export default function Badge({ status, size = 'default' }) {
-    // Normalize status - handle both uppercase (from backend) and title case
+    const STATUS_LABEL_MAP = {
+        submitted: 'New Intake',
+        inspection_assigned: 'Inspection Assigned',
+        inspection_submitted: 'Inspection Review',
+        inspection_rework: 'Inspection Rework',
+        inspection_verified: 'Inspection Verified',
+        team_assigned: 'Team Assigned',
+        work_in_progress: 'Work In Progress',
+        resolution_submitted: 'Resolution Submitted',
+        verification_assigned: 'Site Verification',
+        verification_submitted: 'Final Approval',
+        redressal_rework: 'Rework Required',
+    };
+
     const normalizeStatus = (s) => {
         if (!s) return 'Pending';
-        const statusStr = String(s).toLowerCase().replace(/_/g, ' ');
+        const rawKey = String(s).toLowerCase().trim();
+        if (STATUS_LABEL_MAP[rawKey]) return STATUS_LABEL_MAP[rawKey];
+        const statusStr = rawKey.replace(/_/g, ' ');
         return statusStr.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     };
 
@@ -15,16 +30,27 @@ export default function Badge({ status, size = 'default' }) {
             case 'Resolved':
             case 'Closed':
             case 'Completed':
+            case 'Inspection Verified':
                 return 'badge-resolved';
             case 'In Progress':
+            case 'Work In Progress':
             case 'Assigned':
+            case 'Inspection Assigned':
+            case 'Team Assigned':
+            case 'Site Verification':
+            case 'Resolution Submitted':
             case 'Verified':
                 return 'badge-progress';
             case 'Pending':
             case 'Submitted':
+            case 'New Intake':
+            case 'Inspection Review':
+            case 'Final Approval':
             case 'Pending Info':
             case 'Reopened':
                 return 'badge-pending';
+            case 'Inspection Rework':
+            case 'Rework Required':
             case 'Rejected':
             case 'Critical':
             case 'High':

@@ -179,25 +179,74 @@ async def seed_data():
             pincode="400058",
             is_verified=True,
         )
-        officer_roads_user = User(
+        nodal_roads_user = User(
             id=uuid.uuid4(),
-            email="officer@roads.gov.in",
+            email="nodal@roads.gov.in",
             phone="9876543220",
             name="Amit Verma",
             password_hash=pwd,
-            role=UserRole.OFFICER,
+            role=UserRole.NODAL_OFFICER,
             ward="Ward 12 - Dadar",
             city="Mumbai",
             state="Maharashtra",
             is_verified=True,
         )
+        inspector1_roads_user = User(
+            id=uuid.uuid4(),
+            email="inspector1@roads.gov.in",
+            phone="9876543223",
+            name="Sneha Kulkarni",
+            password_hash=pwd,
+            role=UserRole.INSPECTION_OFFICER,
+            ward="Ward 12 - Dadar",
+            city="Mumbai",
+            state="Maharashtra",
+            is_verified=True,
+        )
+        inspector2_roads_user = User(
+            id=uuid.uuid4(),
+            email="inspector2@roads.gov.in",
+            phone="9876543224",
+            name="Rohan Patil",
+            password_hash=pwd,
+            role=UserRole.INSPECTION_OFFICER,
+            ward="Ward 14 - Mahim",
+            city="Mumbai",
+            state="Maharashtra",
+            is_verified=True,
+        )
+        teamlead1_roads_user = User(
+            id=uuid.uuid4(),
+            email="teamlead1@roads.gov.in",
+            phone="9876543225",
+            name="Suresh Jadhav",
+            password_hash=pwd,
+            role=UserRole.TEAM_LEAD,
+            ward="Ward 12 - Dadar",
+            city="Mumbai",
+            state="Maharashtra",
+            is_verified=True,
+        )
+        teamlead2_roads_user = User(
+            id=uuid.uuid4(),
+            email="teamlead2@roads.gov.in",
+            phone="9876543226",
+            name="Deepak Pawar",
+            password_hash=pwd,
+            role=UserRole.TEAM_LEAD,
+            ward="Ward 14 - Mahim",
+            city="Mumbai",
+            state="Maharashtra",
+            is_verified=True,
+        )
+        officer_roads_user = nodal_roads_user
         officer_water_user = User(
             id=uuid.uuid4(),
-            email="officer@water.gov.in",
+            email="nodal@water.gov.in",
             phone="9876543221",
             name="Sunita Devi",
             password_hash=pwd,
-            role=UserRole.OFFICER,
+            role=UserRole.NODAL_OFFICER,
             ward="Ward 8 - Andheri",
             city="Mumbai",
             state="Maharashtra",
@@ -205,11 +254,11 @@ async def seed_data():
         )
         officer_elec_user = User(
             id=uuid.uuid4(),
-            email="officer@electricity.gov.in",
+            email="nodal@electricity.gov.in",
             phone="9876543222",
             name="Ramesh Gupta",
             password_hash=pwd,
-            role=UserRole.OFFICER,
+            role=UserRole.NODAL_OFFICER,
             ward="Ward 5 - Bandra",
             city="Mumbai",
             state="Maharashtra",
@@ -228,31 +277,114 @@ async def seed_data():
         )
 
         session.add_all([
-            citizen1, citizen2, officer_roads_user,
+            citizen1, citizen2, nodal_roads_user,
+            inspector1_roads_user, inspector2_roads_user,
+            teamlead1_roads_user, teamlead2_roads_user,
             officer_water_user, officer_elec_user, admin_user
         ])
         await session.flush()
-        print("✓ Created 6 Demo Users (citizens, officers, admin)")
+        print("✓ Created 10 Multi-Role Demo Users")
 
-        # 5. OFFICERS & TEAMS
+        # 5. FIELD TEAMS & OFFICERS
+        team_roads = Team(
+            id=uuid.uuid4(),
+            department_id=dept_map["Roads & Transport"].id,
+            name="Dadar Quick Response Pothole Squad",
+            code="TEAM-ROADS-DDR",
+            daily_capacity=15,
+            active_tasks=2,
+            ward_coverage=["Ward 12 - Dadar"],
+            head_officer_id=teamlead1_roads_user.id,
+            contact_email="roads.dadar@samadhan.gov.in",
+        )
+        team_roads_mahim = Team(
+            id=uuid.uuid4(),
+            department_id=dept_map["Roads & Transport"].id,
+            name="Mahim Drain & Resurfacing Squad",
+            code="TEAM-ROADS-MHM",
+            daily_capacity=12,
+            active_tasks=1,
+            ward_coverage=["Ward 14 - Mahim"],
+            head_officer_id=teamlead2_roads_user.id,
+            contact_email="roads.mahim@samadhan.gov.in",
+        )
+        session.add_all([team_roads, team_roads_mahim])
+        await session.flush()
+
         officer_roads = Officer(
             id=uuid.uuid4(),
-            user_id=officer_roads_user.id,
+            user_id=nodal_roads_user.id,
             department_id=dept_map["Roads & Transport"].id,
-            employee_id="OFF-ROADS-001",
-            designation="Assistant Municipal Engineer",
+            employee_id="NODAL-ROADS-001",
+            designation="Nodal Officer (Roads & Transport)",
+            officer_role="nodal_officer",
             jurisdiction_wards=["Ward 12 - Dadar", "Ward 14 - Mahim"],
             max_active_complaints=25,
             current_active_count=4,
             total_resolved=89,
             rating=4.7,
         )
+        inspector1_roads = Officer(
+            id=uuid.uuid4(),
+            user_id=inspector1_roads_user.id,
+            department_id=dept_map["Roads & Transport"].id,
+            employee_id="INSP-ROADS-001",
+            designation="Junior Inspection Engineer (Zone A)",
+            officer_role="inspection_officer",
+            jurisdiction_wards=["Ward 12 - Dadar"],
+            max_active_complaints=15,
+            current_active_count=2,
+            total_resolved=42,
+            rating=4.8,
+        )
+        inspector2_roads = Officer(
+            id=uuid.uuid4(),
+            user_id=inspector2_roads_user.id,
+            department_id=dept_map["Roads & Transport"].id,
+            employee_id="INSP-ROADS-002",
+            designation="Field Site Inspector (Zone B)",
+            officer_role="inspection_officer",
+            jurisdiction_wards=["Ward 14 - Mahim"],
+            max_active_complaints=15,
+            current_active_count=1,
+            total_resolved=37,
+            rating=4.6,
+        )
+        teamlead1_roads = Officer(
+            id=uuid.uuid4(),
+            user_id=teamlead1_roads_user.id,
+            department_id=dept_map["Roads & Transport"].id,
+            employee_id="TL-ROADS-001",
+            designation="Team Lead — Dadar Pothole Squad",
+            officer_role="team_lead",
+            team_id=team_roads.id,
+            jurisdiction_wards=["Ward 12 - Dadar"],
+            max_active_complaints=15,
+            current_active_count=2,
+            total_resolved=58,
+            rating=4.7,
+        )
+        teamlead2_roads = Officer(
+            id=uuid.uuid4(),
+            user_id=teamlead2_roads_user.id,
+            department_id=dept_map["Roads & Transport"].id,
+            employee_id="TL-ROADS-002",
+            designation="Team Lead — Mahim Resurfacing Squad",
+            officer_role="team_lead",
+            team_id=team_roads_mahim.id,
+            jurisdiction_wards=["Ward 14 - Mahim"],
+            max_active_complaints=12,
+            current_active_count=1,
+            total_resolved=31,
+            rating=4.5,
+        )
         officer_water = Officer(
             id=uuid.uuid4(),
             user_id=officer_water_user.id,
             department_id=dept_map["Water Supply"].id,
-            employee_id="OFF-WATER-001",
-            designation="Executive Engineer (Water Works)",
+            employee_id="NODAL-WATER-001",
+            designation="Nodal Officer (Water Works)",
+            officer_role="nodal_officer",
             jurisdiction_wards=["Ward 8 - Andheri", "Ward 9 - Juhu"],
             max_active_complaints=20,
             current_active_count=2,
@@ -263,35 +395,25 @@ async def seed_data():
             id=uuid.uuid4(),
             user_id=officer_elec_user.id,
             department_id=dept_map["Electricity"].id,
-            employee_id="OFF-ELEC-001",
-            designation="Sub-Divisional Officer (Electrical)",
+            employee_id="NODAL-ELEC-001",
+            designation="Nodal Officer (Electrical)",
+            officer_role="nodal_officer",
             jurisdiction_wards=["Ward 5 - Bandra"],
             max_active_complaints=15,
             current_active_count=1,
             total_resolved=112,
             rating=4.8,
         )
-        session.add_all([officer_roads, officer_water, officer_elec])
+        session.add_all([
+            officer_roads, inspector1_roads, inspector2_roads,
+            teamlead1_roads, teamlead2_roads, officer_water, officer_elec
+        ])
         await session.flush()
 
         # Update department heads
         dept_map["Roads & Transport"].head_officer_id = officer_roads.id
         dept_map["Water Supply"].head_officer_id = officer_water.id
         dept_map["Electricity"].head_officer_id = officer_elec.id
-
-        # Teams
-        team_roads = Team(
-            id=uuid.uuid4(),
-            department_id=dept_map["Roads & Transport"].id,
-            name="Dadar Quick Response Pothole Squad",
-            code="TEAM-ROADS-DDR",
-            daily_capacity=15,
-            active_tasks=3,
-            ward_coverage=["Ward 12 - Dadar"],
-            head_officer_id=officer_roads_user.id,
-            contact_email="roads.dadar@samadhan.gov.in",
-        )
-        session.add(team_roads)
 
         # 6. COMPLAINTS (with GPS coordinates for mobile & heatmap)
         c1 = Complaint(
@@ -466,12 +588,16 @@ async def seed_data():
         print("🎉 PostgreSQL database seeded successfully with rich demo data!")
         print("=" * 55)
         print("Accounts available:")
-        print("  Citizen:     citizen@demo.com / demo123")
-        print("  Citizen 2:   priya@demo.com / demo123")
-        print("  Officer R&T: officer@roads.gov.in / demo123")
-        print("  Officer H2O: officer@water.gov.in / demo123")
-        print("  Officer ELE: officer@electricity.gov.in / demo123")
-        print("  Admin:       admin@samadhan.gov.in / demo123")
+        print("  Citizen:        citizen@demo.com / demo123")
+        print("  Citizen 2:      priya@demo.com / demo123")
+        print("  Nodal Roads:    nodal@roads.gov.in / demo123")
+        print("  Inspector 1:    inspector1@roads.gov.in / demo123")
+        print("  Inspector 2:    inspector2@roads.gov.in / demo123")
+        print("  Team Lead 1:    teamlead1@roads.gov.in / demo123")
+        print("  Team Lead 2:    teamlead2@roads.gov.in / demo123")
+        print("  Nodal Water:    nodal@water.gov.in / demo123")
+        print("  Nodal Elec:     nodal@electricity.gov.in / demo123")
+        print("  Admin:          admin@samadhan.gov.in / demo123")
         print("=" * 55)
 
 if __name__ == "__main__":

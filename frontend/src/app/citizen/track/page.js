@@ -1,12 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { complaintsAPI, aiAPI } from '@/lib/api';
+import {
+    computeDashboardSummaryFromComplaints,
+    filterComplaintsBySummaryBucket,
+} from '@/lib/dashboardSummary';
 import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
+import DashboardSummarySection from '@/components/DashboardSummarySection';
 import { MapPin, Loader2, ArrowRight, ExternalLink, Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ListTodo, Brain, Link2, BarChart3, Search, Camera } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
@@ -19,29 +24,46 @@ const getImageUrl = (img) => {
     return `${API_BASE}/api/media/${raw.replace(/^\//, '')}`;
 };
 
-const STATUS_ORDER = ['submitted', 'verified', 'assigned', 'in_progress', 'resolved', 'closed'];
+const STATUS_ORDER = ['submitted', 'inspection', 'field_work', 'verification', 'resolved', 'closed'];
 const STATUS_LABELS = {
-    'submitted': 'Submitted',
-    'verified': 'Verified',
-    'assigned': 'Assigned',
-    'in_progress': 'In Progress',
-    'pending_info': 'Pending Info',
-    'resolved': 'Resolved',
-    'closed': 'Closed',
-    'reopened': 'Reopened',
-    'escalated': 'Escalated',
-    'rejected': 'Rejected',
-    'appealed': 'Appealed',
-    'appealed_l1': 'Appeal Level 1 (Nodal Authority)',
-    'appealed_l2': 'Appeal Level 2 (Appellate Authority)',
+    submitted: 'Filed & AI Routed',
+    inspection: 'Site Inspection',
+    field_work: 'Field Redressal',
+    verification: 'Post-Repair Check',
+    resolved: 'Resolved & Notified',
+    closed: 'Closed',
+    verified: 'Verified',
+    assigned: 'Assigned',
+    inspection_assigned: 'Inspector Assigned',
+    inspection_submitted: 'Inspection Under Review',
+    inspection_rework: 'Site Re-Inspection',
+    inspection_verified: 'Inspection Confirmed',
+    team_assigned: 'Field Team Assigned',
+    work_in_progress: 'Work In Progress',
+    in_progress: 'In Progress',
+    resolution_submitted: 'Resolution Proof Uploaded',
+    verification_assigned: 'Post-Repair Site Check',
+    verification_submitted: 'Final Nodal Approval',
+    redressal_rework: 'Field Rework',
+    pending_info: 'Pending Info',
+    reopened: 'Reopened',
+    escalated: 'Escalated',
+    rejected: 'Rejected',
+    appealed: 'Appealed',
+    appealed_l1: 'Appeal Level 1 (Nodal Authority)',
+    appealed_l2: 'Appeal Level 2 (Appellate Authority)',
 };
 
 const getStatusIndex = (status) => {
     if (!status) return 0;
     const clean = status.toLowerCase().replace(/\s+/g, '_');
-    if (clean.startsWith('appealed')) return 4;
-    const idx = STATUS_ORDER.indexOf(clean);
-    return idx >= 0 ? idx : 0;
+    if (clean === 'submitted' || clean === 'verified' || clean === 'assigned') return 0;
+    if (['inspection_assigned', 'inspection_submitted', 'inspection_rework', 'inspection_verified'].includes(clean)) return 1;
+    if (['team_assigned', 'work_in_progress', 'in_progress', 'redressal_rework', 'reopened'].includes(clean)) return 2;
+    if (['resolution_submitted', 'verification_assigned', 'verification_submitted'].includes(clean)) return 3;
+    if (clean === 'resolved' || clean.startsWith('appealed')) return 4;
+    if (clean === 'closed') return 5;
+    return 0;
 };
 
 export default function TrackGrievance() {
@@ -59,17 +81,11 @@ export default function TrackGrievance() {
     const [appealReasons, setAppealReasons] = useState({});
     const [showAppealBoxes, setShowAppealBoxes] = useState({});
     const [appealLoading, setAppealLoading] = useState(false);
+    const [summaryFilter, setSummaryFilter] = useState('all');
 
-    useEffect(() => {
-        if (!authLoading && !user) router.push('/login');
-    }, [user, authLoading, router]);
-
-    useEffect(() => {
-        if (user) fetchComplaints();
-    }, [user]);
-
-    const fetchComplaints = async () => {
+    const fetchComplaints = useCallback(async () => {
         try {
+            setError('');
             const data = await complaintsAPI.getMy();
             const sorted = (data || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             setComplaints(sorted);
@@ -78,7 +94,33 @@ export default function TrackGrievance() {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        if (!authLoading && !user) router.push('/login');
+    }, [user, authLoading, router]);
+
+    useEffect(() => {
+        if (!user) return;
+        let cancelled = false;
+        async function loadInitial() {
+            if (!cancelled) await fetchComplaints();
+        }
+        loadInitial();
+        return () => {
+            cancelled = true;
+        };
+    }, [user, fetchComplaints]);
+
+    const summaryStats = useMemo(
+        () => computeDashboardSummaryFromComplaints(complaints, user?.role || 'citizen'),
+        [complaints, user?.role]
+    );
+
+    const visibleComplaints = useMemo(
+        () => filterComplaintsBySummaryBucket(complaints, summaryFilter, user?.role || 'citizen'),
+        [complaints, summaryFilter, user?.role]
+    );
 
     const toggleExpand = async (id) => {
         if (expandedId === id) {
@@ -168,7 +210,7 @@ export default function TrackGrievance() {
     }
 
     return (
-        <div className="max-w-5xl mx-auto py-6">
+        <div className="w-full min-w-0 max-w-5xl mx-auto py-6">
             {/* Page Header */}
             <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
@@ -187,12 +229,20 @@ export default function TrackGrievance() {
                 </button>
             </div>
 
-            {error && (
-                <div className="gov-alert error mb-6">
-                    <AlertTriangle size={15} />
-                    <span className="text-sm">{error}</span>
-                </div>
-            )}
+            {/* Logged-in User Dashboard Summary Section using metric-card components */}
+            <div className="mb-7">
+                <DashboardSummarySection
+                    user={user}
+                    summary={summaryStats}
+                    loading={loading}
+                    error={error}
+                    onRetry={fetchComplaints}
+                    showRefreshButton={false}
+                    activeFilter={summaryFilter}
+                    onSelectFilter={setSummaryFilter}
+                    heading="Dashboard Summary"
+                />
+            </div>
 
             {complaints.length === 0 ? (
                 <div className="gov-card p-16 text-center" style={{ borderTop: '3px solid var(--saffron)' }}>
@@ -202,13 +252,29 @@ export default function TrackGrievance() {
                     </div>
                     <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>No grievances filed yet</p>
                     <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>अभी तक कोई शिकायत दर्ज नहीं की गई</p>
-                    <a href="/citizen/lodge" className="btn-primary inline-flex">
+                    <Link href="/citizen/lodge" className="btn-primary inline-flex">
                         File a Grievance <ArrowRight size={15} />
-                    </a>
+                    </Link>
+                </div>
+            ) : visibleComplaints.length === 0 ? (
+                <div className="gov-card p-10 text-center">
+                    <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                        No grievances match this summary filter
+                    </p>
+                    <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
+                        You have {complaints.length} total grievance{complaints.length !== 1 ? 's' : ''} across other statuses.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => setSummaryFilter('all')}
+                        className="btn-outline text-sm inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                        Show all grievances
+                    </button>
                 </div>
             ) : (
                 <div className="space-y-6">
-                    {complaints.map((complaint) => {
+                    {visibleComplaints.map((complaint) => {
                         const isExpanded = expandedId === complaint.id;
                         const detail = detailData[complaint.id];
                         const sNorm = (complaint.status || '').toLowerCase().replace(/\s+/g, '_');

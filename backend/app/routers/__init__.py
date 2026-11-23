@@ -7,6 +7,7 @@ from .analytics import router as analytics_router
 from .ai_insights import router as ai_insights_router
 from .notifications import router as notifications_router
 from .media import router as media_router
+from .workflow import router as workflow_router
 
 __all__ = [
     "auth_router",
@@ -18,4 +19,5 @@ __all__ = [
     "ai_insights_router",
     "notifications_router",
     "media_router",
+    "workflow_router",
 ]

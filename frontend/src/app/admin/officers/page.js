@@ -43,14 +43,32 @@ function Field({ label, children, required }) {
     );
 }
 
+const ROLE_OPTIONS = [
+    { value: 'nodal_officer', label: 'Nodal Officer (Department Coordinator)' },
+    { value: 'inspection_officer', label: 'Inspection Officer (Field Site Verifier)' },
+    { value: 'team_lead', label: 'Team Lead (Field Redressal Squad)' },
+    { value: 'supervisor', label: 'Appellate Supervisor' },
+];
+
+const ROLE_BADGE_MAP = {
+    nodal_officer: { label: 'Nodal Officer', bg: '#FFF7ED', color: '#C2410C' },
+    inspection_officer: { label: 'Inspector', bg: '#E0F2FE', color: '#0369A1' },
+    team_lead: { label: 'Team Lead', bg: '#ECFDF5', color: '#047857' },
+    supervisor: { label: 'Supervisor', bg: '#FEF3C7', color: '#B45309' },
+    officer: { label: 'Officer', bg: '#EEF3FB', color: '#003580' },
+};
+
 /* ── Create Officer Modal ── */
-function CreateOfficerModal({ departments, onClose, onCreated }) {
+function CreateOfficerModal({ departments, teams, onClose, onCreated }) {
     const [form, setForm] = useState({
         name: '', email: '', password: '', phone: '',
         department_id: '', employee_id: '', designation: '',
+        role: 'inspection_officer', team_id: '',
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    const deptTeams = teams.filter(t => !form.department_id || t.department_id === form.department_id);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -61,7 +79,11 @@ function CreateOfficerModal({ departments, onClose, onCreated }) {
         }
         setLoading(true);
         try {
-            const officer = await adminAPI.createOfficer(form);
+            const payload = {
+                ...form,
+                team_id: form.role === 'team_lead' && form.team_id ? form.team_id : undefined,
+            };
+            const officer = await adminAPI.createOfficer(payload);
             onCreated(officer);
             onClose();
         } catch (err) {
@@ -79,7 +101,7 @@ function CreateOfficerModal({ departments, onClose, onCreated }) {
     };
 
     return (
-        <Modal title="Add New Officer" onClose={onClose}>
+        <Modal title="Add New Departmental Officer" onClose={onClose}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 {error && (
                     <div className="gov-alert error text-sm flex gap-2">
@@ -88,21 +110,51 @@ function CreateOfficerModal({ departments, onClose, onCreated }) {
                 )}
                 <div className="grid grid-cols-2 gap-3">
                     <Field label="Full Name" required>
-                        <input style={inputStyle} placeholder="Rajesh Kumar"
+                        <input style={inputStyle} placeholder="Sneha Kulkarni"
                             value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
                     </Field>
                     <Field label="Employee ID" required>
-                        <input style={inputStyle} placeholder="EMP-001"
+                        <input style={inputStyle} placeholder="INSP-ROADS-003"
                             value={form.employee_id} onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))} />
                     </Field>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <Field label="Officer Role" required>
+                        <select style={inputStyle} value={form.role}
+                            onChange={e => setForm(f => ({ ...f, role: e.target.value, team_id: '' }))}>
+                            {ROLE_OPTIONS.map(r => (
+                                <option key={r.value} value={r.value}>{r.label}</option>
+                            ))}
+                        </select>
+                    </Field>
+                    <Field label="Department" required>
+                        <select style={inputStyle} value={form.department_id}
+                            onChange={e => setForm(f => ({ ...f, department_id: e.target.value, team_id: '' }))}>
+                            <option value="">Select department…</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </Field>
+                </div>
+                {form.role === 'team_lead' && (
+                    <Field label="Assigned Field Team">
+                        <select style={inputStyle} value={form.team_id}
+                            onChange={e => setForm(f => ({ ...f, team_id: e.target.value }))}>
+                            <option value="">Assign later from Departments → Field Teams</option>
+                            {deptTeams.map(t => (
+                                <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                            ))}
+                        </select>
+                    </Field>
+                )}
                 <Field label="Email Address" required>
-                    <input style={inputStyle} type="email" placeholder="officer@gov.in"
+                    <input style={inputStyle} type="email" placeholder="inspector3@roads.gov.in"
                         value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
                     <Field label="Password" required>
-                        <input style={inputStyle} type="password" placeholder="Min. 8 characters"
+                        <input style={inputStyle} type="password" placeholder="Min. 6 characters"
                             value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
                     </Field>
                     <Field label="Phone">
@@ -110,21 +162,10 @@ function CreateOfficerModal({ departments, onClose, onCreated }) {
                             value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
                     </Field>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                    <Field label="Department" required>
-                        <select style={inputStyle} value={form.department_id}
-                            onChange={e => setForm(f => ({ ...f, department_id: e.target.value }))}>
-                            <option value="">Select department…</option>
-                            {departments.map(d => (
-                                <option key={d.id} value={d.id}>{d.name}</option>
-                            ))}
-                        </select>
-                    </Field>
-                    <Field label="Designation">
-                        <input style={inputStyle} placeholder="Field Inspector"
-                            value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} />
-                    </Field>
-                </div>
+                <Field label="Designation">
+                    <input style={inputStyle} placeholder="Junior Field Inspector (Zone C)"
+                        value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} />
+                </Field>
                 <div className="flex justify-end gap-3 pt-2">
                     <button type="button" onClick={onClose} className="btn-ghost text-sm px-4 py-2">
                         Cancel
@@ -142,11 +183,15 @@ function CreateOfficerModal({ departments, onClose, onCreated }) {
 }
 
 /* ── Edit Officer Modal ── */
-function EditOfficerModal({ officer, departments, onClose, onUpdated }) {
+function EditOfficerModal({ officer, departments, teams, onClose, onUpdated }) {
     const [designation, setDesignation] = useState(officer.designation || '');
     const [departmentId, setDepartmentId] = useState(officer.department_id || '');
+    const [role, setRole] = useState(officer.role || officer.officer_role || 'inspection_officer');
+    const [teamId, setTeamId] = useState(officer.team_id || '');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    const deptTeams = teams.filter(t => !departmentId || t.department_id === departmentId);
 
     const inputStyle = {
         width: '100%', padding: '8px 12px', borderRadius: '8px',
@@ -162,7 +207,9 @@ function EditOfficerModal({ officer, departments, onClose, onUpdated }) {
         try {
             const updated = await adminAPI.updateOfficer(officer.id, {
                 designation,
-                department_id: departmentId !== officer.department_id ? departmentId : undefined,
+                department_id: departmentId || undefined,
+                role,
+                team_id: role === 'team_lead' ? teamId : '',
             });
             onUpdated(updated);
             onClose();
@@ -181,15 +228,34 @@ function EditOfficerModal({ officer, departments, onClose, onUpdated }) {
                         <AlertTriangle size={14} className="shrink-0 mt-0.5" /> {error}
                     </div>
                 )}
-                <Field label="Department">
-                    <select style={inputStyle} value={departmentId}
-                        onChange={e => setDepartmentId(e.target.value)}>
-                        <option value="">No department</option>
-                        {departments.map(d => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                    </select>
-                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                    <Field label="Officer Role">
+                        <select style={inputStyle} value={role} onChange={e => setRole(e.target.value)}>
+                            {ROLE_OPTIONS.map(r => (
+                                <option key={r.value} value={r.value}>{r.label}</option>
+                            ))}
+                        </select>
+                    </Field>
+                    <Field label="Department">
+                        <select style={inputStyle} value={departmentId}
+                            onChange={e => setDepartmentId(e.target.value)}>
+                            <option value="">No department</option>
+                            {departments.map(d => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </Field>
+                </div>
+                {role === 'team_lead' && (
+                    <Field label="Assigned Field Team">
+                        <select style={inputStyle} value={teamId} onChange={e => setTeamId(e.target.value)}>
+                            <option value="">Unassigned</option>
+                            {deptTeams.map(t => (
+                                <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                            ))}
+                        </select>
+                    </Field>
+                )}
                 <Field label="Designation">
                     <input style={inputStyle} placeholder="Field Inspector"
                         value={designation} onChange={e => setDesignation(e.target.value)} />
@@ -254,10 +320,12 @@ export default function OfficersManagementPage() {
 
     const [officers, setOfficers] = useState([]);
     const [departments, setDepartments] = useState([]);
+    const [teams, setTeams] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [deptFilter, setDeptFilter] = useState('');
+    const [roleFilter, setRoleFilter] = useState('');
     const [showCreate, setShowCreate] = useState(false);
     const [editOfficer, setEditOfficer] = useState(null);
     const [deleteOfficer, setDeleteOfficer] = useState(null);
@@ -270,21 +338,30 @@ export default function OfficersManagementPage() {
         setLoading(true);
         setError('');
         try {
-            const [officersData, deptsData] = await Promise.all([
-                adminAPI.getOfficers(deptFilter || undefined, false),
+            const [officersData, deptsData, teamsData] = await Promise.all([
+                adminAPI.getOfficers(deptFilter || undefined, roleFilter || undefined),
                 adminAPI.getDepartments(),
+                adminAPI.getTeams(),
             ]);
             setOfficers(Array.isArray(officersData) ? officersData : []);
             setDepartments(Array.isArray(deptsData) ? deptsData : []);
+            setTeams(Array.isArray(teamsData) ? teamsData : []);
         } catch (err) {
             setError(err.message || 'Failed to load data');
         } finally {
             setLoading(false);
         }
-    }, [deptFilter]);
+    }, [deptFilter, roleFilter]);
 
     useEffect(() => {
-        if (user?.role === 'admin' || user?.role === 'super_admin') fetchData();
+        if (user?.role === 'admin' || user?.role === 'super_admin') {
+            let cancelled = false;
+            async function run() {
+                if (!cancelled) await fetchData();
+            }
+            run();
+            return () => { cancelled = true; };
+        }
     }, [fetchData, user]);
 
     const handleDeactivate = async () => {
@@ -304,7 +381,8 @@ export default function OfficersManagementPage() {
             o.name?.toLowerCase().includes(q) ||
             o.email?.toLowerCase().includes(q) ||
             o.employee_id?.toLowerCase().includes(q) ||
-            o.designation?.toLowerCase().includes(q)
+            o.designation?.toLowerCase().includes(q) ||
+            o.team_name?.toLowerCase().includes(q)
         );
     });
 
@@ -325,18 +403,20 @@ export default function OfficersManagementPage() {
             {showCreate && (
                 <CreateOfficerModal
                     departments={departments}
+                    teams={teams}
                     onClose={() => setShowCreate(false)}
-                    onCreated={o => setOfficers(prev => [o, ...prev])}
+                    onCreated={() => fetchData()}
                 />
             )}
             {editOfficer && (
                 <EditOfficerModal
                     officer={editOfficer}
                     departments={departments}
+                    teams={teams}
                     onClose={() => setEditOfficer(null)}
-                    onUpdated={updated => {
-                        setOfficers(prev => prev.map(o => o.id === updated.id ? updated : o));
+                    onUpdated={() => {
                         setEditOfficer(null);
+                        fetchData();
                     }}
                 />
             )}
@@ -410,6 +490,23 @@ export default function OfficersManagementPage() {
                             background: 'var(--bg-section)',
                             color: 'var(--text-primary)',
                             outline: 'none',
+                            minWidth: '170px',
+                        }}
+                        value={roleFilter}
+                        onChange={e => setRoleFilter(e.target.value)}>
+                        <option value="">All Roles</option>
+                        <option value="nodal_officer">Nodal Officers</option>
+                        <option value="inspection_officer">Inspection Officers</option>
+                        <option value="team_lead">Field Team Leads</option>
+                        <option value="supervisor">Supervisors</option>
+                    </select>
+                    <select
+                        className="py-2 px-3 rounded-lg text-sm"
+                        style={{
+                            border: '1px solid var(--border-mid)',
+                            background: 'var(--bg-section)',
+                            color: 'var(--text-primary)',
+                            outline: 'none',
                             minWidth: '180px',
                         }}
                         value={deptFilter}
@@ -468,22 +565,40 @@ export default function OfficersManagementPage() {
                             <thead>
                                 <tr>
                                     <th>Officer</th>
+                                    <th>Role & Team</th>
                                     <th>Employee ID</th>
                                     <th>Department</th>
                                     <th>Designation</th>
-                                    <th>Performance</th>
+                                    <th>Workload</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map(o => (
+                                {filtered.map(o => {
+                                    const rBadge = ROLE_BADGE_MAP[o.role || o.officer_role] || ROLE_BADGE_MAP.officer;
+                                    return (
                                     <tr key={o.id}>
                                         <td>
                                             <div>
                                                 <div className="font-semibold text-sm"
                                                     style={{ color: 'var(--text-primary)' }}>{o.name}</div>
                                                 <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{o.email}</div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div className="space-y-1">
+                                                <span
+                                                    className="inline-block text-[11px] font-bold px-2 py-0.5 rounded"
+                                                    style={{ background: rBadge.bg, color: rBadge.color }}
+                                                >
+                                                    {rBadge.label}
+                                                </span>
+                                                {o.team_name && (
+                                                    <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                                        {o.team_name}
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
                                         <td>
@@ -500,15 +615,13 @@ export default function OfficersManagementPage() {
                                         </td>
                                         <td className="text-sm muted">{o.designation || '—'}</td>
                                         <td>
-                                            <div className="text-xs space-y-0.5">
+                                            <div className="text-xs space-y-0.5 tabular-nums">
+                                                <div style={{ color: 'var(--navy)' }}>
+                                                    {o.current_active_count ?? 0} active
+                                                </div>
                                                 <div style={{ color: 'var(--india-green)' }}>
                                                     ✓ {o.total_resolved} resolved
                                                 </div>
-                                                {o.rating > 0 && (
-                                                    <div style={{ color: 'var(--saffron-dark)' }}>
-                                                        ★ {o.rating.toFixed(1)}
-                                                    </div>
-                                                )}
                                             </div>
                                         </td>
                                         <td>
@@ -542,7 +655,8 @@ export default function OfficersManagementPage() {
                                             </div>
                                         </td>
                                     </tr>
-                                ))}
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

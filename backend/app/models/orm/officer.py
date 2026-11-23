@@ -34,6 +34,15 @@ class Officer(Base):
     employee_id: Mapped[str] = mapped_column(
         String(50), unique=True, nullable=False, index=True
     )
+    officer_role: Mapped[str] = mapped_column(
+        String(50), default="inspection_officer", server_default="inspection_officer", index=True
+    )
+    team_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     designation: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     jurisdiction_wards: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
 
@@ -66,5 +75,7 @@ class Officer(Base):
         "Department", back_populates="officers", foreign_keys=[department_id]
     )
     assigned_complaints: Mapped[List["Complaint"]] = relationship(
-        "Complaint", back_populates="assigned_officer"
+        "Complaint",
+        back_populates="assigned_officer",
+        foreign_keys="Complaint.assigned_officer_id",
     )

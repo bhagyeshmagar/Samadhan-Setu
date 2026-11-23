@@ -1,11 +1,19 @@
 'use client';
 
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
     ArrowRight, FileText, Activity, CheckCircle,
     MapPin, Users, BarChart3, Info, ShieldCheck,
     ChevronRight, Bell
 } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
+import { complaintsAPI, workflowAPI, departmentAPI, adminAPI } from '@/lib/api';
+import {
+    computeDashboardSummaryFromComplaints,
+    computeDashboardSummaryFromAdminStats,
+} from '@/lib/dashboardSummary';
+import DashboardSummarySection from '@/components/DashboardSummarySection';
 
 /* ── Announcement Ticker ── */
 const NOTICES = [
@@ -122,6 +130,58 @@ const STEPS = [
 ];
 
 export default function Home() {
+    const { user, loading: authLoading } = useAuth();
+    const [userSummary, setUserSummary] = useState(null);
+    const [summaryLoading, setSummaryLoading] = useState(false);
+    const [summaryError, setSummaryError] = useState('');
+
+    const fetchLoggedInSummary = useCallback(async (currentUser) => {
+        if (!currentUser) return;
+        setSummaryLoading(true);
+        setSummaryError('');
+        try {
+            const role = currentUser.role;
+            if (role === 'citizen') {
+                const list = await complaintsAPI.getMy();
+                setUserSummary(computeDashboardSummaryFromComplaints(list, 'citizen'));
+            } else if (role === 'nodal_officer' || role === 'officer') {
+                const dash = await workflowAPI.getNodalDashboard();
+                setUserSummary(computeDashboardSummaryFromComplaints(dash?.complaints || [], 'nodal_officer'));
+            } else if (role === 'inspection_officer') {
+                const dash = await workflowAPI.getInspectorDashboard();
+                setUserSummary(computeDashboardSummaryFromComplaints(dash?.all_tasks || [], 'inspection_officer'));
+            } else if (role === 'team_lead') {
+                const dash = await workflowAPI.getTeamDashboard();
+                setUserSummary(computeDashboardSummaryFromComplaints(dash?.all_orders || [], 'team_lead'));
+            } else if (role === 'supervisor') {
+                const list = await departmentAPI.getComplaints();
+                setUserSummary(computeDashboardSummaryFromComplaints(list || [], 'supervisor'));
+            } else if (role === 'admin' || role === 'super_admin') {
+                const stats = await adminAPI.getStats();
+                setUserSummary(computeDashboardSummaryFromAdminStats(stats));
+            } else {
+                const list = await complaintsAPI.getMy();
+                setUserSummary(computeDashboardSummaryFromComplaints(list, role));
+            }
+        } catch (err) {
+            setSummaryError(err.message || 'Unable to load your dashboard summary right now.');
+        } finally {
+            setSummaryLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (authLoading || !user) return;
+        let cancelled = false;
+        async function init() {
+            if (!cancelled) await fetchLoggedInSummary(user);
+        }
+        init();
+        return () => {
+            cancelled = true;
+        };
+    }, [authLoading, user, fetchLoggedInSummary]);
+
     return (
         <div className="flex flex-col -mt-6 -mx-4 md:-mx-8">
 
@@ -241,26 +301,38 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* ── Stats Row ── */}
+            {/* ── Personalized Dashboard Summary (logged-in) OR Public Platform Stats ── */}
             <section
                 className="py-8 px-4 md:px-8"
                 style={{ background: 'var(--bg-section)', borderBottom: '1px solid var(--border)' }}
             >
                 <div className="max-w-350 mx-auto">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {STATS.map((s) => (
-                            <div key={s.label} className={`metric-card ${s.color}`}>
-                                <div className="metric-number">{s.value}</div>
-                                <div className="metric-label">{s.label}</div>
-                                <div
-                                    className="text-[10px] mt-0.5"
-                                    style={{ color: 'var(--text-muted)', fontFamily: "'Noto Sans Devanagari', sans-serif" }}
-                                >
-                                    {s.labelHi}
+                    {user ? (
+                        <DashboardSummarySection
+                            user={user}
+                            summary={userSummary}
+                            loading={summaryLoading}
+                            error={summaryError}
+                            onRetry={() => fetchLoggedInSummary(user)}
+                            showDashboardLink
+                            heading="Dashboard Summary"
+                        />
+                    ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {STATS.map((s) => (
+                                <div key={s.label} className={`metric-card ${s.color}`}>
+                                    <div className="metric-number">{s.value}</div>
+                                    <div className="metric-label">{s.label}</div>
+                                    <div
+                                        className="text-[10px] mt-0.5"
+                                        style={{ color: 'var(--text-muted)', fontFamily: "'Noto Sans Devanagari', sans-serif" }}
+                                    >
+                                        {s.labelHi}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </section>
 

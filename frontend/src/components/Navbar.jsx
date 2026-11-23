@@ -51,14 +51,23 @@ const NAV_LINKS = {
         { href: '/citizen/track',     label: 'Track Status',    labelHi: 'स्थिति ट्रैक करें' },
         { href: '/citizen/community', label: 'Community',       labelHi: 'समुदाय' },
     ],
+    nodal_officer: [
+        { href: '/nodal-dashboard', label: 'Nodal Command', labelHi: 'नोडल डेस्क' },
+        { href: '/department/map', label: 'Ward Map', labelHi: 'मानचित्र' },
+    ],
+    inspection_officer: [
+        { href: '/inspection-dashboard', label: 'My Inspections', labelHi: 'निरीक्षण' },
+    ],
+    team_lead: [
+        { href: '/team-dashboard', label: 'Team Work Orders', labelHi: 'कार्य आदेश' },
+    ],
     officer: [
-        { href: '/department', label: 'Dashboard',  labelHi: 'डैशबोर्ड' },
-        { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
+        { href: '/nodal-dashboard', label: 'Nodal Command', labelHi: 'डैशबोर्ड' },
+        { href: '/department/map', label: 'Ward Map', labelHi: 'मानचित्र' },
     ],
     supervisor: [
         { href: '/supervisor', label: 'Appellate Desk', labelHi: 'अपील' },
-        { href: '/department', label: 'Department Tasks', labelHi: 'डैशबोर्ड' },
-        { href: '/department/map', label: 'Analytics', labelHi: 'विश्लेषण' },
+        { href: '/department/map', label: 'Ward Map', labelHi: 'विश्लेषण' },
     ],
     admin: [
         { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
@@ -182,9 +191,14 @@ export default function Navbar() {
     };
 
     const roleBadgeStyle = {
-        citizen: { bg: '#EEF3FB', color: '#003580', label: 'Citizen' },
-        officer: { bg: '#FFF7ED', color: '#C2410C', label: 'Officer' },
-        admin:   { bg: '#F5F3FF', color: '#6D28D9', label: 'Admin' },
+        citizen:            { bg: '#EEF3FB', color: '#003580', label: 'Citizen' },
+        nodal_officer:      { bg: '#FFF7ED', color: '#C2410C', label: 'Nodal Officer' },
+        inspection_officer: { bg: '#E0F2FE', color: '#0369A1', label: 'Inspector' },
+        team_lead:          { bg: '#ECFDF5', color: '#047857', label: 'Team Lead' },
+        officer:            { bg: '#FFF7ED', color: '#C2410C', label: 'Officer' },
+        supervisor:         { bg: '#FEF3C7', color: '#B45309', label: 'Supervisor' },
+        admin:              { bg: '#F5F3FF', color: '#6D28D9', label: 'Admin' },
+        super_admin:        { bg: '#F5F3FF', color: '#6D28D9', label: 'Super Admin' },
     };
     const roleBadge = user ? (roleBadgeStyle[user.role] || roleBadgeStyle.citizen) : null;
 

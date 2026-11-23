@@ -179,7 +179,14 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise credentials_exception
 
-    if user.role in (UserRole.OFFICER, UserRole.SUPERVISOR):
+    OFFICER_ROLES = (
+        UserRole.OFFICER,
+        UserRole.NODAL_OFFICER,
+        UserRole.INSPECTION_OFFICER,
+        UserRole.TEAM_LEAD,
+        UserRole.SUPERVISOR,
+    )
+    if user.role in OFFICER_ROLES:
         officer = await repo.get_officer_by_user_id(user.id)
         if officer is None or not officer.is_active:
             raise HTTPException(
@@ -218,7 +225,14 @@ async def get_current_user_optional(
     if user is None or not user.is_active:
         return None
 
-    if user.role in (UserRole.OFFICER, UserRole.SUPERVISOR):
+    OFFICER_ROLES = (
+        UserRole.OFFICER,
+        UserRole.NODAL_OFFICER,
+        UserRole.INSPECTION_OFFICER,
+        UserRole.TEAM_LEAD,
+        UserRole.SUPERVISOR,
+    )
+    if user.role in OFFICER_ROLES:
         officer = await repo.get_officer_by_user_id(user.id)
         if officer is None or not officer.is_active:
             return None
@@ -247,7 +261,18 @@ def require_role(*roles: UserRole):
 
 # Convenience role-guard dependencies
 require_citizen = require_role(UserRole.CITIZEN)
-require_officer = require_role(UserRole.OFFICER, UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+require_nodal_officer = require_role(UserRole.NODAL_OFFICER, UserRole.OFFICER, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+require_inspection_officer = require_role(UserRole.INSPECTION_OFFICER)
+require_team_lead = require_role(UserRole.TEAM_LEAD)
+require_officer = require_role(
+    UserRole.OFFICER,
+    UserRole.NODAL_OFFICER,
+    UserRole.INSPECTION_OFFICER,
+    UserRole.TEAM_LEAD,
+    UserRole.SUPERVISOR,
+    UserRole.ADMIN,
+    UserRole.SUPER_ADMIN,
+)
 require_officer_or_admin = require_officer
 require_supervisor = require_role(UserRole.SUPERVISOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPER_ADMIN)

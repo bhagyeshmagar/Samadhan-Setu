@@ -9,10 +9,56 @@ import {
   buildComplaintDetail,
   generatePlaceholderSvg,
   makeId,
+  getOfficerForUser,
+  getTeamForUser,
+  canUserAccessComplaint,
+  pushNotification,
+  pushAudit,
+  computeDistanceMeters,
+  isValidTransition,
 } from '@/lib/mockBackend';
 
-function json(data, status = 200) {
-  return NextResponse.json(data, { status });
+import {
+  signSessionToken,
+  buildSessionCookieHeader,
+  buildClearSessionCookieHeader,
+} from '@/lib/sessionCookie';
+
+import {
+  isValidPriority,
+  normalizePriority,
+  getPriorityScore,
+  getSlaHoursForPriority,
+  computeSlaDeadline,
+} from '@/lib/taskAssignment';
+
+function applyAssignmentPriority(complaint, rawPriority, nowIso) {
+  if (rawPriority === undefined || rawPriority === null || rawPriority === '') {
+    return { applied: false, priority: complaint.priority, previousPriority: complaint.priority };
+  }
+  if (!isValidPriority(rawPriority)) {
+    return { error: 'Invalid priority level. Must be one of: low, medium, high, critical.' };
+  }
+  const previousPriority = normalizePriority(complaint.priority || 'medium');
+  const nextPriority = normalizePriority(rawPriority);
+  const slaHours = getSlaHoursForPriority(nextPriority);
+  complaint.priority = nextPriority;
+  complaint.priority_score = getPriorityScore(nextPriority);
+  complaint.sla_deadline = computeSlaDeadline(nextPriority, nowIso);
+  return {
+    applied: true,
+    changed: previousPriority !== nextPriority,
+    previousPriority,
+    priority: nextPriority,
+    slaHours,
+  };
+}
+
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+
+function json(data, status = 200, headers = undefined) {
+  return NextResponse.json(data, headers ? { status, headers } : { status });
 }
 
 function normalizeStatusInput(status) {
@@ -21,8 +67,18 @@ function normalizeStatusInput(status) {
     submitted: 'submitted',
     verified: 'verified',
     assigned: 'assigned',
+    inspection_assigned: 'inspection_assigned',
+    inspection_submitted: 'inspection_submitted',
+    inspection_rework: 'inspection_rework',
+    inspection_verified: 'inspection_verified',
+    team_assigned: 'team_assigned',
+    work_in_progress: 'work_in_progress',
     'in progress': 'in_progress',
     in_progress: 'in_progress',
+    resolution_submitted: 'resolution_submitted',
+    verification_assigned: 'verification_assigned',
+    verification_submitted: 'verification_submitted',
+    redressal_rework: 'redressal_rework',
     completed: 'resolved',
     resolved: 'resolved',
     closed: 'closed',
@@ -44,28 +100,75 @@ async function parseJsonBody(request) {
   }
 }
 
-async function saveUploadedFiles(request, prefix) {
+async function parseProofMultipart(request, prefix) {
   const store = getStore();
   const savedUrls = [];
-  try {
+  const fields = {};
+  const contentType = request.headers.get('content-type') || '';
+
+  if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
+    for (const [k, v] of formData.entries()) {
+      if (typeof v === 'string') {
+        fields[k] = v;
+      }
+    }
     const files = formData.getAll('files');
     for (const file of files) {
-      if (file && typeof file.arrayBuffer === 'function') {
+      if (file && typeof file.arrayBuffer === 'function' && file.size > 0) {
+        const mime = file.type || 'image/jpeg';
+        if (!ALLOWED_IMAGE_TYPES.includes(mime) && !mime.startsWith('image/')) {
+          return { error: 'Only image files (JPG, PNG, WebP) are permitted as proof.', status: 400 };
+        }
+        if (file.size > MAX_UPLOAD_BYTES) {
+          return { error: 'Each uploaded proof image must be 5MB or smaller.', status: 400 };
+        }
         const buffer = Buffer.from(await file.arrayBuffer());
-        const ext = (file.name || 'upload.jpg').split('.').pop() || 'jpg';
-        const key = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
-        store.media.set(key, {
-          buffer,
-          mimeType: file.type || 'image/jpeg',
-        });
+        const rawExt = (file.name || 'proof.jpg').split('.').pop() || 'jpg';
+        const safeExt = rawExt.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'jpg';
+        const key = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${safeExt}`;
+        store.media.set(key, { buffer, mimeType: mime });
         savedUrls.push(`/api/media/${key}`);
       }
     }
-  } catch {
-    // Fallback if non-multipart
+  } else {
+    const body = await parseJsonBody(request);
+    Object.assign(fields, body);
   }
-  return savedUrls;
+
+  return { savedUrls, fields };
+}
+
+async function saveUploadedFiles(request, prefix) {
+  const parsed = await parseProofMultipart(request, prefix);
+  if (parsed.error) return [];
+  return parsed.savedUrls;
+}
+
+function parseCoordinate(value, fallback = null) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const num = Number(value);
+  return Number.isFinite(num) ? Number(num.toFixed(6)) : fallback;
+}
+
+function getActiveCountForInspector(store, inspectorId) {
+  const activeStatuses = ['inspection_assigned', 'inspection_rework', 'verification_assigned'];
+  return store.complaints.filter(
+    (c) =>
+      activeStatuses.includes(c.status) &&
+      (c.assigned_inspector_id === inspectorId || c.verification_inspector_id === inspectorId)
+  ).length;
+}
+
+function getActiveCountForTeam(store, teamId) {
+  const activeStatuses = ['team_assigned', 'work_in_progress', 'redressal_rework'];
+  return store.complaints.filter(
+    (c) => activeStatuses.includes(c.status) && c.assigned_team_id === teamId
+  ).length;
+}
+
+function requireAdmin(user) {
+  return user && ['admin', 'super_admin'].includes(user.role);
 }
 
 async function handleRequest(request, context) {
@@ -87,7 +190,7 @@ async function handleRequest(request, context) {
         headers: { 'Content-Type': stored.mimeType, 'Cache-Control': 'private, max-age=3600' },
       });
     }
-    const svg = generatePlaceholderSvg(key.split('/').pop() || 'Evidence');
+    const svg = generatePlaceholderSvg(key);
     return new NextResponse(svg, {
       status: 200,
       headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=3600' },
@@ -107,7 +210,30 @@ async function handleRequest(request, context) {
       return json({ detail: 'Account is deactivated' }, 403);
     }
     const access_token = issueToken(found);
-    return json({ access_token, token_type: 'bearer', user: sanitizeUser(found) });
+    const sessionToken = signSessionToken({
+      sub: found.id,
+      role: found.role,
+      email: found.email,
+    });
+    const dept = store.departments.find((d) => d.id === found.department_id);
+    const team = getTeamForUser(found, store);
+    const officer = getOfficerForUser(found, store);
+    return json(
+      {
+        access_token,
+        token_type: 'bearer',
+        user: {
+          ...sanitizeUser(found),
+          department_name: dept?.name || null,
+          officer_id: officer?.id || found.officer_id || null,
+          designation: officer?.designation || null,
+          team_id: team?.id || found.team_id || null,
+          team_name: team?.name || null,
+        },
+      },
+      200,
+      { 'Set-Cookie': buildSessionCookieHeader(sessionToken, request) }
+    );
   }
 
   if (path === '/auth/register' && method === 'POST') {
@@ -135,16 +261,39 @@ async function handleRequest(request, context) {
     };
     store.users.push(newUser);
     const access_token = issueToken(newUser);
-    return json({ access_token, token_type: 'bearer', user: sanitizeUser(newUser) }, 201);
+    const sessionToken = signSessionToken({
+      sub: newUser.id,
+      role: newUser.role,
+      email: newUser.email,
+    });
+    return json(
+      { access_token, token_type: 'bearer', user: sanitizeUser(newUser) },
+      201,
+      { 'Set-Cookie': buildSessionCookieHeader(sessionToken, request) }
+    );
   }
 
   if (path === '/auth/logout' && method === 'POST') {
-    return json({ message: 'Logged out successfully' });
+    return json(
+      { message: 'Logged out successfully' },
+      200,
+      { 'Set-Cookie': buildClearSessionCookieHeader(request) }
+    );
   }
 
   if (path === '/auth/me' && method === 'GET') {
     if (!user) return json({ detail: 'Could not validate credentials' }, 401);
-    return json(sanitizeUser(user));
+    const dept = store.departments.find((d) => d.id === user.department_id);
+    const team = getTeamForUser(user, store);
+    const officer = getOfficerForUser(user, store);
+    return json({
+      ...sanitizeUser(user),
+      department_name: dept?.name || null,
+      officer_id: officer?.id || user.officer_id || null,
+      designation: officer?.designation || null,
+      team_id: team?.id || user.team_id || null,
+      team_name: team?.name || null,
+    });
   }
 
   // ── NOTIFICATIONS ──────────────────────────────────────────────────────────
@@ -177,12 +326,1031 @@ async function handleRequest(request, context) {
   }
 
   if (segments[0] === 'notifications' && segments[2] === 'read' && method === 'POST') {
-    const n = store.notifications.find((item) => item.id === segments[1]);
+    if (!user) return json({ detail: 'Could not validate credentials' }, 401);
+    const n = store.notifications.find((item) => item.id === segments[1] && item.user_id === user.id);
     if (n) n.is_read = true;
     return json({ ok: true });
   }
 
-  // ── COMPLAINTS (CITIZEN) ───────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // ── MULTI-ROLE GOVERNANCE WORKFLOW ENDPOINTS (/api/workflow/*) ────────────
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // 1. NODAL OFFICER DASHBOARD & ACTIONS
+  if (path === '/workflow/nodal/dashboard' && method === 'GET') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (!['nodal_officer', 'officer', 'admin', 'super_admin'].includes(user.role)) {
+      return json({ detail: 'Forbidden: Nodal Officer access required' }, 403);
+    }
+
+    const deptIdParam = url.searchParams.get('department_id');
+    const targetDeptId = ['admin', 'super_admin'].includes(user.role)
+      ? deptIdParam || store.departments[0]?.id
+      : user.department_id;
+
+    const dept = store.departments.find((d) => d.id === targetDeptId) || null;
+    const deptComplaints = store.complaints
+      .filter((c) => !targetDeptId || c.department_id === targetDeptId)
+      .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+      .map((c) => buildComplaintDetail(c, store));
+
+    const inspectors = store.officers
+      .filter(
+        (o) =>
+          o.is_active !== false &&
+          o.role === 'inspection_officer' &&
+          (!targetDeptId || o.department_id === targetDeptId)
+      )
+      .map((o) => ({
+        ...o,
+        active_inspections: getActiveCountForInspector(store, o.id),
+      }));
+
+    const teams = store.teams
+      .filter((t) => t.is_active !== false && (!targetDeptId || t.department_id === targetDeptId))
+      .map((t) => ({
+        ...t,
+        active_work_orders: getActiveCountForTeam(store, t.id),
+      }));
+
+    const metrics = {
+      total: deptComplaints.length,
+      new_intake: deptComplaints.filter((c) => ['submitted', 'verified', 'assigned'].includes(c.status)).length,
+      inspection_in_flight: deptComplaints.filter((c) => ['inspection_assigned', 'inspection_rework'].includes(c.status)).length,
+      inspection_review: deptComplaints.filter((c) => c.status === 'inspection_submitted').length,
+      ready_for_team: deptComplaints.filter((c) => ['inspection_verified', 'redressal_rework'].includes(c.status)).length,
+      active_field_work: deptComplaints.filter((c) => ['team_assigned', 'work_in_progress', 'verification_assigned'].includes(c.status)).length,
+      final_approval: deptComplaints.filter((c) => c.status === 'verification_submitted').length,
+      resolved: deptComplaints.filter((c) => ['resolved', 'closed'].includes(c.status)).length,
+    };
+
+    return json({
+      department: dept,
+      metrics,
+      complaints: deptComplaints,
+      inspectors,
+      teams,
+    });
+  }
+
+  // Step 3: Nodal Officer assigns (or reassigns) Inspection Officer
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'nodal' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'assign-inspector' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (!['nodal_officer', 'officer', 'admin', 'super_admin'].includes(user.role)) {
+      return json({ detail: 'Forbidden: Only Nodal Officers can assign inspectors' }, 403);
+    }
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (['nodal_officer', 'officer'].includes(user.role) && c.department_id !== user.department_id) {
+      return json({ detail: 'Forbidden: Complaint belongs to another department' }, 403);
+    }
+
+    const body = await parseJsonBody(request);
+    const inspector = store.officers.find(
+      (o) =>
+        o.id === body.inspector_id &&
+        o.role === 'inspection_officer' &&
+        o.department_id === c.department_id &&
+        o.is_active !== false
+    );
+    if (!inspector) {
+      return json({ detail: 'Valid active Inspection Officer from this department is required' }, 400);
+    }
+    if (!isValidTransition(c.status, 'inspection_assigned')) {
+      return json({ detail: `Cannot assign inspector while complaint is in status '${c.status}'` }, 400);
+    }
+
+    const prev = c.status;
+    const isReassign = Boolean(c.assigned_inspector_id && c.assigned_inspector_id !== inspector.id);
+    const nowIso = new Date().toISOString();
+    const priorityUpdate = applyAssignmentPriority(c, body.priority, nowIso);
+    if (priorityUpdate.error) {
+      return json({ detail: priorityUpdate.error }, 400);
+    }
+
+    c.assigned_inspector_id = inspector.id;
+    c.assigned_officer_id = inspector.id;
+    c.status = 'inspection_assigned';
+    c.triage_confirmed = true;
+    c.updated_at = nowIso;
+
+    const prioritySuffix = priorityUpdate.applied
+      ? ` [Priority: ${priorityUpdate.priority.toUpperCase()} · ${priorityUpdate.slaHours}h SLA]`
+      : '';
+    const customNotes = String(body.notes || '').trim();
+    const baseRemark =
+      customNotes ||
+      (isReassign
+        ? `Nodal Officer ${user.name} reassigned initial inspection to ${inspector.name}.`
+        : `Nodal Officer ${user.name} assigned initial site inspection to ${inspector.name}.`);
+    const remarks = `${baseRemark}${prioritySuffix}`;
+
+    c.status_history.push({
+      from_status: prev,
+      to_status: 'inspection_assigned',
+      remarks,
+      actor_role: user.role,
+      actor_name: user.name,
+      created_at: c.updated_at,
+    });
+
+    pushNotification(
+      store,
+      inspector.user_id,
+      `Site Inspection Assigned (${c.complaint_number})`,
+      `${user.name} assigned you to inspect "${c.title}" at ${c.location}.${prioritySuffix}${customNotes ? ` Instructions: ${customNotes}` : ''}`
+    );
+    pushAudit(store, 'inspector_assigned', c.id, user, {
+      inspector_id: inspector.id,
+      is_reassign: isReassign,
+      priority: c.priority,
+      sla_deadline: c.sla_deadline,
+    });
+    return json(buildComplaintDetail(c, store));
+  }
+
+  // Step 4: Nodal Officer reviews initial inspection proof (Approve | Rework | Reassign Inspector)
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'nodal' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'review-inspection' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (!['nodal_officer', 'officer', 'admin', 'super_admin'].includes(user.role)) {
+      return json({ detail: 'Forbidden: Only Nodal Officers can review inspection proofs' }, 403);
+    }
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (['nodal_officer', 'officer'].includes(user.role) && c.department_id !== user.department_id) {
+      return json({ detail: 'Forbidden: Complaint belongs to another department' }, 403);
+    }
+    if (c.status !== 'inspection_submitted') {
+      return json({ detail: 'Complaint does not have a pending initial inspection for review' }, 400);
+    }
+
+    const body = await parseJsonBody(request);
+    const decision = String(body.decision || '').toLowerCase();
+    const notes = String(body.notes || '').trim();
+    const prev = c.status;
+    c.updated_at = new Date().toISOString();
+
+    if (decision === 'approve') {
+      c.status = 'inspection_verified';
+      c.inspection_review_notes = notes || 'Inspection evidence matches citizen grievance.';
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'inspection_verified',
+        remarks: notes || `Nodal Officer ${user.name} confirmed inspection proofs match citizen evidence. Ready for team assignment.`,
+        actor_role: user.role,
+        actor_name: user.name,
+        created_at: c.updated_at,
+      });
+      pushAudit(store, 'inspection_approved', c.id, user, { notes });
+      return json(buildComplaintDetail(c, store));
+    }
+
+    if (decision === 'rework') {
+      if (!notes) {
+        return json({ detail: 'Please provide a reason when sending an inspection back for rework.' }, 400);
+      }
+      c.status = 'inspection_rework';
+      c.rework_reason = notes;
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'inspection_rework',
+        remarks: `Nodal Officer returned inspection for rework: ${notes}`,
+        actor_role: user.role,
+        actor_name: user.name,
+        created_at: c.updated_at,
+      });
+      const currentInspector = store.officers.find((o) => o.id === c.assigned_inspector_id);
+      if (currentInspector) {
+        pushNotification(
+          store,
+          currentInspector.user_id,
+          `Inspection Rework Requested (${c.complaint_number})`,
+          `Nodal Officer ${user.name} returned your inspection proof: ${notes}`
+        );
+      }
+      pushAudit(store, 'inspection_rework', c.id, user, { notes });
+      return json(buildComplaintDetail(c, store));
+    }
+
+    if (decision === 'reassign') {
+      const nextInspector = store.officers.find(
+        (o) =>
+          o.id === body.reassign_inspector_id &&
+          o.role === 'inspection_officer' &&
+          o.department_id === c.department_id &&
+          o.is_active !== false
+      );
+      if (!nextInspector) {
+        return json({ detail: 'Select a valid Inspection Officer from this department to reassign.' }, 400);
+      }
+      c.assigned_inspector_id = nextInspector.id;
+      c.assigned_officer_id = nextInspector.id;
+      c.status = 'inspection_assigned';
+      c.rework_reason = notes || null;
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'inspection_assigned',
+        remarks: `Inspection reassigned to ${nextInspector.name}.${notes ? ` Reason: ${notes}` : ''}`,
+        actor_role: user.role,
+        actor_name: user.name,
+        created_at: c.updated_at,
+      });
+      pushNotification(
+        store,
+        nextInspector.user_id,
+        `Reassigned Site Inspection (${c.complaint_number})`,
+        `Nodal Officer ${user.name} reassigned inspection of "${c.title}" to you.${notes ? ` Note: ${notes}` : ''}`
+      );
+      pushAudit(store, 'inspection_reassigned', c.id, user, { inspector_id: nextInspector.id, notes });
+      return json(buildComplaintDetail(c, store));
+    }
+
+    return json({ detail: 'Invalid decision. Must be approve, rework, or reassign.' }, 400);
+  }
+
+  // Step 5: Nodal Officer assigns (or reassigns) Field Team
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'nodal' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'assign-team' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (!['nodal_officer', 'officer', 'admin', 'super_admin'].includes(user.role)) {
+      return json({ detail: 'Forbidden: Only Nodal Officers can assign field teams' }, 403);
+    }
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (['nodal_officer', 'officer'].includes(user.role) && c.department_id !== user.department_id) {
+      return json({ detail: 'Forbidden: Complaint belongs to another department' }, 403);
+    }
+    if (!isValidTransition(c.status, 'team_assigned')) {
+      return json({ detail: `Cannot assign field team from status '${c.status}'` }, 400);
+    }
+
+    const body = await parseJsonBody(request);
+    const team = store.teams.find(
+      (t) => t.id === body.team_id && t.department_id === c.department_id && t.is_active !== false
+    );
+    if (!team) {
+      return json({ detail: 'Valid active Field Team from this department is required' }, 400);
+    }
+
+    const prev = c.status;
+    const isReassign = Boolean(c.assigned_team_id && c.assigned_team_id !== team.id);
+    const nowIso = new Date().toISOString();
+    const priorityUpdate = applyAssignmentPriority(c, body.priority, nowIso);
+    if (priorityUpdate.error) {
+      return json({ detail: priorityUpdate.error }, 400);
+    }
+
+    c.assigned_team_id = team.id;
+    c.assigned_officer_id = team.team_lead_officer_id || c.assigned_officer_id;
+    c.status = 'team_assigned';
+    c.updated_at = nowIso;
+
+    const prioritySuffix = priorityUpdate.applied
+      ? ` [Priority: ${priorityUpdate.priority.toUpperCase()} · ${priorityUpdate.slaHours}h SLA]`
+      : '';
+    const notes = String(body.notes || '').trim();
+    const baseRemark =
+      notes ||
+      (isReassign
+        ? `Nodal Officer ${user.name} reassigned redressal work order to ${team.name} (Lead: ${team.team_lead_name}).`
+        : `Nodal Officer ${user.name} dispatched work order to ${team.name} (Lead: ${team.team_lead_name}).`);
+    const remarks = `${baseRemark}${prioritySuffix}`;
+
+    c.status_history.push({
+      from_status: prev,
+      to_status: 'team_assigned',
+      remarks,
+      actor_role: user.role,
+      actor_name: user.name,
+      created_at: c.updated_at,
+    });
+
+    if (team.team_lead_user_id) {
+      pushNotification(
+        store,
+        team.team_lead_user_id,
+        `Work Order Assigned (${c.complaint_number})`,
+        `${user.name} assigned "${c.title}" at ${c.location} to ${team.name}.${prioritySuffix}${notes ? ` Instructions: ${notes}` : ''}`
+      );
+    }
+    pushAudit(store, 'team_assigned', c.id, user, {
+      team_id: team.id,
+      is_reassign: isReassign,
+      priority: c.priority,
+      sla_deadline: c.sla_deadline,
+    });
+    return json(buildComplaintDetail(c, store));
+  }
+
+  // Optional: Nodal Officer assigns/reassigns post-resolution verifier
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'nodal' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'assign-verifier' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (!['nodal_officer', 'officer', 'admin', 'super_admin'].includes(user.role)) {
+      return json({ detail: 'Forbidden: Nodal Officer access required' }, 403);
+    }
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (['nodal_officer', 'officer'].includes(user.role) && c.department_id !== user.department_id) {
+      return json({ detail: 'Forbidden: Complaint belongs to another department' }, 403);
+    }
+
+    const body = await parseJsonBody(request);
+    const inspector = store.officers.find(
+      (o) =>
+        o.id === body.inspector_id &&
+        o.role === 'inspection_officer' &&
+        o.department_id === c.department_id &&
+        o.is_active !== false
+    );
+    if (!inspector) {
+      return json({ detail: 'Select a valid active Inspection Officer from this department.' }, 400);
+    }
+
+    const prev = c.status;
+    const nowIso = new Date().toISOString();
+    const priorityUpdate = applyAssignmentPriority(c, body.priority, nowIso);
+    if (priorityUpdate.error) {
+      return json({ detail: priorityUpdate.error }, 400);
+    }
+    const prioritySuffix = priorityUpdate.applied
+      ? ` [Priority: ${priorityUpdate.priority.toUpperCase()} · ${priorityUpdate.slaHours}h SLA]`
+      : '';
+    const customNotes = String(body.notes || '').trim();
+
+    c.verification_inspector_id = inspector.id;
+    c.status = 'verification_assigned';
+    c.updated_at = nowIso;
+    c.status_history.push({
+      from_status: prev,
+      to_status: 'verification_assigned',
+      remarks: `Post-resolution site verification assigned to ${inspector.name}.${customNotes ? ` Note: ${customNotes}` : ''}${prioritySuffix}`,
+      actor_role: user.role,
+      actor_name: user.name,
+      created_at: c.updated_at,
+    });
+    pushNotification(
+      store,
+      inspector.user_id,
+      `Post-Repair Verification Assigned (${c.complaint_number})`,
+      `Please visit ${c.location} to verify resolution of "${c.title}".${prioritySuffix}${customNotes ? ` Instructions: ${customNotes}` : ''}`
+    );
+    pushAudit(store, 'verifier_assigned', c.id, user, {
+      inspector_id: inspector.id,
+      priority: c.priority,
+      sla_deadline: c.sla_deadline,
+    });
+    return json(buildComplaintDetail(c, store));
+  }
+
+  // Step 8: Nodal Officer final proof comparison decision (Approve & Notify Citizen | Rework Team | Reassign Team | Re-verify)
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'nodal' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'final-decision' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (!['nodal_officer', 'officer', 'admin', 'super_admin'].includes(user.role)) {
+      return json({ detail: 'Forbidden: Only Nodal Officers can issue final resolution approval' }, 403);
+    }
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (['nodal_officer', 'officer'].includes(user.role) && c.department_id !== user.department_id) {
+      return json({ detail: 'Forbidden: Complaint belongs to another department' }, 403);
+    }
+    if (c.status !== 'verification_submitted') {
+      return json({ detail: 'Complaint is not awaiting final Nodal Officer approval' }, 400);
+    }
+
+    const body = await parseJsonBody(request);
+    const decision = String(body.decision || '').toLowerCase();
+    const notes = String(body.notes || '').trim();
+    const prev = c.status;
+    c.updated_at = new Date().toISOString();
+
+    if (decision === 'approve') {
+      c.status = 'resolved';
+      c.resolved_at = c.updated_at;
+      if (notes) {
+        c.resolution_remarks = c.resolution_remarks ? `${c.resolution_remarks} | Nodal Sign-off: ${notes}` : notes;
+      }
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'resolved',
+        remarks:
+          notes ||
+          `Nodal Officer ${user.name} matched Citizen, Team Resolution, and Inspector Verification proofs. Grievance marked RESOLVED and citizen notified.`,
+        actor_role: user.role,
+        actor_name: user.name,
+        created_at: c.updated_at,
+      });
+      pushNotification(
+        store,
+        c.citizen_id,
+        `Grievance ${c.complaint_number} Resolved & Verified`,
+        `Your grievance "${c.title}" has been resolved, site-verified by an Inspection Officer, and approved by ${user.name} (${c.department_name}). Please review the after-repair proof and share feedback.`
+      );
+      pushAudit(store, 'final_resolution_approved', c.id, user, { notes });
+      return json(buildComplaintDetail(c, store));
+    }
+
+    if (decision === 'rework_team') {
+      if (!notes) return json({ detail: 'Please provide rework instructions for the field team.' }, 400);
+      c.status = 'redressal_rework';
+      c.rework_reason = notes;
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'redressal_rework',
+        remarks: `Nodal Officer rejected final proofs and returned work order to field team: ${notes}`,
+        actor_role: user.role,
+        actor_name: user.name,
+        created_at: c.updated_at,
+      });
+      const team = store.teams.find((t) => t.id === c.assigned_team_id);
+      if (team?.team_lead_user_id) {
+        pushNotification(
+          store,
+          team.team_lead_user_id,
+          `Rework Required (${c.complaint_number})`,
+          `Nodal Officer ${user.name} returned "${c.title}" for rework: ${notes}`
+        );
+      }
+      pushAudit(store, 'final_rework_team', c.id, user, { notes });
+      return json(buildComplaintDetail(c, store));
+    }
+
+    if (decision === 'reassign_team') {
+      const nextTeam = store.teams.find(
+        (t) => t.id === body.reassign_team_id && t.department_id === c.department_id && t.is_active !== false
+      );
+      if (!nextTeam) {
+        return json({ detail: 'Select a valid Field Team from this department to reassign.' }, 400);
+      }
+      c.assigned_team_id = nextTeam.id;
+      c.assigned_officer_id = nextTeam.team_lead_officer_id || c.assigned_officer_id;
+      c.status = 'team_assigned';
+      c.rework_reason = notes || 'Reassigned to a new field team by Nodal Officer.';
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'team_assigned',
+        remarks: `Nodal Officer reassigned work order to ${nextTeam.name}.${notes ? ` Reason: ${notes}` : ''}`,
+        actor_role: user.role,
+        actor_name: user.name,
+        created_at: c.updated_at,
+      });
+      if (nextTeam.team_lead_user_id) {
+        pushNotification(
+          store,
+          nextTeam.team_lead_user_id,
+          `Reassigned Work Order (${c.complaint_number})`,
+          `Nodal Officer ${user.name} reassigned "${c.title}" to ${nextTeam.name}.`
+        );
+      }
+      pushAudit(store, 'final_reassign_team', c.id, user, { team_id: nextTeam.id, notes });
+      return json(buildComplaintDetail(c, store));
+    }
+
+    if (decision === 'reverify') {
+      const inspector =
+        store.officers.find(
+          (o) =>
+            o.id === body.reassign_inspector_id &&
+            o.role === 'inspection_officer' &&
+            o.department_id === c.department_id &&
+            o.is_active !== false
+        ) || store.officers.find((o) => o.id === (c.verification_inspector_id || c.assigned_inspector_id));
+
+      if (!inspector) {
+        return json({ detail: 'No eligible Inspection Officer found for re-verification.' }, 400);
+      }
+      c.verification_inspector_id = inspector.id;
+      c.status = 'verification_assigned';
+      c.rework_reason = notes || 'Re-verification ordered by Nodal Officer.';
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'verification_assigned',
+        remarks: `Nodal Officer ordered post-resolution re-verification by ${inspector.name}.${notes ? ` Note: ${notes}` : ''}`,
+        actor_role: user.role,
+        actor_name: user.name,
+        created_at: c.updated_at,
+      });
+      pushNotification(
+        store,
+        inspector.user_id,
+        `Site Re-Verification Requested (${c.complaint_number})`,
+        `Nodal Officer ${user.name} requested a fresh site check for "${c.title}".`
+      );
+      pushAudit(store, 'final_reverify_ordered', c.id, user, { inspector_id: inspector.id, notes });
+      return json(buildComplaintDetail(c, store));
+    }
+
+    return json({ detail: 'Invalid final decision.' }, 400);
+  }
+
+  // 2. INSPECTION OFFICER STRICTLY ISOLATED DASHBOARD & ACTIONS
+  if (path === '/workflow/inspector/dashboard' && method === 'GET') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (user.role !== 'inspection_officer') {
+      return json({ detail: 'Forbidden: Inspection Officer access required' }, 403);
+    }
+    const officer = getOfficerForUser(user, store);
+    if (!officer) return json({ detail: 'Officer profile not found' }, 404);
+
+    // STRICT ISOLATION: Only tasks assigned to THIS specific Inspection Officer
+    const myComplaints = store.complaints
+      .filter(
+        (c) =>
+          c.assigned_inspector_id === officer.id ||
+          c.verification_inspector_id === officer.id
+      )
+      .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+      .map((c) => buildComplaintDetail(c, store));
+
+    const initial_inspections = myComplaints.filter(
+      (c) =>
+        c.assigned_inspector_id === officer.id &&
+        ['inspection_assigned', 'inspection_rework'].includes(c.status)
+    );
+    const post_verifications = myComplaints.filter(
+      (c) =>
+        (c.verification_inspector_id === officer.id ||
+          (!c.verification_inspector_id && c.assigned_inspector_id === officer.id)) &&
+        c.status === 'verification_assigned'
+    );
+    const rework_items = myComplaints.filter(
+      (c) => c.assigned_inspector_id === officer.id && c.status === 'inspection_rework'
+    );
+    const submitted_or_completed = myComplaints.filter((c) =>
+      ['inspection_submitted', 'inspection_verified', 'team_assigned', 'work_in_progress', 'verification_submitted', 'resolved', 'closed'].includes(c.status)
+    );
+
+    return json({
+      officer,
+      metrics: {
+        initial_pending: initial_inspections.length,
+        post_verification_pending: post_verifications.length,
+        rework_requested: rework_items.length,
+        completed_or_submitted: submitted_or_completed.length,
+        total_my_tasks: myComplaints.length,
+      },
+      initial_inspections,
+      post_verifications,
+      rework_items,
+      all_tasks: myComplaints,
+    });
+  }
+
+  // Step 3/4: Inspection Officer submits Initial Site Inspection proof (Photo + GPS + Notes)
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'inspector' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'submit-inspection' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (user.role !== 'inspection_officer') {
+      return json({ detail: 'Forbidden: Only Inspection Officers can submit site inspections' }, 403);
+    }
+    const officer = getOfficerForUser(user, store);
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+
+    // STRICT OWNERSHIP CHECK
+    if (!officer || c.assigned_inspector_id !== officer.id) {
+      return json({ detail: 'Forbidden: This inspection task is not assigned to you' }, 403);
+    }
+    if (!['inspection_assigned', 'inspection_rework'].includes(c.status)) {
+      return json({ detail: `Cannot submit initial inspection from status '${c.status}'` }, 400);
+    }
+
+    const parsed = await parseProofMultipart(request, `inspection/${c.id}`);
+    if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
+
+    const { savedUrls, fields } = parsed;
+    if (savedUrls.length === 0) {
+      return json({ detail: 'At least one geotagged inspection photo is required.' }, 400);
+    }
+
+    const notes = String(fields.notes || '').trim();
+    if (!notes) {
+      return json({ detail: 'Inspection observations/notes are required.' }, 400);
+    }
+
+    const lat = parseCoordinate(fields.latitude, c.latitude);
+    const lng = parseCoordinate(fields.longitude, c.longitude);
+    const gpsSource = fields.gps_source || (fields.latitude ? 'gps' : 'manual_fallback');
+    const nowIso = new Date().toISOString();
+    const prev = c.status;
+
+    c.inspection_images = [...(c.inspection_images || []), ...savedUrls];
+    if (!c.proof_records) c.proof_records = [];
+    savedUrls.forEach((proofUrl) => {
+      c.proof_records.push({
+        id: makeId('prf'),
+        stage: 'initial_inspection',
+        url: proofUrl,
+        uploaded_by: user.id,
+        uploaded_by_name: user.name,
+        actor_role: 'inspection_officer',
+        latitude: lat,
+        longitude: lng,
+        gps_source: gpsSource,
+        captured_at: nowIso,
+        notes,
+      });
+    });
+
+    const dist = computeDistanceMeters(c.latitude, c.longitude, lat, lng);
+    c.status = 'inspection_submitted';
+    c.rework_reason = null;
+    c.updated_at = nowIso;
+    c.status_history.push({
+      from_status: prev,
+      to_status: 'inspection_submitted',
+      remarks: `Inspection Officer ${user.name} uploaded ${savedUrls.length} proof photo(s)${dist !== null ? ` (${dist}m from reported pin)` : ''}: ${notes}`,
+      actor_role: 'inspection_officer',
+      actor_name: user.name,
+      created_at: nowIso,
+    });
+
+    const nodal = store.officers.find(
+      (o) => o.department_id === c.department_id && o.role === 'nodal_officer' && o.is_active !== false
+    );
+    if (nodal?.user_id) {
+      pushNotification(
+        store,
+        nodal.user_id,
+        `Inspection Proof Ready (${c.complaint_number})`,
+        `${user.name} uploaded initial inspection proof for "${c.title}". Review side-by-side.`
+      );
+    }
+    pushAudit(store, 'initial_inspection_submitted', c.id, user, { photos: savedUrls.length, distance_meters: dist });
+    return json(buildComplaintDetail(c, store));
+  }
+
+  // Step 7: Inspection Officer submits Post-Resolution Verification (Photo + GPS + Verdict: verified | rework)
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'inspector' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'submit-verification' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (user.role !== 'inspection_officer') {
+      return json({ detail: 'Forbidden: Only Inspection Officers can submit post-repair verification' }, 403);
+    }
+    const officer = getOfficerForUser(user, store);
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+
+    // STRICT OWNERSHIP CHECK
+    const assignedVerifierId = c.verification_inspector_id || c.assigned_inspector_id;
+    if (!officer || assignedVerifierId !== officer.id) {
+      return json({ detail: 'Forbidden: This verification task is not assigned to you' }, 403);
+    }
+    if (c.status !== 'verification_assigned') {
+      return json({ detail: `Complaint is not awaiting post-resolution verification (current: '${c.status}')` }, 400);
+    }
+
+    const parsed = await parseProofMultipart(request, `verification/${c.id}`);
+    if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
+
+    const { savedUrls, fields } = parsed;
+    if (savedUrls.length === 0) {
+      return json({ detail: 'At least one geotagged verification photo is required.' }, 400);
+    }
+
+    const notes = String(fields.notes || '').trim();
+    const verdict = String(fields.verdict || 'verified').toLowerCase();
+    if (!['verified', 'rework'].includes(verdict)) {
+      return json({ detail: 'Verdict must be either "verified" or "rework".' }, 400);
+    }
+    if (!notes) {
+      return json({ detail: 'Verification remarks are required.' }, 400);
+    }
+
+    const lat = parseCoordinate(fields.latitude, c.latitude);
+    const lng = parseCoordinate(fields.longitude, c.longitude);
+    const gpsSource = fields.gps_source || (fields.latitude ? 'gps' : 'manual_fallback');
+    const nowIso = new Date().toISOString();
+    const prev = c.status;
+
+    c.verification_proof = [...(c.verification_proof || []), ...savedUrls];
+    if (!c.proof_records) c.proof_records = [];
+    savedUrls.forEach((proofUrl) => {
+      c.proof_records.push({
+        id: makeId('prf'),
+        stage: 'final_verification',
+        url: proofUrl,
+        uploaded_by: user.id,
+        uploaded_by_name: user.name,
+        actor_role: 'inspection_officer',
+        latitude: lat,
+        longitude: lng,
+        gps_source: gpsSource,
+        verdict,
+        captured_at: nowIso,
+        notes,
+      });
+    });
+
+    c.verification_verdict = verdict;
+    c.updated_at = nowIso;
+
+    const nodal = store.officers.find(
+      (o) => o.department_id === c.department_id && o.role === 'nodal_officer' && o.is_active !== false
+    );
+
+    if (verdict === 'verified') {
+      c.status = 'verification_submitted';
+      c.rework_reason = null;
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'verification_submitted',
+        remarks: `Inspection Officer ${user.name} VERIFIED site resolution: ${notes}`,
+        actor_role: 'inspection_officer',
+        actor_name: user.name,
+        created_at: nowIso,
+      });
+      if (nodal?.user_id) {
+        pushNotification(
+          store,
+          nodal.user_id,
+          `Final Approval Ready (${c.complaint_number})`,
+          `${user.name} verified repair on "${c.title}". Compare all proofs to approve and notify citizen.`
+        );
+      }
+    } else {
+      c.status = 'redressal_rework';
+      c.rework_reason = `Inspector ${user.name} marked repair incomplete: ${notes}`;
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'redressal_rework',
+        remarks: `Inspection Officer ${user.name} flagged INCOMPLETE / REWORK NEEDED: ${notes}`,
+        actor_role: 'inspection_officer',
+        actor_name: user.name,
+        created_at: nowIso,
+      });
+      const team = store.teams.find((t) => t.id === c.assigned_team_id);
+      if (team?.team_lead_user_id) {
+        pushNotification(
+          store,
+          team.team_lead_user_id,
+          `Site Check Failed — Rework Needed (${c.complaint_number})`,
+          `Inspector ${user.name} found "${c.title}" incomplete: ${notes}`
+        );
+      }
+      if (nodal?.user_id) {
+        pushNotification(
+          store,
+          nodal.user_id,
+          `Post-Repair Check Flagged Rework (${c.complaint_number})`,
+          `Inspector ${user.name} returned "${c.title}" for rework (you may also reassign to another team).`
+        );
+      }
+    }
+
+    pushAudit(store, 'post_verification_submitted', c.id, user, { verdict, photos: savedUrls.length });
+    return json(buildComplaintDetail(c, store));
+  }
+
+  // 3. TEAM LEAD STRICTLY ISOLATED DASHBOARD & ACTIONS
+  if (path === '/workflow/team/dashboard' && method === 'GET') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (user.role !== 'team_lead') {
+      return json({ detail: 'Forbidden: Field Team Lead access required' }, 403);
+    }
+    const team = getTeamForUser(user, store);
+    if (!team) return json({ detail: 'No field team linked to this Team Lead account' }, 404);
+
+    // STRICT ISOLATION: Only work orders assigned to THIS Team Lead's team
+    const myWorkOrders = store.complaints
+      .filter((c) => c.assigned_team_id === team.id)
+      .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+      .map((c) => buildComplaintDetail(c, store));
+
+    const assigned_orders = myWorkOrders.filter((c) => c.status === 'team_assigned');
+    const in_progress_orders = myWorkOrders.filter((c) => c.status === 'work_in_progress');
+    const rework_orders = myWorkOrders.filter((c) => c.status === 'redressal_rework');
+    const submitted_orders = myWorkOrders.filter((c) =>
+      ['resolution_submitted', 'verification_assigned', 'verification_submitted', 'resolved', 'closed'].includes(c.status)
+    );
+
+    return json({
+      team: {
+        ...team,
+        active_work_orders: assigned_orders.length + in_progress_orders.length + rework_orders.length,
+      },
+      metrics: {
+        assigned: assigned_orders.length,
+        in_progress: in_progress_orders.length,
+        rework_required: rework_orders.length,
+        submitted_or_resolved: submitted_orders.length,
+        total_orders: myWorkOrders.length,
+      },
+      assigned_orders,
+      in_progress_orders,
+      rework_orders,
+      submitted_orders,
+      all_orders: myWorkOrders,
+    });
+  }
+
+  // Step 5 -> 6: Team Lead starts field work
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'team' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'start-work' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (user.role !== 'team_lead') {
+      return json({ detail: 'Forbidden: Only Field Team Leads can start work orders' }, 403);
+    }
+    const team = getTeamForUser(user, store);
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+
+    // STRICT OWNERSHIP CHECK
+    if (!team || c.assigned_team_id !== team.id) {
+      return json({ detail: 'Forbidden: This work order belongs to another team' }, 403);
+    }
+    if (!['team_assigned', 'redressal_rework'].includes(c.status)) {
+      return json({ detail: `Cannot start work from status '${c.status}'` }, 400);
+    }
+
+    const body = await parseJsonBody(request);
+    const prev = c.status;
+    c.status = 'work_in_progress';
+    c.updated_at = new Date().toISOString();
+    const remarks =
+      String(body.notes || '').trim() ||
+      `${team.name} (Lead: ${user.name}) mobilized on site and commenced remediation work.`;
+
+    c.status_history.push({
+      from_status: prev,
+      to_status: 'work_in_progress',
+      remarks,
+      actor_role: 'team_lead',
+      actor_name: user.name,
+      created_at: c.updated_at,
+    });
+
+    pushNotification(
+      store,
+      c.citizen_id,
+      `Field Work Started (${c.complaint_number})`,
+      `${team.name} has begun remediation work for "${c.title}".`
+    );
+    pushAudit(store, 'field_work_started', c.id, user, { team_id: team.id });
+    return json(buildComplaintDetail(c, store));
+  }
+
+  // Step 6 -> 7: Team Lead uploads Resolution Proof + GPS + ATR -> routes to Inspection Officer for post-repair verification
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'team' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'submit-resolution' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (user.role !== 'team_lead') {
+      return json({ detail: 'Forbidden: Only Field Team Leads can submit resolution proofs' }, 403);
+    }
+    const team = getTeamForUser(user, store);
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+
+    // STRICT OWNERSHIP CHECK
+    if (!team || c.assigned_team_id !== team.id) {
+      return json({ detail: 'Forbidden: This work order belongs to another team' }, 403);
+    }
+    if (!['work_in_progress', 'team_assigned', 'redressal_rework'].includes(c.status)) {
+      return json({ detail: `Cannot submit resolution proof from status '${c.status}'` }, 400);
+    }
+
+    const parsed = await parseProofMultipart(request, `resolution/${c.id}`);
+    if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
+
+    const { savedUrls, fields } = parsed;
+    if (savedUrls.length === 0) {
+      return json({ detail: 'At least one geotagged after-repair photo is required.' }, 400);
+    }
+
+    const atrNotes = String(fields.atr_notes || fields.notes || '').trim();
+    if (!atrNotes) {
+      return json({ detail: 'Action Taken Report (ATR) notes are required.' }, 400);
+    }
+
+    const lat = parseCoordinate(fields.latitude, c.latitude);
+    const lng = parseCoordinate(fields.longitude, c.longitude);
+    const gpsSource = fields.gps_source || (fields.latitude ? 'gps' : 'manual_fallback');
+    const nowIso = new Date().toISOString();
+    const prev = c.status;
+
+    c.resolution_proof = [...(c.resolution_proof || []), ...savedUrls];
+    c.resolution_remarks = atrNotes;
+    if (!c.proof_records) c.proof_records = [];
+    savedUrls.forEach((proofUrl) => {
+      c.proof_records.push({
+        id: makeId('prf'),
+        stage: 'team_resolution',
+        url: proofUrl,
+        uploaded_by: user.id,
+        uploaded_by_name: user.name,
+        actor_role: 'team_lead',
+        latitude: lat,
+        longitude: lng,
+        gps_source: gpsSource,
+        captured_at: nowIso,
+        notes: atrNotes,
+      });
+    });
+
+    // Automatically route back to the Inspection Officer (initial inspector, or first dept inspector)
+    let verifier = store.officers.find((o) => o.id === (c.verification_inspector_id || c.assigned_inspector_id));
+    if (!verifier || verifier.is_active === false) {
+      verifier = store.officers.find(
+        (o) => o.department_id === c.department_id && o.role === 'inspection_officer' && o.is_active !== false
+      );
+    }
+
+    c.verification_inspector_id = verifier?.id || c.assigned_inspector_id || null;
+    c.status = 'verification_assigned';
+    c.rework_reason = null;
+    c.updated_at = nowIso;
+
+    c.status_history.push({
+      from_status: prev,
+      to_status: 'verification_assigned',
+      remarks: `Team Lead ${user.name} (${team.name}) uploaded resolution proof & ATR: ${atrNotes}. Routed to ${verifier?.name || 'Inspection Officer'} for post-repair site verification.`,
+      actor_role: 'team_lead',
+      actor_name: user.name,
+      created_at: nowIso,
+    });
+
+    if (verifier?.user_id) {
+      pushNotification(
+        store,
+        verifier.user_id,
+        `Post-Repair Verification Needed (${c.complaint_number})`,
+        `${team.name} completed repair for "${c.title}" and uploaded proof. Please inspect site to verify.`
+      );
+    }
+    const nodal = store.officers.find(
+      (o) => o.department_id === c.department_id && o.role === 'nodal_officer' && o.is_active !== false
+    );
+    if (nodal?.user_id) {
+      pushNotification(
+        store,
+        nodal.user_id,
+        `Resolution Proof Submitted (${c.complaint_number})`,
+        `${team.name} submitted resolution proof for "${c.title}". Assigned to ${verifier?.name || 'Inspector'} for verification.`
+      );
+    }
+
+    pushAudit(store, 'resolution_proof_submitted', c.id, user, { team_id: team.id, photos: savedUrls.length });
+    return json(buildComplaintDetail(c, store));
+  }
+
+  // ── COMPLAINTS (CITIZEN & SHARED) ──────────────────────────────────────────
   if (path === '/complaints/preview-ai' && method === 'GET') {
     const desc = url.searchParams.get('description') || '';
     return json(classifyText(desc));
@@ -247,9 +1415,10 @@ async function handleRequest(request, context) {
       list = list.filter((c) => c.status === norm);
     }
     list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return json(list);
+    return json(list.map((c) => buildComplaintDetail(c, store)));
   }
 
+  // Step 1 & 2: Citizen lodges complaint -> AI detects department -> routes to Nodal Officer intake (`submitted`)
   if ((path === '/complaints' || path === '/complaints/') && method === 'POST') {
     if (!user) return json({ detail: 'Could not validate credentials' }, 401);
     const body = await parseJsonBody(request);
@@ -258,11 +1427,17 @@ async function handleRequest(request, context) {
     }
     const ai = classifyText(`${body.title} ${body.description}`);
     const dept = store.departments.find((d) => d.id === ai.department_id) || store.departments[0];
-    const officer = store.officers.find((o) => o.department_id === dept.id) || store.officers[0];
+    const nodalOfficer =
+      store.officers.find((o) => o.department_id === dept.id && o.role === 'nodal_officer' && o.is_active !== false) ||
+      store.officers.find((o) => o.department_id === dept.id);
+
     const nowIso = new Date().toISOString();
     const slaHours = ai.priority === 'High' ? 48 : ai.priority === 'Low' ? 168 : 72;
     const deadlineIso = new Date(Date.now() + slaHours * 3600 * 1000).toISOString();
     const num = store.seq++;
+    const lat = parseCoordinate(body.latitude, Number((19.018 + (Math.random() - 0.5) * 0.04).toFixed(6)));
+    const lng = parseCoordinate(body.longitude, Number((72.845 + (Math.random() - 0.5) * 0.03).toFixed(6)));
+
     const newComplaint = {
       id: `cmp-2026-00${num}`,
       complaint_number: `SS-2026-00${num}`,
@@ -273,7 +1448,7 @@ async function handleRequest(request, context) {
       sub_category: 'General Civic',
       ai_category: ai.category,
       ai_confidence: ai.confidence,
-      ai_summary: `AI classified as ${ai.category} (${Math.round(ai.confidence * 100)}% confidence).`,
+      ai_summary: `AI routed to ${dept.name} (${Math.round(ai.confidence * 100)}% confidence). Awaiting Nodal Officer inspection dispatch.`,
       priority: ai.priority.toLowerCase(),
       priority_score: Number((1.5 + ai.urgency * 0.25).toFixed(2)),
       urgency_score: ai.urgency,
@@ -287,12 +1462,16 @@ async function handleRequest(request, context) {
       ward: body.ward || user.ward || 'Ward 12 - Dadar',
       city: 'Mumbai',
       state: 'Maharashtra',
-      latitude: body.latitude ?? 19.076 + (Math.random() - 0.5) * 0.08,
-      longitude: body.longitude ?? 72.8777 + (Math.random() - 0.5) * 0.06,
-      status: 'assigned',
+      latitude: lat,
+      longitude: lng,
+      status: 'submitted',
       department_id: dept.id,
       department_name: dept.name,
-      assigned_officer_id: officer?.id || null,
+      nodal_officer_id: nodalOfficer?.id || null,
+      assigned_officer_id: nodalOfficer?.id || null,
+      assigned_inspector_id: null,
+      verification_inspector_id: null,
+      assigned_team_id: null,
       deadline: deadlineIso,
       sla_deadline: deadlineIso,
       sla_breached: false,
@@ -303,53 +1482,85 @@ async function handleRequest(request, context) {
       attachments: [],
       inspection_images: [],
       resolution_proof: [],
+      verification_proof: [],
+      proof_records: [],
       triage_confirmed: false,
       status_history: [
         {
           from_status: null,
           to_status: 'submitted',
-          remarks: 'Grievance registered by citizen.',
+          remarks: `Grievance registered by citizen. AI detected ${dept.name} (${Math.round(ai.confidence * 100)}% confidence) and routed to Nodal Officer intake.`,
           actor_role: 'citizen',
-          created_at: nowIso,
-        },
-        {
-          from_status: 'submitted',
-          to_status: 'assigned',
-          remarks: `Auto-routed by AI to ${dept.name} (${Math.round(ai.confidence * 100)}% confidence).`,
-          actor_role: 'system',
+          actor_name: user.name,
           created_at: nowIso,
         },
       ],
     };
+
     store.complaints.unshift(newComplaint);
-    store.notifications.unshift({
-      id: makeId('notif'),
-      user_id: user.id,
-      title: `Grievance ${newComplaint.complaint_number} Registered`,
-      body: `Routed to ${dept.name} with ${ai.priority} priority.`,
-      is_read: false,
-      created_at: nowIso,
-    });
-    return json(newComplaint, 201);
+    pushNotification(
+      store,
+      user.id,
+      `Grievance ${newComplaint.complaint_number} Registered`,
+      `AI routed your grievance to ${dept.name} Nodal Officer for inspection assignment.`
+    );
+    if (nodalOfficer?.user_id) {
+      pushNotification(
+        store,
+        nodalOfficer.user_id,
+        `New Grievance Intake (${newComplaint.complaint_number})`,
+        `AI routed "${newComplaint.title}" (${newComplaint.ward}) to your department. Assign an Inspection Officer.`
+      );
+    }
+    pushAudit(store, 'complaint_created', newComplaint.id, user, { department_id: dept.id, priority: newComplaint.priority });
+    return json(buildComplaintDetail(newComplaint, store), 201);
   }
 
   if (segments[0] === 'complaints' && segments[1] && segments.length === 2 && method === 'GET') {
     const c = store.complaints.find((item) => item.id === segments[1]);
     if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (user && !canUserAccessComplaint(user, c, store)) {
+      return json({ detail: 'Forbidden: You do not have permission to view this assigned grievance' }, 403);
+    }
     return json(buildComplaintDetail(c, store));
   }
 
   if (segments[0] === 'complaints' && segments[1] && segments[2] === 'history' && method === 'GET') {
     const c = store.complaints.find((item) => item.id === segments[1]);
     if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (user && !canUserAccessComplaint(user, c, store)) {
+      return json({ detail: 'Forbidden' }, 403);
+    }
     return json(c.status_history || []);
   }
 
   if (segments[0] === 'complaints' && segments[1] && segments[2] === 'upload-images' && method === 'POST') {
+    if (!user) return json({ detail: 'Could not validate credentials' }, 401);
     const c = store.complaints.find((item) => item.id === segments[1]);
     if (!c) return json({ detail: 'Complaint not found' }, 404);
-    const urls = await saveUploadedFiles(request, `complaints/${c.id}`);
+    if (c.citizen_id !== user.id && !requireAdmin(user)) {
+      return json({ detail: 'Forbidden' }, 403);
+    }
+    const parsed = await parseProofMultipart(request, `complaints/${c.id}`);
+    if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
+    const urls = parsed.savedUrls;
     c.attachments = [...(c.attachments || []), ...urls];
+    if (!c.proof_records) c.proof_records = [];
+    const nowIso = new Date().toISOString();
+    urls.forEach((proofUrl) => {
+      c.proof_records.push({
+        id: makeId('prf'),
+        stage: 'citizen_proof',
+        url: proofUrl,
+        uploaded_by: user.id,
+        uploaded_by_name: user.name,
+        actor_role: 'citizen',
+        latitude: c.latitude,
+        longitude: c.longitude,
+        captured_at: nowIso,
+        notes: 'Citizen initial grievance evidence photo.',
+      });
+    });
     return json({ uploaded: urls, attachments: c.attachments });
   }
 
@@ -370,6 +1581,9 @@ async function handleRequest(request, context) {
     if (!user) return json({ detail: 'Could not validate credentials' }, 401);
     const c = store.complaints.find((item) => item.id === segments[1]);
     if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (c.citizen_id !== user.id && !requireAdmin(user)) {
+      return json({ detail: 'Forbidden' }, 403);
+    }
     const body = await parseJsonBody(request);
     c.citizen_rating = body.rating;
     c.feedback_text = body.feedback_text || '';
@@ -382,6 +1596,7 @@ async function handleRequest(request, context) {
       to_status: nextStatus,
       remarks: `Citizen rated ${body.rating}/5: ${c.feedback_text}`,
       actor_role: 'citizen',
+      actor_name: user.name,
       created_at: c.updated_at,
     });
     return json(buildComplaintDetail(c, store));
@@ -391,6 +1606,9 @@ async function handleRequest(request, context) {
     if (!user) return json({ detail: 'Could not validate credentials' }, 401);
     const c = store.complaints.find((item) => item.id === segments[1]);
     if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (c.citizen_id !== user.id && !requireAdmin(user)) {
+      return json({ detail: 'Forbidden' }, 403);
+    }
     const body = await parseJsonBody(request);
     const prev = c.status;
     const nextLevel = c.appeal_level === 1 ? 2 : 1;
@@ -405,20 +1623,17 @@ async function handleRequest(request, context) {
       to_status: c.status,
       remarks: `Appeal L${nextLevel} filed: ${c.appeal_remarks}`,
       actor_role: 'citizen',
+      actor_name: user.name,
       created_at: c.updated_at,
     });
     return json(buildComplaintDetail(c, store));
   }
 
-  // ── DEPARTMENT / OFFICER / SUPERVISOR ──────────────────────────────────────
+  // ── LEGACY DEPARTMENT / SUPERVISOR ENDPOINTS (with isolation enforcement) ──
   if (path === '/department/tasks' && method === 'GET') {
     if (!user) return json({ detail: 'Could not validate credentials' }, 401);
     const statusFilter = (url.searchParams.get('status_filter') || '').toLowerCase();
-    let list = [...store.complaints];
-    if (user.role === 'officer' && user.department_id) {
-      const deptFiltered = list.filter((c) => c.department_id === user.department_id);
-      if (deptFiltered.length > 0) list = deptFiltered;
-    }
+    let list = store.complaints.filter((c) => canUserAccessComplaint(user, c, store));
     let tasks = list.map((c) => mapComplaintToTask(c, store));
     if (statusFilter) {
       if (statusFilter === 'appeals') {
@@ -440,14 +1655,12 @@ async function handleRequest(request, context) {
 
   if (path === '/department/dashboard/metrics' && method === 'GET') {
     if (!user) return json({ detail: 'Could not validate credentials' }, 401);
-    let list = [...store.complaints];
-    if (user.role === 'officer' && user.department_id) {
-      const deptFiltered = list.filter((c) => c.department_id === user.department_id);
-      if (deptFiltered.length > 0) list = deptFiltered;
-    }
+    const list = store.complaints.filter((c) => canUserAccessComplaint(user, c, store));
     const pending = list.filter((c) => ['submitted', 'verified'].includes(c.status)).length;
-    const assigned = list.filter((c) => c.status === 'assigned').length;
-    const inProgress = list.filter((c) => ['in_progress', 'reopened'].includes(c.status)).length;
+    const assigned = list.filter((c) => ['assigned', 'inspection_assigned', 'team_assigned'].includes(c.status)).length;
+    const inProgress = list.filter((c) =>
+      ['in_progress', 'work_in_progress', 'inspection_submitted', 'inspection_verified', 'verification_assigned', 'verification_submitted', 'reopened'].includes(c.status)
+    ).length;
     const completed = list.filter((c) => ['resolved', 'closed'].includes(c.status)).length;
     return json({
       total_assigned: list.length,
@@ -465,6 +1678,7 @@ async function handleRequest(request, context) {
     if (!user) return json({ detail: 'Could not validate credentials' }, 401);
     const c = store.complaints.find((item) => item.id === segments[2]);
     if (!c) return json({ detail: 'Task not found' }, 404);
+    if (!canUserAccessComplaint(user, c, store)) return json({ detail: 'Forbidden' }, 403);
     const body = await parseJsonBody(request);
     const prev = c.status;
     c.status = normalizeStatusInput(body.status);
@@ -479,42 +1693,45 @@ async function handleRequest(request, context) {
       to_status: c.status,
       remarks: note,
       actor_role: user.role,
+      actor_name: user.name,
       created_at: c.updated_at,
     });
-    store.notifications.unshift({
-      id: makeId('notif'),
-      user_id: c.citizen_id,
-      title: `Grievance ${c.complaint_number} Updated`,
-      body: `Status changed to ${c.status.replace('_', ' ')}: ${note}`,
-      is_read: false,
-      created_at: c.updated_at,
-    });
+    pushNotification(store, c.citizen_id, `Grievance ${c.complaint_number} Updated`, `Status changed to ${c.status.replace(/_/g, ' ')}: ${note}`);
     return json(mapComplaintToTask(c, store));
   }
 
   if (segments[0] === 'department' && segments[1] === 'tasks' && segments[2] && segments[3] === 'inspection-proof' && method === 'POST') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
     const c = store.complaints.find((item) => item.id === segments[2]);
     if (!c) return json({ detail: 'Task not found' }, 404);
+    if (!canUserAccessComplaint(user, c, store)) return json({ detail: 'Forbidden' }, 403);
     const urls = await saveUploadedFiles(request, `inspection/${c.id}`);
     c.inspection_images = [...(c.inspection_images || []), ...urls];
     return json({ uploaded: urls, inspection_images: c.inspection_images });
   }
 
   if (segments[0] === 'department' && segments[1] === 'tasks' && segments[2] && segments[3] === 'resolution-proof' && method === 'POST') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
     const c = store.complaints.find((item) => item.id === segments[2]);
     if (!c) return json({ detail: 'Task not found' }, 404);
+    if (!canUserAccessComplaint(user, c, store)) return json({ detail: 'Forbidden' }, 403);
     const urls = await saveUploadedFiles(request, `resolution/${c.id}`);
     c.resolution_proof = [...(c.resolution_proof || []), ...urls];
     return json({ uploaded: urls, resolution_proof: c.resolution_proof });
   }
 
   if (path === '/department/complaints' && method === 'GET') {
-    return json(store.complaints);
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    return json(store.complaints.filter((c) => canUserAccessComplaint(user, c, store)).map((c) => buildComplaintDetail(c, store)));
   }
 
   if (segments[0] === 'department' && segments[1] === 'complaints' && segments[2]) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
     const c = store.complaints.find((item) => item.id === segments[2]);
     if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (!canUserAccessComplaint(user, c, store)) {
+      return json({ detail: 'Forbidden: Task is isolated to another officer or team' }, 403);
+    }
 
     if (segments.length === 3 && method === 'GET') {
       return json(buildComplaintDetail(c, store));
@@ -536,7 +1753,8 @@ async function handleRequest(request, context) {
         from_status: prev,
         to_status: c.status,
         remarks: note,
-        actor_role: user?.role || 'officer',
+        actor_role: user.role,
+        actor_name: user.name,
         created_at: c.updated_at,
       });
       return json(buildComplaintDetail(c, store));
@@ -555,25 +1773,30 @@ async function handleRequest(request, context) {
         remarks: isOverride
           ? `Nodal Officer overrode AI triage: ${body.override_reason}`
           : 'Nodal Officer confirmed AI triage assessment.',
-        actor_role: user?.role || 'officer',
+        actor_role: user.role,
+        actor_name: user.name,
         created_at: new Date().toISOString(),
       });
       return json(buildComplaintDetail(c, store));
     }
     if (segments[3] === 'generate-atr' && method === 'POST') {
       return json({
-        draft_atr: `Field inspection conducted at ${c.location || c.ward} for Grievance #${c.complaint_number} (${c.category}). Corrective municipal maintenance work has been completed per standard operating procedures and site conditions verified.`,
+        draft_atr: `Field remediation completed at ${c.location || c.ward} for Grievance #${c.complaint_number} (${c.category}). Corrective municipal maintenance work has been executed per departmental standard operating procedures and site left safe for public use.`,
         summary: 'AI-drafted Action Taken Report',
       });
     }
     if (segments[3] === 'adjudicate-appeal' && method === 'POST') {
+      if (!['supervisor', 'admin', 'super_admin'].includes(user.role)) {
+        return json({ detail: 'Forbidden: Supervisor access required' }, 403);
+      }
       const body = await parseJsonBody(request);
       const prev = c.status;
       if (body.decision === 'final_close') {
         c.status = 'closed';
         c.resolved_at = new Date().toISOString();
       } else {
-        c.status = 'in_progress';
+        c.status = 'redressal_rework';
+        c.rework_reason = `Appellate Order: ${body.notes}`;
         c.deadline = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
         c.sla_deadline = c.deadline;
       }
@@ -582,7 +1805,8 @@ async function handleRequest(request, context) {
         from_status: prev,
         to_status: c.status,
         remarks: `Appellate Order (${body.decision}): ${body.notes}`,
-        actor_role: user?.role || 'supervisor',
+        actor_role: user.role,
+        actor_name: user.name,
         created_at: c.updated_at,
       });
       return json(buildComplaintDetail(c, store));
@@ -597,7 +1821,7 @@ async function handleRequest(request, context) {
     }
   }
 
-  // ── ADMIN ──────────────────────────────────────────────────────────────────
+  // ── ADMIN (DEPARTMENTS, FIELD TEAMS, MULTI-ROLE OFFICERS) ──────────────────
   if (path === '/admin/stats' && method === 'GET') {
     const by_category = {};
     const by_priority = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -627,6 +1851,7 @@ async function handleRequest(request, context) {
   }
 
   if (path === '/admin/sla/run-sweep' && method === 'POST') {
+    if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
     return json({
       warned_75_pct: 1,
       breached_escalated: 0,
@@ -636,7 +1861,11 @@ async function handleRequest(request, context) {
   }
 
   if (path === '/admin/complaints' && method === 'GET') {
-    return json({ complaints: store.complaints, total: store.complaints.length, page: 1 });
+    return json({
+      complaints: store.complaints.map((c) => buildComplaintDetail(c, store)),
+      total: store.complaints.length,
+      page: 1,
+    });
   }
 
   if (path === '/admin/tasks' && method === 'GET') {
@@ -652,10 +1881,10 @@ async function handleRequest(request, context) {
       {
         insight_name: 'Dadar Road & Footpath Infrastructure Cluster',
         category: 'Roads & Transport',
-        support_count: 2,
-        count: 2,
-        locations: ['Ward 12 - Dadar', 'Senapati Bapat Marg'],
-        top_keywords: ['pothole', 'footpath', 'drain cover', 'traffic'],
+        support_count: 5,
+        count: 5,
+        locations: ['Ward 12 - Dadar', 'Senapati Bapat Marg', 'Ranade Road'],
+        top_keywords: ['pothole', 'footpath', 'drain cover', 'curb'],
       },
       {
         insight_name: 'Andheri West Water Quality Alert',
@@ -669,11 +1898,18 @@ async function handleRequest(request, context) {
   }
 
   if (path === '/admin/departments' && method === 'GET') {
-    return json(store.departments);
+    const enriched = store.departments.map((d) => ({
+      ...d,
+      officer_count: store.officers.filter((o) => o.department_id === d.id && o.is_active !== false).length,
+      team_count: store.teams.filter((t) => t.department_id === d.id && t.is_active !== false).length,
+    }));
+    return json(enriched);
   }
 
   if (path === '/admin/departments' && method === 'POST') {
+    if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
     const body = await parseJsonBody(request);
+    if (!body.name) return json({ detail: 'Department name is required' }, 400);
     const dept = {
       id: makeId('dept'),
       name: body.name,
@@ -683,9 +1919,9 @@ async function handleRequest(request, context) {
       contact_phone: body.contact_phone || '',
       city: 'Mumbai',
       state: 'Maharashtra',
-      sla_high: 24,
-      sla_medium: 72,
-      sla_low: 168,
+      sla_high: Number(body.sla_high) || 24,
+      sla_medium: Number(body.sla_medium) || 72,
+      sla_low: Number(body.sla_low) || 168,
       is_active: true,
       created_at: new Date().toISOString(),
     };
@@ -694,6 +1930,7 @@ async function handleRequest(request, context) {
   }
 
   if (segments[0] === 'admin' && segments[1] === 'departments' && segments[2]) {
+    if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
     const idx = store.departments.findIndex((d) => d.id === segments[2]);
     if (idx === -1) return json({ detail: 'Department not found' }, 404);
     if (method === 'PUT') {
@@ -707,64 +1944,272 @@ async function handleRequest(request, context) {
     }
   }
 
+  // Admin Field Teams CRUD
+  if (path === '/admin/teams' && method === 'GET') {
+    const deptId = url.searchParams.get('department_id');
+    let list = store.teams;
+    if (deptId) list = list.filter((t) => t.department_id === deptId);
+    const enriched = list.map((t) => {
+      const dept = store.departments.find((d) => d.id === t.department_id);
+      const lead = store.officers.find((o) => o.id === t.team_lead_officer_id);
+      return {
+        ...t,
+        department_name: dept?.name || t.department_name || '',
+        team_lead_name: lead?.name || t.team_lead_name || 'Unassigned',
+        active_work_orders: getActiveCountForTeam(store, t.id),
+      };
+    });
+    return json(enriched);
+  }
+
+  if (path === '/admin/teams' && method === 'POST') {
+    if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
+    const body = await parseJsonBody(request);
+    if (!body.name || !body.department_id) {
+      return json({ detail: 'Team name and department are required' }, 400);
+    }
+    const dept = store.departments.find((d) => d.id === body.department_id);
+    if (!dept) return json({ detail: 'Department not found' }, 404);
+
+    const leadOfficer = body.team_lead_officer_id
+      ? store.officers.find((o) => o.id === body.team_lead_officer_id)
+      : null;
+
+    const wards = Array.isArray(body.ward_coverage)
+      ? body.ward_coverage
+      : String(body.ward_coverage || '')
+          .split(',')
+          .map((w) => w.trim())
+          .filter(Boolean);
+
+    const team = {
+      id: makeId('team'),
+      name: body.name,
+      code: body.code || `TEAM-${Date.now().toString().slice(-4)}`,
+      department_id: dept.id,
+      department_name: dept.name,
+      team_lead_officer_id: leadOfficer?.id || null,
+      team_lead_user_id: leadOfficer?.user_id || null,
+      team_lead_name: leadOfficer?.name || 'Unassigned',
+      ward_coverage: wards,
+      specialization: body.specialization || 'General Civic Maintenance',
+      member_count: Number(body.member_count) || 6,
+      daily_capacity: Number(body.daily_capacity) || 10,
+      is_active: true,
+      created_at: new Date().toISOString(),
+    };
+    store.teams.unshift(team);
+
+    if (leadOfficer) {
+      leadOfficer.team_id = team.id;
+      leadOfficer.team_name = team.name;
+      const u = store.users.find((usr) => usr.id === leadOfficer.user_id);
+      if (u) u.team_id = team.id;
+    }
+
+    return json(team, 201);
+  }
+
+  if (segments[0] === 'admin' && segments[1] === 'teams' && segments[2]) {
+    if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
+    const idx = store.teams.findIndex((t) => t.id === segments[2]);
+    if (idx === -1) return json({ detail: 'Team not found' }, 404);
+    if (method === 'PUT') {
+      const body = await parseJsonBody(request);
+      const current = store.teams[idx];
+      const dept = body.department_id
+        ? store.departments.find((d) => d.id === body.department_id)
+        : store.departments.find((d) => d.id === current.department_id);
+      const leadOfficer =
+        body.team_lead_officer_id !== undefined
+          ? store.officers.find((o) => o.id === body.team_lead_officer_id)
+          : store.officers.find((o) => o.id === current.team_lead_officer_id);
+
+      const wards =
+        body.ward_coverage !== undefined
+          ? Array.isArray(body.ward_coverage)
+            ? body.ward_coverage
+            : String(body.ward_coverage)
+                .split(',')
+                .map((w) => w.trim())
+                .filter(Boolean)
+          : current.ward_coverage;
+
+      store.teams[idx] = {
+        ...current,
+        name: body.name ?? current.name,
+        code: body.code ?? current.code,
+        department_id: dept?.id || current.department_id,
+        department_name: dept?.name || current.department_name,
+        team_lead_officer_id: leadOfficer?.id || null,
+        team_lead_user_id: leadOfficer?.user_id || null,
+        team_lead_name: leadOfficer?.name || 'Unassigned',
+        ward_coverage: wards,
+        specialization: body.specialization ?? current.specialization,
+        member_count: body.member_count !== undefined ? Number(body.member_count) : current.member_count,
+        daily_capacity: body.daily_capacity !== undefined ? Number(body.daily_capacity) : current.daily_capacity,
+        is_active: body.is_active !== undefined ? Boolean(body.is_active) : current.is_active,
+      };
+      if (leadOfficer) {
+        leadOfficer.team_id = store.teams[idx].id;
+        leadOfficer.team_name = store.teams[idx].name;
+        const u = store.users.find((usr) => usr.id === leadOfficer.user_id);
+        if (u) u.team_id = store.teams[idx].id;
+      }
+      return json(store.teams[idx]);
+    }
+    if (method === 'DELETE') {
+      store.teams[idx].is_active = false;
+      return json({ ok: true });
+    }
+  }
+
+  // Admin Officers CRUD (with multi-role support: nodal_officer | inspection_officer | team_lead | supervisor)
   if (path === '/admin/officers' && method === 'GET') {
     const deptId = url.searchParams.get('department_id');
+    const roleFilter = url.searchParams.get('role');
     let list = store.officers;
     if (deptId) list = list.filter((o) => o.department_id === deptId);
-    return json(list);
+    if (roleFilter) list = list.filter((o) => (o.role || o.officer_role) === roleFilter);
+    const enriched = list.map((o) => {
+      const team = o.team_id ? store.teams.find((t) => t.id === o.team_id) : null;
+      return {
+        ...o,
+        role: o.role || o.officer_role || 'nodal_officer',
+        team_name: team?.name || o.team_name || null,
+        current_active_count:
+          o.role === 'inspection_officer'
+            ? getActiveCountForInspector(store, o.id)
+            : o.role === 'team_lead' && o.team_id
+            ? getActiveCountForTeam(store, o.team_id)
+            : store.complaints.filter((c) => c.department_id === o.department_id && !['resolved', 'closed'].includes(c.status)).length,
+      };
+    });
+    return json(enriched);
   }
 
   if (path === '/admin/officers' && method === 'POST') {
+    if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
     const body = await parseJsonBody(request);
+    if (!body.name || !body.email || !body.department_id) {
+      return json({ detail: 'Name, email, and department are required' }, 400);
+    }
+    const emailLower = String(body.email).trim().toLowerCase();
+    if (store.users.some((u) => u.email.toLowerCase() === emailLower)) {
+      return json({ detail: 'An account with this email already exists' }, 409);
+    }
+
+    const allowedRoles = ['nodal_officer', 'inspection_officer', 'team_lead', 'supervisor'];
+    const officerRole = allowedRoles.includes(body.role) ? body.role : 'inspection_officer';
     const dept = store.departments.find((d) => d.id === body.department_id);
+    const team = body.team_id ? store.teams.find((t) => t.id === body.team_id) : null;
+
     const newUserId = makeId('user-off');
+    const newOfficerId = makeId('off');
+
     store.users.push({
       id: newUserId,
-      email: body.email,
+      email: emailLower,
       name: body.name,
       full_name: body.name,
       phone: body.phone || '',
       password: body.password || 'demo123',
-      role: 'officer',
+      role: officerRole,
       department_id: body.department_id,
+      officer_id: newOfficerId,
+      team_id: officerRole === 'team_lead' ? team?.id || null : null,
       is_active: true,
       is_verified: true,
     });
+
     const officer = {
-      id: makeId('off'),
+      id: newOfficerId,
       user_id: newUserId,
       name: body.name,
-      email: body.email,
+      email: emailLower,
       phone: body.phone || '',
+      role: officerRole,
+      officer_role: officerRole,
       department_id: body.department_id,
       department_name: dept?.name || '',
-      employee_id: body.employee_id,
-      designation: body.designation || 'Field Officer',
+      team_id: officerRole === 'team_lead' ? team?.id || null : null,
+      team_name: officerRole === 'team_lead' ? team?.name || null : null,
+      employee_id: body.employee_id || `EMP-${Date.now().toString().slice(-4)}`,
+      designation:
+        body.designation ||
+        (officerRole === 'nodal_officer'
+          ? 'Nodal Officer'
+          : officerRole === 'inspection_officer'
+          ? 'Field Inspection Officer'
+          : officerRole === 'team_lead'
+          ? 'Field Team Lead'
+          : 'Appellate Supervisor'),
+      jurisdiction_wards: [],
+      max_active_complaints: 15,
       total_resolved: 0,
       rating: 4.5,
       is_active: true,
     };
     store.officers.unshift(officer);
+
+    if (officerRole === 'team_lead' && team) {
+      team.team_lead_officer_id = newOfficerId;
+      team.team_lead_user_id = newUserId;
+      team.team_lead_name = body.name;
+    }
+
     return json(officer, 201);
   }
 
   if (segments[0] === 'admin' && segments[1] === 'officers' && segments[2]) {
+    if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
     const idx = store.officers.findIndex((o) => o.id === segments[2]);
     if (idx === -1) return json({ detail: 'Officer not found' }, 404);
     if (method === 'PUT') {
-      const deptId = url.searchParams.get('department_id');
-      const designation = url.searchParams.get('designation');
-      const isActive = url.searchParams.get('is_active');
+      const body = await parseJsonBody(request);
+      const deptId = body.department_id ?? url.searchParams.get('department_id');
+      const designation = body.designation ?? url.searchParams.get('designation');
+      const roleVal = body.role ?? url.searchParams.get('role');
+      const teamId = body.team_id !== undefined ? body.team_id : url.searchParams.get('team_id');
+      const isActiveParam = body.is_active !== undefined ? String(body.is_active) : url.searchParams.get('is_active');
+
+      const officer = store.officers[idx];
+      const linkedUser = store.users.find((u) => u.id === officer.user_id);
+
       if (deptId) {
-        store.officers[idx].department_id = deptId;
-        store.officers[idx].department_name = store.departments.find((d) => d.id === deptId)?.name || '';
+        officer.department_id = deptId;
+        officer.department_name = store.departments.find((d) => d.id === deptId)?.name || '';
+        if (linkedUser) linkedUser.department_id = deptId;
       }
-      if (designation !== null) store.officers[idx].designation = designation;
-      if (isActive !== null) store.officers[idx].is_active = isActive === 'true';
-      return json(store.officers[idx]);
+      if (designation !== null && designation !== undefined) {
+        officer.designation = designation;
+      }
+      if (roleVal && ['nodal_officer', 'inspection_officer', 'team_lead', 'supervisor'].includes(roleVal)) {
+        officer.role = roleVal;
+        officer.officer_role = roleVal;
+        if (linkedUser) linkedUser.role = roleVal;
+      }
+      if (teamId !== null && teamId !== undefined) {
+        const team = teamId ? store.teams.find((t) => t.id === teamId) : null;
+        officer.team_id = team?.id || null;
+        officer.team_name = team?.name || null;
+        if (linkedUser) linkedUser.team_id = team?.id || null;
+        if (team) {
+          team.team_lead_officer_id = officer.id;
+          team.team_lead_user_id = officer.user_id;
+          team.team_lead_name = officer.name;
+        }
+      }
+      if (isActiveParam !== null && isActiveParam !== undefined) {
+        officer.is_active = isActiveParam === 'true';
+        if (linkedUser) linkedUser.is_active = officer.is_active;
+      }
+      return json(officer);
     }
     if (method === 'DELETE') {
       store.officers[idx].is_active = false;
+      const linkedUser = store.users.find((u) => u.id === store.officers[idx].user_id);
+      if (linkedUser) linkedUser.is_active = false;
       return json({ ok: true });
     }
   }
@@ -784,7 +2229,12 @@ async function handleRequest(request, context) {
     const deptId = url.searchParams.get('department_id');
     let list = store.complaints;
     let deptName = null;
-    if (deptId) {
+    if (user && ['inspection_officer', 'team_lead'].includes(user.role)) {
+      list = list.filter((c) => canUserAccessComplaint(user, c, store));
+    } else if (user && user.role === 'nodal_officer' && user.department_id) {
+      list = list.filter((c) => c.department_id === user.department_id);
+      deptName = store.departments.find((d) => d.id === user.department_id)?.name || null;
+    } else if (deptId) {
       list = list.filter((c) => c.department_id === deptId);
       deptName = store.departments.find((d) => d.id === deptId)?.name || null;
     }
@@ -808,8 +2258,8 @@ async function handleRequest(request, context) {
         resolved_complaints: Math.max(resolved, 2),
         sla_breach_rate: deptComplaints.length ? Math.round((breached / deptComplaints.length) * 100) : 4,
         avg_resolution_time_hours: d.sla_medium ? Math.round(d.sla_medium * 0.45) : 18,
-        avg_citizen_rating: 4.5,
-        feedback_count: 12,
+        avg_citizen_rating: 4.6,
+        feedback_count: 14,
       };
     });
     return json(perf);
@@ -830,8 +2280,8 @@ async function handleRequest(request, context) {
         type: 'INFRASTRUCTURE_CLUSTER',
         severity: 'HIGH',
         title: 'Road & Footpath Hazard Cluster — Ward 12 (Dadar)',
-        message: 'Multiple active road safety and open drain complaints concentrated within a 500m radius of Dadar station.',
-        related_complaint_ids: ['SS-2026-001001', 'SS-2026-001005'],
+        message: 'Multiple active road safety and open drain complaints concentrated within a 600m radius of Dadar station.',
+        related_complaint_ids: ['SS-2026-001010', 'SS-2026-001013', 'SS-2026-001015'],
       },
     ]);
   }
@@ -867,13 +2317,17 @@ async function handleRequest(request, context) {
 
   if (path === '/ai/admin/hotspots' && method === 'GET') {
     return json([
-      { ward: 'Ward 12 - Dadar', count: 3, category: 'Roads & Transport', lat: 19.018, lng: 72.848 },
+      { ward: 'Ward 12 - Dadar', count: 6, category: 'Roads & Transport', lat: 19.018, lng: 72.848 },
+      { ward: 'Ward 14 - Mahim', count: 2, category: 'Roads & Transport', lat: 19.038, lng: 72.841 },
       { ward: 'Ward 8 - Andheri', count: 1, category: 'Water Supply', lat: 19.129, lng: 72.836 },
     ]);
   }
 
   if (path === '/ai/officer/queue' && method === 'GET') {
-    const active = store.complaints
+    const visible = user
+      ? store.complaints.filter((c) => canUserAccessComplaint(user, c, store))
+      : store.complaints;
+    const active = visible
       .filter((c) => !['resolved', 'closed', 'rejected'].includes(c.status))
       .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0))
       .map((c) => ({
@@ -901,18 +2355,9 @@ async function handleRequest(request, context) {
           urgency_level: c.priority === 'critical' ? 'Critical' : c.priority === 'high' ? 'High' : 'Medium',
           severity_level: c.priority === 'critical' ? 'Severe' : 'Moderate',
         },
-        priority: {
-          score: c.priority_score || 2.1,
-          priority: c.priority,
-        },
-        routing: {
-          department_name: c.department_name || c.category,
-          confidence: c.ai_confidence || 0.94,
-        },
-        sla_risk: {
-          risk_level: c.priority === 'critical' ? 'High' : 'Low',
-          probability: c.priority === 'critical' ? 0.72 : 0.18,
-        },
+        priority: { score: c.priority_score || 2.1, priority: c.priority },
+        routing: { department_name: c.department_name || c.category, confidence: c.ai_confidence || 0.94 },
+        sla_risk: { risk_level: c.priority === 'critical' ? 'High' : 'Low', probability: c.priority === 'critical' ? 0.72 : 0.18 },
       });
     }
     if (sub === 'similar') return json({ similar_complaints: [] });

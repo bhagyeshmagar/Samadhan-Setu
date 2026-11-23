@@ -14,7 +14,7 @@ from .db.session import async_engine, get_async_session
 from .routers import (
     auth_router, citizens_router, departments_router,
     admin_router, assignments_router, analytics_router, ai_insights_router,
-    notifications_router, media_router,
+    notifications_router, media_router, workflow_router,
 )
 
 _is_prod = settings.ENVIRONMENT.lower() in ("production", "prod")
@@ -119,6 +119,7 @@ app.include_router(analytics_router)
 app.include_router(ai_insights_router)
 app.include_router(notifications_router)
 app.include_router(media_router)
+app.include_router(workflow_router)
 
 
 @app.get("/", tags=["Root"])
