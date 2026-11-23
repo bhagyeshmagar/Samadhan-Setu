@@ -32,6 +32,17 @@ import {
   computeSlaDeadline,
 } from '@/lib/taskAssignment';
 
+import {
+  ALLOWED_PROOF_MIME_TYPES,
+  MAX_PROOF_FILE_BYTES,
+  MAX_PROOF_FILES,
+  detectImageMagicType,
+  validateGpsCoordinates,
+  normalizeGpsSource,
+  evaluateGeofence,
+  parseExifGpsFromJpeg,
+} from '@/lib/proofUpload';
+
 function applyAssignmentPriority(complaint, rawPriority, nowIso) {
   if (rawPriority === undefined || rawPriority === null || rawPriority === '') {
     return { applied: false, priority: complaint.priority, previousPriority: complaint.priority };
@@ -54,8 +65,8 @@ function applyAssignmentPriority(complaint, rawPriority, nowIso) {
   };
 }
 
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+const MAX_UPLOAD_BYTES = MAX_PROOF_FILE_BYTES; // 5MB
+const ALLOWED_IMAGE_TYPES = ALLOWED_PROOF_MIME_TYPES;
 
 function json(data, status = 200, headers = undefined) {
   return NextResponse.json(data, headers ? { status, headers } : { status });
@@ -103,6 +114,7 @@ async function parseJsonBody(request) {
 async function parseProofMultipart(request, prefix) {
   const store = getStore();
   const savedUrls = [];
+  const uploadedFiles = [];
   const fields = {};
   const contentType = request.headers.get('content-type') || '';
 
@@ -113,30 +125,105 @@ async function parseProofMultipart(request, prefix) {
         fields[k] = v;
       }
     }
-    const files = formData.getAll('files');
-    for (const file of files) {
-      if (file && typeof file.arrayBuffer === 'function' && file.size > 0) {
-        const mime = file.type || 'image/jpeg';
-        if (!ALLOWED_IMAGE_TYPES.includes(mime) && !mime.startsWith('image/')) {
-          return { error: 'Only image files (JPG, PNG, WebP) are permitted as proof.', status: 400 };
-        }
-        if (file.size > MAX_UPLOAD_BYTES) {
-          return { error: 'Each uploaded proof image must be 5MB or smaller.', status: 400 };
-        }
-        const buffer = Buffer.from(await file.arrayBuffer());
-        const rawExt = (file.name || 'proof.jpg').split('.').pop() || 'jpg';
-        const safeExt = rawExt.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'jpg';
-        const key = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${safeExt}`;
-        store.media.set(key, { buffer, mimeType: mime });
-        savedUrls.push(`/api/media/${key}`);
+    const rawFiles = [
+      ...formData.getAll('files'),
+      ...formData.getAll('file'),
+    ].filter((f) => f && typeof f.arrayBuffer === 'function' && f.size > 0);
+
+    if (rawFiles.length > MAX_PROOF_FILES) {
+      return {
+        error: `You can upload at most ${MAX_PROOF_FILES} proof photos per submission.`,
+        status: 400,
+      };
+    }
+
+    const mimeToExt = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+
+    for (const file of rawFiles) {
+      const declaredMime = String(file.type || '').toLowerCase();
+      if (declaredMime && !ALLOWED_IMAGE_TYPES.includes(declaredMime)) {
+        return { error: 'Only raster image files (JPG, PNG, WebP) are permitted as proof.', status: 400 };
       }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        return { error: 'Each uploaded proof image must be 5MB or smaller.', status: 400 };
+      }
+      const arrayBuf = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
+      const detectedMime = detectImageMagicType(buffer);
+      if (!detectedMime) {
+        return {
+          error: `"${file.name || 'file'}" failed image integrity verification. Upload a genuine JPG, PNG, or WebP photo.`,
+          status: 400,
+        };
+      }
+
+      const exifGps = detectedMime === 'image/jpeg' ? parseExifGpsFromJpeg(arrayBuf) : null;
+      const safeExt = mimeToExt[detectedMime] || 'jpg';
+      const safeOriginalName = String(file.name || `proof.${safeExt}`).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+      const key = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${safeExt}`;
+      store.media.set(key, { buffer, mimeType: detectedMime });
+      const mediaUrl = `/api/media/${key}`;
+      savedUrls.push(mediaUrl);
+      uploadedFiles.push({
+        url: mediaUrl,
+        file_name: safeOriginalName,
+        file_size_bytes: buffer.length,
+        mime_type: detectedMime,
+        exif_gps: exifGps,
+      });
     }
   } else {
     const body = await parseJsonBody(request);
     Object.assign(fields, body);
   }
 
-  return { savedUrls, fields };
+  return { savedUrls, uploadedFiles, fields };
+}
+
+function resolveProofGps(fields, uploadedFiles, complaint, { required = true } = {}) {
+  const firstExif = (uploadedFiles || []).find((f) => f.exif_gps)?.exif_gps || null;
+  const rawLat = fields.latitude !== undefined && fields.latitude !== '' ? fields.latitude : firstExif?.latitude;
+  const rawLng = fields.longitude !== undefined && fields.longitude !== '' ? fields.longitude : firstExif?.longitude;
+  const validation = validateGpsCoordinates(rawLat, rawLng, fields.gps_accuracy, { required });
+  if (!validation.valid) {
+    return { error: validation.error, status: 400 };
+  }
+
+  const usedExif =
+    (fields.latitude === undefined || fields.latitude === '') &&
+    firstExif !== null;
+  const gpsSource = usedExif
+    ? 'exif_gps'
+    : normalizeGpsSource(
+        fields.gps_source,
+        validation.latitude !== null ? 'live_gps' : 'manual_fallback'
+      );
+
+  const dist = computeDistanceMeters(
+    complaint.latitude,
+    complaint.longitude,
+    validation.latitude,
+    validation.longitude
+  );
+  const geofence = evaluateGeofence(dist);
+  const parsedCapturedAt = fields.captured_at && !Number.isNaN(Date.parse(fields.captured_at))
+    ? new Date(fields.captured_at).toISOString()
+    : new Date().toISOString();
+
+  return {
+    latitude: validation.latitude,
+    longitude: validation.longitude,
+    gps_accuracy_m: validation.accuracy,
+    gps_source: gpsSource,
+    distance_meters: dist,
+    geofence_status: geofence.status,
+    geofence_label: geofence.label,
+    captured_at: parsedCapturedAt,
+  };
 }
 
 async function saveUploadedFiles(request, prefix) {
@@ -182,18 +269,30 @@ async function handleRequest(request, context) {
 
   // ── MEDIA ──────────────────────────────────────────────────────────────────
   if (segments[0] === 'media' && method === 'GET') {
-    const key = segments.slice(1).join('/');
+    const keySegments = segments.slice(1);
+    if (keySegments.some((s) => s === '..' || s.includes('\\'))) {
+      return json({ detail: 'Invalid media key' }, 400);
+    }
+    const key = keySegments.join('/');
     const stored = store.media.get(key);
     if (stored) {
       return new NextResponse(stored.buffer, {
         status: 200,
-        headers: { 'Content-Type': stored.mimeType, 'Cache-Control': 'private, max-age=3600' },
+        headers: {
+          'Content-Type': stored.mimeType,
+          'Cache-Control': 'private, max-age=3600',
+          'X-Content-Type-Options': 'nosniff',
+        },
       });
     }
     const svg = generatePlaceholderSvg(key);
     return new NextResponse(svg, {
       status: 200,
-      headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=3600' },
+      headers: {
+        'Content-Type': 'image/svg+xml',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+      },
     });
   }
 
@@ -390,6 +489,56 @@ async function handleRequest(request, context) {
       complaints: deptComplaints,
       inspectors,
       teams,
+    });
+  }
+
+  // Nodal Officer: Chronological audit trail (status transitions, timestamped assignments, and comments)
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'nodal' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'history' &&
+    method === 'GET'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (!['nodal_officer', 'officer', 'admin', 'super_admin'].includes(user.role)) {
+      return json({ detail: 'Forbidden: Nodal Officer access required' }, 403);
+    }
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+    if (['nodal_officer', 'officer'].includes(user.role) && c.department_id !== user.department_id) {
+      return json({ detail: 'Forbidden: Complaint belongs to another department' }, 403);
+    }
+
+    const complaintAuditLogs = (store.auditLogs || [])
+      .filter((log) => log && log.entity_id === c.id)
+      .map((log) => {
+        const details = { ...(log.details || {}) };
+        if (details.inspector_id && !details.assignee_name) {
+          const insp = store.officers.find((o) => o.id === details.inspector_id);
+          if (insp) details.assignee_name = insp.name;
+        }
+        if (details.team_id && !details.assignee_name) {
+          const team = store.teams.find((t) => t.id === details.team_id);
+          if (team) details.assignee_name = team.name;
+        }
+        return { ...log, details };
+      });
+
+    const detail = buildComplaintDetail(c, store);
+    return json({
+      complaint_id: c.id,
+      complaint_number: c.complaint_number,
+      title: c.title,
+      status: c.status,
+      priority: c.priority,
+      sla_deadline: c.sla_deadline,
+      created_at: c.created_at,
+      assigned_inspector_name: detail.assigned_inspector_name,
+      assigned_team_name: detail.assigned_team_name,
+      status_history: c.status_history || [],
+      audit_logs: complaintAuditLogs,
     });
   }
 
@@ -929,6 +1078,139 @@ async function handleRequest(request, context) {
     });
   }
 
+  // Dedicated Endpoint: Inspection Officer uploads geotagged site photo(s) with GPS metadata
+  // Supports staging photos incrementally (submit_for_review=false) or immediate submission
+  if (
+    segments[0] === 'workflow' &&
+    segments[1] === 'inspector' &&
+    segments[2] === 'complaints' &&
+    segments[3] &&
+    segments[4] === 'site-photos' &&
+    method === 'POST'
+  ) {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    if (user.role !== 'inspection_officer') {
+      return json({ detail: 'Forbidden: Only Inspection Officers can upload site photos' }, 403);
+    }
+    const officer = getOfficerForUser(user, store);
+    const c = store.complaints.find((item) => item.id === segments[3]);
+    if (!c) return json({ detail: 'Complaint not found' }, 404);
+
+    const assignedVerifierId = c.verification_inspector_id || c.assigned_inspector_id;
+    const ownsInitial = officer && c.assigned_inspector_id === officer.id;
+    const ownsVerification = officer && assignedVerifierId === officer.id;
+    if (!ownsInitial && !ownsVerification) {
+      return json({ detail: 'Forbidden: This inspection task is not assigned to you' }, 403);
+    }
+
+    const parsed = await parseProofMultipart(request, `inspection/${c.id}`);
+    if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
+
+    const { savedUrls, uploadedFiles, fields } = parsed;
+    if (savedUrls.length === 0) {
+      return json({ detail: 'At least one geotagged site photo (JPG, PNG, or WebP) is required.' }, 400);
+    }
+
+    const requestedStage = String(fields.stage || '').toLowerCase();
+    const isVerificationStage =
+      requestedStage === 'final_verification' ||
+      (requestedStage === '' && c.status === 'verification_assigned');
+    const stage = isVerificationStage ? 'final_verification' : 'initial_inspection';
+
+    if (stage === 'initial_inspection' && !['inspection_assigned', 'inspection_rework'].includes(c.status)) {
+      return json({ detail: `Cannot upload initial site photos while complaint is in status '${c.status}'` }, 400);
+    }
+    if (stage === 'final_verification' && c.status !== 'verification_assigned') {
+      return json({ detail: `Cannot upload verification photos while complaint is in status '${c.status}'` }, 400);
+    }
+
+    const gps = resolveProofGps(fields, uploadedFiles, c, { required: true });
+    if (gps.error) return json({ detail: gps.error }, gps.status || 400);
+
+    const notes = String(fields.notes || '').trim();
+    const nowIso = new Date().toISOString();
+    if (!c.proof_records) c.proof_records = [];
+
+    if (stage === 'final_verification') {
+      c.verification_proof = [...(c.verification_proof || []), ...savedUrls];
+    } else {
+      c.inspection_images = [...(c.inspection_images || []), ...savedUrls];
+    }
+
+    const newRecords = uploadedFiles.map((f) => {
+      const rec = {
+        id: makeId('prf'),
+        stage,
+        url: f.url,
+        file_name: f.file_name,
+        file_size_bytes: f.file_size_bytes,
+        mime_type: f.mime_type,
+        uploaded_by: user.id,
+        uploaded_by_name: user.name,
+        actor_role: 'inspection_officer',
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        gps_accuracy_m: gps.gps_accuracy_m,
+        gps_source: gps.gps_source,
+        distance_meters: gps.distance_meters,
+        geofence_status: gps.geofence_status,
+        captured_at: gps.captured_at,
+        notes,
+      };
+      c.proof_records.push(rec);
+      return rec;
+    });
+
+    c.updated_at = nowIso;
+    const submitForReview = String(fields.submit_for_review || 'false').toLowerCase() === 'true';
+
+    if (submitForReview && stage === 'initial_inspection') {
+      if (!notes) {
+        return json({ detail: 'Inspection observations/notes are required when submitting for Nodal review.' }, 400);
+      }
+      const prev = c.status;
+      c.status = 'inspection_submitted';
+      c.rework_reason = null;
+      c.status_history.push({
+        from_status: prev,
+        to_status: 'inspection_submitted',
+        remarks: `Inspection Officer ${user.name} uploaded ${savedUrls.length} geotagged site photo(s)${gps.distance_meters !== null ? ` (${gps.distance_meters}m from reported pin)` : ''}: ${notes}`,
+        actor_role: 'inspection_officer',
+        actor_name: user.name,
+        created_at: nowIso,
+      });
+      const nodal = store.officers.find(
+        (o) => o.department_id === c.department_id && o.role === 'nodal_officer' && o.is_active !== false
+      );
+      if (nodal?.user_id) {
+        pushNotification(
+          store,
+          nodal.user_id,
+          `Inspection Proof Ready (${c.complaint_number})`,
+          `${user.name} uploaded initial inspection proof for "${c.title}". Review side-by-side.`
+        );
+      }
+    }
+
+    pushAudit(store, 'inspector_site_photos_uploaded', c.id, user, {
+      stage,
+      photos: savedUrls.length,
+      latitude: gps.latitude,
+      longitude: gps.longitude,
+      gps_source: gps.gps_source,
+      gps_accuracy_m: gps.gps_accuracy_m,
+      distance_meters: gps.distance_meters,
+      geofence_status: gps.geofence_status,
+      submitted_for_review: submitForReview,
+    });
+
+    return json({
+      ...buildComplaintDetail(c, store),
+      uploaded_proofs: newRecords,
+      submitted_for_review: submitForReview,
+    }, 201);
+  }
+
   // Step 3/4: Inspection Officer submits Initial Site Inspection proof (Photo + GPS + Notes)
   if (
     segments[0] === 'workflow' &&
@@ -957,8 +1239,9 @@ async function handleRequest(request, context) {
     const parsed = await parseProofMultipart(request, `inspection/${c.id}`);
     if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
 
-    const { savedUrls, fields } = parsed;
-    if (savedUrls.length === 0) {
+    const { savedUrls, uploadedFiles, fields } = parsed;
+    const existingStageProofs = (c.proof_records || []).filter((r) => r.stage === 'initial_inspection');
+    if (savedUrls.length === 0 && existingStageProofs.length === 0) {
       return json({ detail: 'At least one geotagged inspection photo is required.' }, 400);
     }
 
@@ -967,38 +1250,46 @@ async function handleRequest(request, context) {
       return json({ detail: 'Inspection observations/notes are required.' }, 400);
     }
 
-    const lat = parseCoordinate(fields.latitude, c.latitude);
-    const lng = parseCoordinate(fields.longitude, c.longitude);
-    const gpsSource = fields.gps_source || (fields.latitude ? 'gps' : 'manual_fallback');
+    const gps = resolveProofGps(fields, uploadedFiles, c, { required: true });
+    if (gps.error) return json({ detail: gps.error }, gps.status || 400);
+
     const nowIso = new Date().toISOString();
     const prev = c.status;
 
     c.inspection_images = [...(c.inspection_images || []), ...savedUrls];
     if (!c.proof_records) c.proof_records = [];
-    savedUrls.forEach((proofUrl) => {
-      c.proof_records.push({
+    const newRecords = uploadedFiles.map((f) => {
+      const rec = {
         id: makeId('prf'),
         stage: 'initial_inspection',
-        url: proofUrl,
+        url: f.url,
+        file_name: f.file_name,
+        file_size_bytes: f.file_size_bytes,
+        mime_type: f.mime_type,
         uploaded_by: user.id,
         uploaded_by_name: user.name,
         actor_role: 'inspection_officer',
-        latitude: lat,
-        longitude: lng,
-        gps_source: gpsSource,
-        captured_at: nowIso,
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        gps_accuracy_m: gps.gps_accuracy_m,
+        gps_source: gps.gps_source,
+        distance_meters: gps.distance_meters,
+        geofence_status: gps.geofence_status,
+        captured_at: gps.captured_at,
         notes,
-      });
+      };
+      c.proof_records.push(rec);
+      return rec;
     });
 
-    const dist = computeDistanceMeters(c.latitude, c.longitude, lat, lng);
+    const totalPhotos = savedUrls.length || existingStageProofs.length;
     c.status = 'inspection_submitted';
     c.rework_reason = null;
     c.updated_at = nowIso;
     c.status_history.push({
       from_status: prev,
       to_status: 'inspection_submitted',
-      remarks: `Inspection Officer ${user.name} uploaded ${savedUrls.length} proof photo(s)${dist !== null ? ` (${dist}m from reported pin)` : ''}: ${notes}`,
+      remarks: `Inspection Officer ${user.name} submitted ${totalPhotos} geotagged proof photo(s)${gps.distance_meters !== null ? ` (${gps.distance_meters}m from reported pin)` : ''}: ${notes}`,
       actor_role: 'inspection_officer',
       actor_name: user.name,
       created_at: nowIso,
@@ -1015,8 +1306,19 @@ async function handleRequest(request, context) {
         `${user.name} uploaded initial inspection proof for "${c.title}". Review side-by-side.`
       );
     }
-    pushAudit(store, 'initial_inspection_submitted', c.id, user, { photos: savedUrls.length, distance_meters: dist });
-    return json(buildComplaintDetail(c, store));
+    pushAudit(store, 'initial_inspection_submitted', c.id, user, {
+      photos: totalPhotos,
+      latitude: gps.latitude,
+      longitude: gps.longitude,
+      gps_source: gps.gps_source,
+      gps_accuracy_m: gps.gps_accuracy_m,
+      distance_meters: gps.distance_meters,
+      geofence_status: gps.geofence_status,
+    });
+    return json({
+      ...buildComplaintDetail(c, store),
+      uploaded_proofs: newRecords,
+    });
   }
 
   // Step 7: Inspection Officer submits Post-Resolution Verification (Photo + GPS + Verdict: verified | rework)
@@ -1048,13 +1350,15 @@ async function handleRequest(request, context) {
     const parsed = await parseProofMultipart(request, `verification/${c.id}`);
     if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
 
-    const { savedUrls, fields } = parsed;
-    if (savedUrls.length === 0) {
+    const { savedUrls, uploadedFiles, fields } = parsed;
+    const existingVerifyProofs = (c.proof_records || []).filter((r) => r.stage === 'final_verification');
+    if (savedUrls.length === 0 && existingVerifyProofs.length === 0) {
       return json({ detail: 'At least one geotagged verification photo is required.' }, 400);
     }
 
     const notes = String(fields.notes || '').trim();
-    const verdict = String(fields.verdict || 'verified').toLowerCase();
+    const rawVerdict = String(fields.verdict || 'verified').toLowerCase();
+    const verdict = rawVerdict === 'incomplete' ? 'rework' : rawVerdict;
     if (!['verified', 'rework'].includes(verdict)) {
       return json({ detail: 'Verdict must be either "verified" or "rework".' }, 400);
     }
@@ -1062,29 +1366,37 @@ async function handleRequest(request, context) {
       return json({ detail: 'Verification remarks are required.' }, 400);
     }
 
-    const lat = parseCoordinate(fields.latitude, c.latitude);
-    const lng = parseCoordinate(fields.longitude, c.longitude);
-    const gpsSource = fields.gps_source || (fields.latitude ? 'gps' : 'manual_fallback');
+    const gps = resolveProofGps(fields, uploadedFiles, c, { required: true });
+    if (gps.error) return json({ detail: gps.error }, gps.status || 400);
+
     const nowIso = new Date().toISOString();
     const prev = c.status;
 
     c.verification_proof = [...(c.verification_proof || []), ...savedUrls];
     if (!c.proof_records) c.proof_records = [];
-    savedUrls.forEach((proofUrl) => {
-      c.proof_records.push({
+    const newRecords = uploadedFiles.map((f) => {
+      const rec = {
         id: makeId('prf'),
         stage: 'final_verification',
-        url: proofUrl,
+        url: f.url,
+        file_name: f.file_name,
+        file_size_bytes: f.file_size_bytes,
+        mime_type: f.mime_type,
         uploaded_by: user.id,
         uploaded_by_name: user.name,
         actor_role: 'inspection_officer',
-        latitude: lat,
-        longitude: lng,
-        gps_source: gpsSource,
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        gps_accuracy_m: gps.gps_accuracy_m,
+        gps_source: gps.gps_source,
+        distance_meters: gps.distance_meters,
+        geofence_status: gps.geofence_status,
         verdict,
-        captured_at: nowIso,
+        captured_at: gps.captured_at,
         notes,
-      });
+      };
+      c.proof_records.push(rec);
+      return rec;
     });
 
     c.verification_verdict = verdict;
@@ -1143,8 +1455,18 @@ async function handleRequest(request, context) {
       }
     }
 
-    pushAudit(store, 'post_verification_submitted', c.id, user, { verdict, photos: savedUrls.length });
-    return json(buildComplaintDetail(c, store));
+    pushAudit(store, 'post_verification_submitted', c.id, user, {
+      verdict,
+      photos: savedUrls.length || existingVerifyProofs.length,
+      latitude: gps.latitude,
+      longitude: gps.longitude,
+      gps_source: gps.gps_source,
+      distance_meters: gps.distance_meters,
+    });
+    return json({
+      ...buildComplaintDetail(c, store),
+      uploaded_proofs: newRecords,
+    });
   }
 
   // 3. TEAM LEAD STRICTLY ISOLATED DASHBOARD & ACTIONS
@@ -1241,13 +1563,14 @@ async function handleRequest(request, context) {
     return json(buildComplaintDetail(c, store));
   }
 
-  // Step 6 -> 7: Team Lead uploads Resolution Proof + GPS + ATR -> routes to Inspection Officer for post-repair verification
+  // Step 6 -> 7: Team Lead uploads Resolution Proof (supports both /resolution-proof and /submit-resolution)
+  // Can either save draft resolution proof while work continues (submit_for_verification=false) or submit for site verification
   if (
     segments[0] === 'workflow' &&
     segments[1] === 'team' &&
     segments[2] === 'complaints' &&
     segments[3] &&
-    segments[4] === 'submit-resolution' &&
+    (segments[4] === 'submit-resolution' || segments[4] === 'resolution-proof') &&
     method === 'POST'
   ) {
     if (!user) return json({ detail: 'Authentication required' }, 401);
@@ -1263,46 +1586,94 @@ async function handleRequest(request, context) {
       return json({ detail: 'Forbidden: This work order belongs to another team' }, 403);
     }
     if (!['work_in_progress', 'team_assigned', 'redressal_rework'].includes(c.status)) {
-      return json({ detail: `Cannot submit resolution proof from status '${c.status}'` }, 400);
+      return json({ detail: `Cannot upload resolution proof from status '${c.status}'` }, 400);
     }
 
     const parsed = await parseProofMultipart(request, `resolution/${c.id}`);
     if (parsed.error) return json({ detail: parsed.error }, parsed.status || 400);
 
-    const { savedUrls, fields } = parsed;
-    if (savedUrls.length === 0) {
-      return json({ detail: 'At least one geotagged after-repair photo is required.' }, 400);
+    const { savedUrls, uploadedFiles, fields } = parsed;
+    const existingResProofs = (c.proof_records || []).filter((r) => r.stage === 'team_resolution');
+    const isDraftOnly =
+      segments[4] === 'resolution-proof' &&
+      String(fields.submit_for_verification || 'true').toLowerCase() === 'false';
+
+    if (savedUrls.length === 0 && (isDraftOnly || existingResProofs.length === 0)) {
+      return json({ detail: 'At least one after-repair resolution proof photo (JPG, PNG, or WebP) is required.' }, 400);
     }
 
-    const atrNotes = String(fields.atr_notes || fields.notes || '').trim();
-    if (!atrNotes) {
-      return json({ detail: 'Action Taken Report (ATR) notes are required.' }, 400);
+    const atrNotes = String(fields.atr_notes || fields.remarks || fields.notes || '').trim();
+    const materialsUsed = String(fields.materials_used || '').trim();
+    if (!isDraftOnly && !atrNotes) {
+      return json({ detail: 'Action Taken Report (ATR) notes are required when submitting resolution proof.' }, 400);
     }
 
-    const lat = parseCoordinate(fields.latitude, c.latitude);
-    const lng = parseCoordinate(fields.longitude, c.longitude);
-    const gpsSource = fields.gps_source || (fields.latitude ? 'gps' : 'manual_fallback');
+    const gps = resolveProofGps(fields, uploadedFiles, c, { required: !isDraftOnly });
+    if (gps.error) return json({ detail: gps.error }, gps.status || 400);
+
     const nowIso = new Date().toISOString();
     const prev = c.status;
 
     c.resolution_proof = [...(c.resolution_proof || []), ...savedUrls];
-    c.resolution_remarks = atrNotes;
+    if (atrNotes) {
+      c.resolution_remarks = materialsUsed ? `${atrNotes} [Materials: ${materialsUsed}]` : atrNotes;
+    }
+    if (materialsUsed) {
+      c.resolution_materials = materialsUsed;
+    }
     if (!c.proof_records) c.proof_records = [];
-    savedUrls.forEach((proofUrl) => {
-      c.proof_records.push({
+    const newRecords = uploadedFiles.map((f) => {
+      const rec = {
         id: makeId('prf'),
         stage: 'team_resolution',
-        url: proofUrl,
+        url: f.url,
+        file_name: f.file_name,
+        file_size_bytes: f.file_size_bytes,
+        mime_type: f.mime_type,
         uploaded_by: user.id,
         uploaded_by_name: user.name,
         actor_role: 'team_lead',
-        latitude: lat,
-        longitude: lng,
-        gps_source: gpsSource,
-        captured_at: nowIso,
-        notes: atrNotes,
-      });
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        gps_accuracy_m: gps.gps_accuracy_m,
+        gps_source: gps.gps_source,
+        distance_meters: gps.distance_meters,
+        geofence_status: gps.geofence_status,
+        materials_used: materialsUsed || null,
+        captured_at: gps.captured_at,
+        notes: atrNotes || 'Progress resolution proof photo uploaded.',
+      };
+      c.proof_records.push(rec);
+      return rec;
     });
+
+    c.updated_at = nowIso;
+
+    if (isDraftOnly) {
+      if (c.status === 'team_assigned' || c.status === 'redressal_rework') {
+        c.status = 'work_in_progress';
+        c.status_history.push({
+          from_status: prev,
+          to_status: 'work_in_progress',
+          remarks: `Team Lead ${user.name} (${team.name}) staged ${savedUrls.length} resolution proof photo(s) while work is in progress.${atrNotes ? ` Note: ${atrNotes}` : ''}`,
+          actor_role: 'team_lead',
+          actor_name: user.name,
+          created_at: nowIso,
+        });
+      }
+      pushAudit(store, 'team_resolution_proof_staged', c.id, user, {
+        team_id: team.id,
+        photos: savedUrls.length,
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        materials_used: materialsUsed || null,
+      });
+      return json({
+        ...buildComplaintDetail(c, store),
+        uploaded_proofs: newRecords,
+        submitted_for_verification: false,
+      }, 201);
+    }
 
     // Automatically route back to the Inspection Officer (initial inspector, or first dept inspector)
     let verifier = store.officers.find((o) => o.id === (c.verification_inspector_id || c.assigned_inspector_id));
@@ -1315,12 +1686,12 @@ async function handleRequest(request, context) {
     c.verification_inspector_id = verifier?.id || c.assigned_inspector_id || null;
     c.status = 'verification_assigned';
     c.rework_reason = null;
-    c.updated_at = nowIso;
 
+    const totalPhotos = savedUrls.length || existingResProofs.length;
     c.status_history.push({
       from_status: prev,
       to_status: 'verification_assigned',
-      remarks: `Team Lead ${user.name} (${team.name}) uploaded resolution proof & ATR: ${atrNotes}. Routed to ${verifier?.name || 'Inspection Officer'} for post-repair site verification.`,
+      remarks: `Team Lead ${user.name} (${team.name}) submitted ${totalPhotos} resolution proof photo(s) & ATR: ${atrNotes}${materialsUsed ? ` (Materials: ${materialsUsed})` : ''}. Routed to ${verifier?.name || 'Inspection Officer'} for post-repair site verification.`,
       actor_role: 'team_lead',
       actor_name: user.name,
       created_at: nowIso,
@@ -1346,8 +1717,20 @@ async function handleRequest(request, context) {
       );
     }
 
-    pushAudit(store, 'resolution_proof_submitted', c.id, user, { team_id: team.id, photos: savedUrls.length });
-    return json(buildComplaintDetail(c, store));
+    pushAudit(store, 'resolution_proof_submitted', c.id, user, {
+      team_id: team.id,
+      photos: totalPhotos,
+      latitude: gps.latitude,
+      longitude: gps.longitude,
+      gps_source: gps.gps_source,
+      distance_meters: gps.distance_meters,
+      materials_used: materialsUsed || null,
+    });
+    return json({
+      ...buildComplaintDetail(c, store),
+      uploaded_proofs: newRecords,
+      submitted_for_verification: true,
+    });
   }
 
   // ── COMPLAINTS (CITIZEN & SHARED) ──────────────────────────────────────────

@@ -18,7 +18,14 @@ import {
     ClipboardList,
     ShieldCheck,
     Loader2,
+    ZoomIn,
+    X,
 } from 'lucide-react';
+import {
+    formatCoordinates,
+    formatGpsSourceLabel,
+    evaluateGeofence,
+} from '@/lib/proofUpload';
 
 function InspectionOfficerDashboard() {
     const { user, loading: authLoading } = useAuth();
@@ -30,6 +37,8 @@ function InspectionOfficerDashboard() {
     const [activeTab, setActiveTab] = useState('initial'); // initial | verification | all
     const [activeFormTask, setActiveFormTask] = useState(null); // { complaint, type: 'initial' | 'verification' }
     const [submitting, setSubmitting] = useState(false);
+    const [staging, setStaging] = useState(false);
+    const [zoomedProof, setZoomedProof] = useState(null);
 
     const showToast = (message, tone = 'success') => {
         setToast({ message, tone });
@@ -60,6 +69,27 @@ function InspectionOfficerDashboard() {
             cancelled = true;
         };
     }, [user, authLoading, loadDashboard]);
+
+    const handleStageSitePhotos = async (payload) => {
+        if (!activeFormTask) return;
+        setStaging(true);
+        try {
+            const { complaint, type } = activeFormTask;
+            const stage = type === 'initial' ? 'initial_inspection' : 'final_verification';
+            const res = await workflowAPI.uploadInspectorSitePhotos(complaint.id, {
+                ...payload,
+                stage,
+                submit_for_review: false,
+            });
+            const uploadedCount = res?.uploaded_proofs?.length || payload.files.length;
+            showToast(
+                `Saved ${uploadedCount} geotagged site photo(s) for ${complaint.complaint_number} (${formatCoordinates(payload.latitude, payload.longitude)}).`
+            );
+            await loadDashboard();
+        } finally {
+            setStaging(false);
+        }
+    };
 
     const handleProofSubmit = async (payload) => {
         if (!activeFormTask) return;
@@ -106,8 +136,11 @@ function InspectionOfficerDashboard() {
             ? postVerifications
             : allTasks;
 
+    const getStageProofs = (complaint, stage) =>
+        (complaint.proof_records || []).filter((r) => r.stage === stage);
+
     const getStageProof = (complaint, stage) => {
-        const list = (complaint.proof_records || []).filter((r) => r.stage === stage);
+        const list = getStageProofs(complaint, stage);
         return list[list.length - 1] || null;
     };
 
@@ -115,6 +148,8 @@ function InspectionOfficerDashboard() {
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 space-y-6">
             {toast && (
                 <div
+                    role="status"
+                    data-testid="inspector-toast"
                     className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg border shadow-lg text-xs font-semibold flex items-center gap-2 ${
                         toast.tone === 'error'
                             ? 'bg-red-50 border-red-200 text-red-700'
@@ -130,10 +165,10 @@ function InspectionOfficerDashboard() {
             <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
                 <div>
                     <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-(--text-muted)">
-                        <span className="uppercase tracking-wider">{officer?.department_name || 'Department'}</span>
-                        <span>·</span>
+                        <span>{officer?.department_name || 'Department'}</span>
+                        <span aria-hidden="true">·</span>
                         <span className="font-mono">{officer?.employee_id || 'INSPECTOR'}</span>
-                        <span>·</span>
+                        <span aria-hidden="true">·</span>
                         <span className="inline-flex items-center gap-1 text-[#0369A1]">
                             <Lock size={11} /> Strictly Isolated Queue
                         </span>
@@ -179,7 +214,7 @@ function InspectionOfficerDashboard() {
                         className="text-left rounded-lg border p-3.5 transition-colors hover:bg-(--bg-card-hover)"
                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
-                        <div className="text-[11px] font-semibold uppercase tracking-wider text-(--text-muted)">{kpi.label}</div>
+                        <div className="text-xs font-semibold text-(--text-muted)">{kpi.label}</div>
                         <div className="text-2xl font-bold tabular-nums mt-1" style={{ color: kpi.accent }}>
                             {kpi.value}
                         </div>
@@ -241,13 +276,19 @@ function InspectionOfficerDashboard() {
                     {visibleList.map((c) => {
                         const citizenProof = getStageProof(c, 'citizen_proof');
                         const teamProof = getStageProof(c, 'team_resolution');
+                        const myInitialProofs = getStageProofs(c, 'initial_inspection');
+                        const myVerifyProofs = getStageProofs(c, 'final_verification');
                         const canSubmitInitial = ['inspection_assigned', 'inspection_rework'].includes(c.status);
                         const canSubmitVerify = c.status === 'verification_assigned';
                         const isFormOpen = activeFormTask?.complaint?.id === c.id;
+                        const activeStageProofs =
+                            activeFormTask?.type === 'verification' ? myVerifyProofs : myInitialProofs;
+                        const uploadedOfficerProofs = [...myInitialProofs, ...myVerifyProofs];
 
                         return (
                             <div
                                 key={c.id}
+                                data-testid={`inspector-task-card-${c.complaint_number}`}
                                 className="rounded-lg border p-5 space-y-4"
                                 style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                             >
@@ -256,9 +297,9 @@ function InspectionOfficerDashboard() {
                                     <div className="min-w-0 flex-1">
                                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-(--text-muted)">
                                             <span className="font-mono font-bold text-(--navy)">{c.complaint_number}</span>
-                                            <span>·</span>
+                                            <span aria-hidden="true">·</span>
                                             <span className="capitalize font-semibold text-(--text-secondary)">{c.priority} priority</span>
-                                            <span>·</span>
+                                            <span aria-hidden="true">·</span>
                                             <span>{c.ward}</span>
                                         </div>
                                         <h2 className="text-base font-bold text-(--text-primary) mt-1">{c.title}</h2>
@@ -297,21 +338,31 @@ function InspectionOfficerDashboard() {
                                 )}
 
                                 {/* Reference Evidence Cards */}
-                                <div className={`grid gap-3 ${teamProof ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
+                                <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
                                     {citizenProof && (
                                         <div
                                             className="rounded-md border p-3 flex gap-3 items-start"
                                             style={{ background: 'var(--bg-page)', borderColor: 'var(--border)' }}
                                         >
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={getImageUrl(citizenProof.url)}
-                                                alt="Citizen reported evidence"
-                                                className="w-24 h-20 object-cover rounded border shrink-0"
+                                            <button
+                                                type="button"
+                                                onClick={() => setZoomedProof(citizenProof)}
+                                                className="relative w-24 h-20 rounded border overflow-hidden shrink-0 group"
                                                 style={{ borderColor: 'var(--border)' }}
-                                            />
+                                            >
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img
+                                                    src={getImageUrl(citizenProof.url)}
+                                                    alt="Citizen reported evidence"
+                                                    referrerPolicy="no-referrer"
+                                                    className="w-full h-full object-cover"
+                                                />
+                                                <span className="absolute bottom-1 right-1 p-0.5 rounded bg-black/70 text-white opacity-80 group-hover:opacity-100">
+                                                    <ZoomIn size={10} />
+                                                </span>
+                                            </button>
                                             <div className="min-w-0 text-xs space-y-1">
-                                                <div className="text-[10px] uppercase tracking-wider font-bold text-(--text-muted)">
+                                                <div className="text-[11px] font-bold text-(--text-muted)">
                                                     Citizen Reported Proof
                                                 </div>
                                                 <div className="font-semibold text-(--text-primary)">
@@ -329,42 +380,134 @@ function InspectionOfficerDashboard() {
                                             className="rounded-md border p-3 flex gap-3 items-start"
                                             style={{ background: 'var(--bg-page)', borderColor: 'var(--border)' }}
                                         >
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={getImageUrl(teamProof.url)}
-                                                alt="Team resolution proof"
-                                                className="w-24 h-20 object-cover rounded border shrink-0"
+                                            <button
+                                                type="button"
+                                                onClick={() => setZoomedProof(teamProof)}
+                                                className="relative w-24 h-20 rounded border overflow-hidden shrink-0 group"
                                                 style={{ borderColor: 'var(--border)' }}
-                                            />
+                                            >
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img
+                                                    src={getImageUrl(teamProof.url)}
+                                                    alt="Team resolution proof"
+                                                    referrerPolicy="no-referrer"
+                                                    className="w-full h-full object-cover"
+                                                />
+                                                <span className="absolute bottom-1 right-1 p-0.5 rounded bg-black/70 text-white opacity-80 group-hover:opacity-100">
+                                                    <ZoomIn size={10} />
+                                                </span>
+                                            </button>
                                             <div className="min-w-0 text-xs space-y-1">
-                                                <div className="text-[10px] uppercase tracking-wider font-bold text-[#138808]">
-                                                    Field Team Resolution Proof ({c.assigned_team_name || 'Squad'})
+                                                <div className="text-[11px] font-bold text-[#138808]">
+                                                    Field Team Resolution Proof · {c.assigned_team_name || 'Squad'}
                                                 </div>
                                                 <div className="font-semibold text-(--text-primary)">
                                                     Lead: {teamProof.uploaded_by_name || c.assigned_team_lead_name}
                                                 </div>
-                                                <p className="text-[11px] text-(--text-secondary) line-clamp-3">
+                                                <p className="text-[11px] text-(--text-secondary) line-clamp-2">
                                                     {teamProof.notes || c.resolution_remarks}
                                                 </p>
+                                                {teamProof.latitude && teamProof.longitude && (
+                                                    <div className="text-[10px] font-mono tabular-nums text-(--text-muted)">
+                                                        GPS: {formatCoordinates(teamProof.latitude, teamProof.longitude)}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Uploaded Site Inspection / Verification Photos with GPS Metadata */}
+                                {uploadedOfficerProofs.length > 0 && !isFormOpen && (
+                                    <div
+                                        data-testid="inspector-uploaded-gallery"
+                                        className="pt-3 border-t space-y-2"
+                                        style={{ borderColor: 'var(--border)' }}
+                                    >
+                                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <span className="font-semibold text-(--text-primary)">
+                                                Recorded Geotagged Site Photos ({uploadedOfficerProofs.length})
+                                            </span>
+                                            <span className="text-[11px] text-(--text-muted)">
+                                                Click any photo to inspect full resolution & coordinates
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                            {uploadedOfficerProofs.map((proof, idx) => {
+                                                const geo = evaluateGeofence(proof.distance_meters);
+                                                return (
+                                                    <div
+                                                        key={proof.id || `${proof.url}-${idx}`}
+                                                        className="rounded-md border p-2.5 flex gap-2.5 items-start"
+                                                        style={{ background: 'var(--bg-page)', borderColor: 'var(--border)' }}
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setZoomedProof(proof)}
+                                                            className="relative w-20 h-16 rounded border overflow-hidden shrink-0 group"
+                                                            style={{ borderColor: 'var(--border)' }}
+                                                        >
+                                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                            <img
+                                                                src={getImageUrl(proof.url)}
+                                                                alt={proof.file_name || 'Site inspection photo'}
+                                                                referrerPolicy="no-referrer"
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                            <span className="absolute bottom-1 right-1 p-0.5 rounded bg-black/70 text-white opacity-80 group-hover:opacity-100">
+                                                                <ZoomIn size={10} />
+                                                            </span>
+                                                        </button>
+                                                        <div className="min-w-0 flex-1 text-[11px] space-y-0.5">
+                                                            <div className="font-semibold text-(--text-primary) truncate">
+                                                                {proof.stage === 'final_verification' ? 'Post-Repair Verification' : 'Initial Site Inspection'}
+                                                            </div>
+                                                            <div className="font-mono text-[10px] tabular-nums text-(--text-secondary)">
+                                                                {formatCoordinates(proof.latitude, proof.longitude)}
+                                                            </div>
+                                                            <div className="text-[10px] text-(--text-muted) flex flex-wrap items-center gap-x-1.5">
+                                                                <span>{formatGpsSourceLabel(proof.gps_source)}</span>
+                                                                {proof.gps_accuracy_m !== null && proof.gps_accuracy_m !== undefined && (
+                                                                    <>
+                                                                        <span aria-hidden="true">·</span>
+                                                                        <span className="font-mono tabular-nums">±{Math.round(proof.gps_accuracy_m)}m</span>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                            <div
+                                                                className={`text-[10px] font-semibold tabular-nums ${
+                                                                    geo.tone === 'success'
+                                                                        ? 'text-[#0A6B05]'
+                                                                        : geo.tone === 'warning'
+                                                                        ? 'text-[#B45309]'
+                                                                        : 'text-(--text-muted)'
+                                                                }`}
+                                                            >
+                                                                {geo.label}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
 
                                 <WorkflowStepper status={c.status} compact />
 
                                 {/* Inline Proof Upload Form when active */}
                                 {isFormOpen ? (
                                     <ProofUploadForm
+                                        mode={activeFormTask.type === 'initial' ? 'inspection' : 'verification'}
                                         title={
                                             activeFormTask.type === 'initial'
-                                                ? `Step 3: Submit Initial Site Inspection Proof (${c.complaint_number})`
+                                                ? `Step 3: Upload Geotagged Site Inspection Photos (${c.complaint_number})`
                                                 : `Step 7: Submit Post-Repair Site Verification (${c.complaint_number})`
                                         }
                                         subtitle={
                                             activeFormTask.type === 'initial'
-                                                ? 'Upload on-site geotagged photo(s) confirming the issue for Nodal Officer review.'
-                                                : 'Inspect the completed field repair, upload verification photo(s) with GPS, and record your verdict.'
+                                                ? 'Upload site photos with live or EXIF GPS metadata. Save photos incrementally or submit directly for Nodal review.'
+                                                : 'Inspect the completed field repair, upload geotagged verification photos, and record your verdict.'
                                         }
                                         notesLabel={
                                             activeFormTask.type === 'initial'
@@ -381,10 +524,14 @@ function InspectionOfficerDashboard() {
                                                 ? 'Submit Inspection to Nodal Officer'
                                                 : 'Submit Verification Verdict'
                                         }
+                                        stageLabel="Save Geotagged Photos"
                                         defaultLat={c.latitude}
                                         defaultLng={c.longitude}
+                                        existingProofs={activeStageProofs}
                                         showVerdict={activeFormTask.type === 'verification'}
                                         submitting={submitting}
+                                        staging={staging}
+                                        onStageOnly={handleStageSitePhotos}
                                         onSubmit={handleProofSubmit}
                                         onCancel={() => setActiveFormTask(null)}
                                     />
@@ -395,7 +542,7 @@ function InspectionOfficerDashboard() {
                                     >
                                         <span className="text-[11px] text-(--text-muted)">
                                             {canSubmitInitial
-                                                ? 'Action needed: Visit site and upload geotagged initial inspection proof.'
+                                                ? 'Action needed: Visit site and upload geotagged initial inspection photos.'
                                                 : canSubmitVerify
                                                 ? 'Action needed: Revisit site to confirm field team repair before final approval.'
                                                 : 'Submitted — currently with Nodal Officer / Field Team.'}
@@ -405,19 +552,21 @@ function InspectionOfficerDashboard() {
                                             {canSubmitInitial && (
                                                 <button
                                                     type="button"
+                                                    data-testid={`open-inspection-upload-${c.complaint_number}`}
                                                     onClick={() => setActiveFormTask({ complaint: c, type: 'initial' })}
                                                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
                                                     style={{ background: '#003580' }}
                                                 >
                                                     <Camera size={14} />
                                                     <span>
-                                                        {c.status === 'inspection_rework' ? 'Re-Upload Inspection Proof' : 'Upload Inspection Proof'}
+                                                        {c.status === 'inspection_rework' ? 'Re-Upload Inspection Proof' : 'Upload Site Photos & Proof'}
                                                     </span>
                                                 </button>
                                             )}
                                             {canSubmitVerify && (
                                                 <button
                                                     type="button"
+                                                    data-testid={`open-verification-upload-${c.complaint_number}`}
                                                     onClick={() => setActiveFormTask({ complaint: c, type: 'verification' })}
                                                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
                                                     style={{ background: '#138808' }}
@@ -432,6 +581,44 @@ function InspectionOfficerDashboard() {
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* Lightbox Zoom Overlay */}
+            {zoomedProof && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+                    onClick={() => setZoomedProof(null)}
+                >
+                    <div className="max-w-3xl w-full space-y-2.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-white text-xs">
+                            <span className="font-semibold">
+                                {zoomedProof.uploaded_by_name || 'Officer'} · GPS:{' '}
+                                <span className="font-mono tabular-nums">
+                                    {formatCoordinates(zoomedProof.latitude, zoomedProof.longitude)}
+                                </span>
+                                {zoomedProof.gps_source ? ` · ${formatGpsSourceLabel(zoomedProof.gps_source)}` : ''}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setZoomedProof(null)}
+                                className="p-1.5 rounded bg-white/15 hover:bg-white/25"
+                                aria-label="Close photo preview"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={getImageUrl(zoomedProof.url)}
+                            alt="Full-size field proof"
+                            referrerPolicy="no-referrer"
+                            className="w-full max-h-[75vh] object-contain rounded-lg border border-white/20 bg-black"
+                        />
+                        {zoomedProof.notes && (
+                            <p className="text-xs text-white/85">{zoomedProof.notes}</p>
+                        )}
+                    </div>
                 </div>
             )}
         </div>

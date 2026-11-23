@@ -373,6 +373,8 @@ export const workflowAPI = {
         const qs = departmentId ? `?department_id=${departmentId}` : '';
         return apiRequest(`/api/workflow/nodal/dashboard${qs}`);
     },
+    getComplaintAuditTrail: (complaintId) =>
+        apiRequest(`/api/workflow/nodal/complaints/${complaintId}/history`),
     assignInspector: (complaintId, inspectorId, notes = '', priority = undefined) =>
         apiRequest(`/api/workflow/nodal/complaints/${complaintId}/assign-inspector`, {
             method: 'POST',
@@ -413,41 +415,109 @@ export const workflowAPI = {
 
     // Inspection Officer (Isolated)
     getInspectorDashboard: () => apiRequest('/api/workflow/inspector/dashboard'),
-    submitInitialInspection: async (complaintId, { files, notes, latitude, longitude, gps_source }) => {
+    uploadInspectorSitePhotos: async (
+        complaintId,
+        {
+            files = [],
+            notes = '',
+            stage = 'initial_inspection',
+            latitude,
+            longitude,
+            gps_accuracy,
+            gps_source,
+            captured_at,
+            submit_for_review = false,
+        }
+    ) => {
+        const token = getToken();
+        const formData = new FormData();
+        files.forEach((f) => formData.append('files', f));
+        formData.append('stage', stage);
+        if (notes) formData.append('notes', notes);
+        if (latitude !== null && latitude !== undefined && latitude !== '') formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined && longitude !== '') formData.append('longitude', String(longitude));
+        if (gps_accuracy !== null && gps_accuracy !== undefined && gps_accuracy !== '') formData.append('gps_accuracy', String(gps_accuracy));
+        if (gps_source) formData.append('gps_source', gps_source);
+        if (captured_at) formData.append('captured_at', captured_at);
+        formData.append('submit_for_review', String(Boolean(submit_for_review)));
+
+        const response = await fetch(`${API_BASE_URL}/api/workflow/inspector/complaints/${complaintId}/site-photos`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+        if (response.status === 401) {
+            removeToken();
+            if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+                window.location.href = '/login?expired=true';
+            }
+        }
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to upload geotagged site photos');
+        }
+        return response.json();
+    },
+    submitInitialInspection: async (
+        complaintId,
+        { files = [], notes, latitude, longitude, gps_accuracy, gps_source, captured_at }
+    ) => {
         const token = getToken();
         const formData = new FormData();
         files.forEach((f) => formData.append('files', f));
         formData.append('notes', notes || '');
-        if (latitude !== null && latitude !== undefined) formData.append('latitude', String(latitude));
-        if (longitude !== null && longitude !== undefined) formData.append('longitude', String(longitude));
+        if (latitude !== null && latitude !== undefined && latitude !== '') formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined && longitude !== '') formData.append('longitude', String(longitude));
+        if (gps_accuracy !== null && gps_accuracy !== undefined && gps_accuracy !== '') formData.append('gps_accuracy', String(gps_accuracy));
         if (gps_source) formData.append('gps_source', gps_source);
+        if (captured_at) formData.append('captured_at', captured_at);
 
         const response = await fetch(`${API_BASE_URL}/api/workflow/inspector/complaints/${complaintId}/submit-inspection`, {
             method: 'POST',
+            credentials: 'include',
             headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData,
         });
+        if (response.status === 401) {
+            removeToken();
+            if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+                window.location.href = '/login?expired=true';
+            }
+        }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
             throw new Error(err.detail || 'Failed to submit inspection proof');
         }
         return response.json();
     },
-    submitPostVerification: async (complaintId, { files, notes, verdict, latitude, longitude, gps_source }) => {
+    submitPostVerification: async (
+        complaintId,
+        { files = [], notes, verdict, latitude, longitude, gps_accuracy, gps_source, captured_at }
+    ) => {
         const token = getToken();
         const formData = new FormData();
         files.forEach((f) => formData.append('files', f));
         formData.append('notes', notes || '');
         formData.append('verdict', verdict || 'verified');
-        if (latitude !== null && latitude !== undefined) formData.append('latitude', String(latitude));
-        if (longitude !== null && longitude !== undefined) formData.append('longitude', String(longitude));
+        if (latitude !== null && latitude !== undefined && latitude !== '') formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined && longitude !== '') formData.append('longitude', String(longitude));
+        if (gps_accuracy !== null && gps_accuracy !== undefined && gps_accuracy !== '') formData.append('gps_accuracy', String(gps_accuracy));
         if (gps_source) formData.append('gps_source', gps_source);
+        if (captured_at) formData.append('captured_at', captured_at);
 
         const response = await fetch(`${API_BASE_URL}/api/workflow/inspector/complaints/${complaintId}/submit-verification`, {
             method: 'POST',
+            credentials: 'include',
             headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData,
         });
+        if (response.status === 401) {
+            removeToken();
+            if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+                window.location.href = '/login?expired=true';
+            }
+        }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
             throw new Error(err.detail || 'Failed to submit post-repair verification');
@@ -462,20 +532,77 @@ export const workflowAPI = {
             method: 'POST',
             body: JSON.stringify({ notes }),
         }),
-    submitResolutionProof: async (complaintId, { files, atr_notes, latitude, longitude, gps_source }) => {
+    uploadTeamResolutionProof: async (
+        complaintId,
+        {
+            files = [],
+            atr_notes = '',
+            materials_used = '',
+            latitude,
+            longitude,
+            gps_accuracy,
+            gps_source,
+            captured_at,
+            submit_for_verification = true,
+        }
+    ) => {
+        const token = getToken();
+        const formData = new FormData();
+        files.forEach((f) => formData.append('files', f));
+        if (atr_notes) formData.append('atr_notes', atr_notes);
+        if (materials_used) formData.append('materials_used', materials_used);
+        if (latitude !== null && latitude !== undefined && latitude !== '') formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined && longitude !== '') formData.append('longitude', String(longitude));
+        if (gps_accuracy !== null && gps_accuracy !== undefined && gps_accuracy !== '') formData.append('gps_accuracy', String(gps_accuracy));
+        if (gps_source) formData.append('gps_source', gps_source);
+        if (captured_at) formData.append('captured_at', captured_at);
+        formData.append('submit_for_verification', String(Boolean(submit_for_verification)));
+
+        const response = await fetch(`${API_BASE_URL}/api/workflow/team/complaints/${complaintId}/resolution-proof`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+        if (response.status === 401) {
+            removeToken();
+            if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+                window.location.href = '/login?expired=true';
+            }
+        }
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to upload resolution proof');
+        }
+        return response.json();
+    },
+    submitResolutionProof: async (
+        complaintId,
+        { files = [], atr_notes, materials_used = '', latitude, longitude, gps_accuracy, gps_source, captured_at }
+    ) => {
         const token = getToken();
         const formData = new FormData();
         files.forEach((f) => formData.append('files', f));
         formData.append('atr_notes', atr_notes || '');
-        if (latitude !== null && latitude !== undefined) formData.append('latitude', String(latitude));
-        if (longitude !== null && longitude !== undefined) formData.append('longitude', String(longitude));
+        if (materials_used) formData.append('materials_used', materials_used);
+        if (latitude !== null && latitude !== undefined && latitude !== '') formData.append('latitude', String(latitude));
+        if (longitude !== null && longitude !== undefined && longitude !== '') formData.append('longitude', String(longitude));
+        if (gps_accuracy !== null && gps_accuracy !== undefined && gps_accuracy !== '') formData.append('gps_accuracy', String(gps_accuracy));
         if (gps_source) formData.append('gps_source', gps_source);
+        if (captured_at) formData.append('captured_at', captured_at);
 
         const response = await fetch(`${API_BASE_URL}/api/workflow/team/complaints/${complaintId}/submit-resolution`, {
             method: 'POST',
+            credentials: 'include',
             headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData,
         });
+        if (response.status === 401) {
+            removeToken();
+            if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+                window.location.href = '/login?expired=true';
+            }
+        }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
             throw new Error(err.detail || 'Failed to submit resolution proof');

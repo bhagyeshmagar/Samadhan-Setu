@@ -11,6 +11,11 @@ import {
   sortInspectorsByWorkload,
   sortTeamsByWorkload,
   getAssignableIntakeComplaints,
+  formatSlaDeadline,
+  describeSlaDelta,
+  formatWorkflowStatusLabel,
+  buildTaskHistoryTimeline,
+  getTimelineDotModifier,
 } from './taskAssignment.js';
 
 test('isValidPriority accepts canonical levels and rejects invalid values', () => {
@@ -85,4 +90,99 @@ test('getAssignableIntakeComplaints filters unassigned new intake and orders by 
     list.map((c) => c.id),
     ['c3', 'c5', 'c4', 'c1']
   );
+});
+
+test('describeSlaDelta computes tightened, extended, and unchanged SLA differences', () => {
+  const current = '2026-11-25T10:00:00.000Z';
+  assert.equal(describeSlaDelta(current, '2026-11-24T10:00:00.000Z').direction, 'tighter');
+  assert.equal(describeSlaDelta(current, '2026-11-24T10:00:00.000Z').label, 'Earlier by 24h');
+  assert.equal(describeSlaDelta(current, '2026-11-27T10:00:00.000Z').direction, 'extended');
+  assert.equal(describeSlaDelta(current, '2026-11-27T10:00:00.000Z').label, 'Extended by 2d');
+  assert.equal(describeSlaDelta(current, current).direction, 'same');
+  assert.notEqual(formatSlaDeadline(current), 'Not scheduled');
+});
+
+test('buildTaskHistoryTimeline normalizes creation, assignment, and transitions chronologically', () => {
+  assert.equal(formatWorkflowStatusLabel('inspection_assigned'), 'Inspection Assigned');
+  const events = buildTaskHistoryTimeline({
+    id: 'cmp-1',
+    complaint_number: 'SS-2026-001015',
+    created_at: '2026-11-22T08:00:00.000Z',
+    status_history: [
+      {
+        from_status: 'inspection_assigned',
+        to_status: 'inspection_submitted',
+        actor_name: 'Sneha Kulkarni',
+        actor_role: 'inspection_officer',
+        remarks: 'Site photo uploaded.',
+        created_at: '2026-11-22T12:00:00.000Z',
+      },
+      {
+        from_status: 'submitted',
+        to_status: 'inspection_assigned',
+        actor_name: 'Amit Deshmukh',
+        actor_role: 'nodal_officer',
+        remarks: 'Assigned inspection.',
+        created_at: '2026-11-22T09:00:00.000Z',
+      },
+    ],
+  });
+
+  assert.equal(events.length, 3);
+  assert.equal(events[0].kind, 'created');
+  assert.equal(events[0].title, 'Task Created');
+  assert.equal(events[1].kind, 'assigned');
+  assert.equal(events[1].title, 'Inspection Assigned');
+  assert.equal(events[2].kind, 'transition');
+  assert.equal(events[2].title, 'Inspection Assigned → Inspection Submitted');
+});
+
+test('buildTaskHistoryTimeline enriches assignments from audit logs and maps .timeline-dot modifiers', () => {
+  const events = buildTaskHistoryTimeline(
+    {
+      id: 'cmp-2',
+      complaint_number: 'SS-2026-001016',
+      created_at: '2026-11-22T08:00:00.000Z',
+      status_history: [
+        {
+          from_status: 'submitted',
+          to_status: 'inspection_assigned',
+          actor_name: 'Amit Verma',
+          actor_role: 'nodal_officer',
+          remarks: 'Assigned inspection to Sneha.',
+          created_at: '2026-11-22T09:00:00.000Z',
+        },
+        {
+          from_status: 'verification_submitted',
+          to_status: 'resolved',
+          actor_name: 'Amit Verma',
+          actor_role: 'nodal_officer',
+          remarks: 'Final approval granted.',
+          created_at: '2026-11-22T15:00:00.000Z',
+        },
+      ],
+    },
+    [
+      {
+        id: 'aud-1',
+        action: 'inspector_assigned',
+        actor_name: 'Amit Verma',
+        actor_role: 'nodal_officer',
+        details: {
+          assignee_name: 'Sneha Kulkarni',
+          priority: 'critical',
+          is_reassign: true,
+        },
+        created_at: '2026-11-22T09:00:01.000Z',
+      },
+    ]
+  );
+
+  assert.equal(events.length, 3);
+  assert.equal(events[1].title, 'Inspection Assigned (Reassigned)');
+  assert.equal(events[1].assigneeName, 'Sneha Kulkarni');
+  assert.equal(events[1].priority, 'critical');
+  assert.equal(getTimelineDotModifier(events[0], false), '');
+  assert.equal(getTimelineDotModifier(events[1], true), 'active');
+  assert.equal(getTimelineDotModifier(events[2], true), 'done');
 });

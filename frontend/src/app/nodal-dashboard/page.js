@@ -8,6 +8,7 @@ import DeadlineTimer from '@/components/DeadlineTimer';
 import WorkflowStepper from '@/components/WorkflowStepper';
 import ProofComparisonDrawer from '@/components/ProofComparisonDrawer';
 import TaskAssignment from '@/components/TaskAssignment';
+import TaskHistory from '@/components/TaskHistory';
 import withRoleGuard from '@/components/withRoleGuard';
 import { getAssignableIntakeComplaints, getPriorityConfig } from '@/lib/taskAssignment';
 import {
@@ -18,6 +19,7 @@ import {
     MapPin,
     RefreshCw,
     Eye,
+    History,
     UserPlus,
     Wrench,
     AlertTriangle,
@@ -38,6 +40,7 @@ function NodalOfficerDashboard() {
     const [activeTab, setActiveTab] = useState('intake'); // intake | review | dispatch | final | all
     const [comparisonState, setComparisonState] = useState(null); // { complaint, mode }
     const [assignModal, setAssignModal] = useState(null); // { type: 'inspector' | 'team' | 'verifier', complaint }
+    const [historyComplaint, setHistoryComplaint] = useState(null);
     const [actionBusy, setActionBusy] = useState(false);
 
     const isAdmin = user && ['admin', 'super_admin'].includes(user.role);
@@ -484,6 +487,17 @@ function NodalOfficerDashboard() {
                                                 </button>
                                             )}
 
+                                            {/* Chronological Audit Trail (TaskHistory) */}
+                                            <button
+                                                type="button"
+                                                onClick={() => setHistoryComplaint(c)}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold border whitespace-nowrap"
+                                                style={{ borderColor: 'var(--border-mid)', color: 'var(--text-secondary)', background: 'var(--bg-card)' }}
+                                            >
+                                                <History size={13} />
+                                                <span>History</span>
+                                            </button>
+
                                             {/* Audit View for any stage */}
                                             <button
                                                 type="button"
@@ -636,6 +650,16 @@ function NodalOfficerDashboard() {
                     submitting={actionBusy}
                     onAssign={handleTaskAssign}
                     onCancel={() => setAssignModal(null)}
+                />
+            )}
+
+            {/* Reusable TaskHistory Audit Trail Modal (.timeline) */}
+            {historyComplaint && (
+                <TaskHistory
+                    variant="modal"
+                    complaintId={historyComplaint.id}
+                    initialComplaint={historyComplaint}
+                    onClose={() => setHistoryComplaint(null)}
                 />
             )}
 

@@ -12,12 +12,19 @@ import {
     Clock,
     MapPin,
     ShieldCheck,
+    CalendarClock,
+    ArrowRight,
 } from 'lucide-react';
+import TaskHistory from '@/components/TaskHistory';
 import {
     PRIORITY_OPTIONS,
     INSTRUCTION_PRESETS,
     normalizePriority,
     getPriorityConfig,
+    getNowMs,
+    computeSlaDeadline,
+    formatSlaDeadline,
+    describeSlaDelta,
     sortInspectorsByWorkload,
     sortTeamsByWorkload,
 } from '@/lib/taskAssignment';
@@ -96,6 +103,8 @@ export default function TaskAssignment({
     const [selectedComplaintId, setSelectedComplaintId] = useState('');
     const [assigneeDraft, setAssigneeDraft] = useState({ complaintId: null, value: '' });
     const [priorityDraft, setPriorityDraft] = useState({ complaintId: null, value: '' });
+    const [slaBaseTimeMs, setSlaBaseTimeMs] = useState(getNowMs);
+    const [priorityInteracted, setPriorityInteracted] = useState(false);
     const [instructions, setInstructions] = useState('');
     const [localError, setLocalError] = useState('');
     const [internalBusy, setInternalBusy] = useState(false);
@@ -150,8 +159,19 @@ export default function TaskAssignment({
     const priorityChanged = Boolean(activeComplaint && currentPriority !== priority);
     const presets = INSTRUCTION_PRESETS[mode] || INSTRUCTION_PRESETS.inspector;
 
+    const recalculatedDeadlineIso = useMemo(
+        () => computeSlaDeadline(priority, new Date(slaBaseTimeMs)),
+        [priority, slaBaseTimeMs]
+    );
+    const slaDelta = useMemo(
+        () => describeSlaDelta(activeComplaint?.sla_deadline, recalculatedDeadlineIso),
+        [activeComplaint?.sla_deadline, recalculatedDeadlineIso]
+    );
+
     const handleSelectComplaint = (nextId) => {
         setSelectedComplaintId(nextId);
+        setPriorityInteracted(false);
+        setSlaBaseTimeMs(getNowMs());
         setLocalError('');
     };
 
@@ -162,6 +182,8 @@ export default function TaskAssignment({
 
     const handleSelectPriority = (nextPriority) => {
         setPriorityDraft({ complaintId: activeComplaint?.id || null, value: nextPriority });
+        setSlaBaseTimeMs(getNowMs());
+        setPriorityInteracted(true);
     };
 
     const handleInsertPreset = (presetText) => {
@@ -302,7 +324,13 @@ export default function TaskAssignment({
             </div>
 
             {/* Body */}
-            <div className={variant === 'modal' ? 'p-5 space-y-4' : 'p-3.5 space-y-3'}>
+            <div
+                className={
+                    variant === 'modal'
+                        ? 'p-5 space-y-4 max-h-[72vh] overflow-y-auto'
+                        : 'p-3.5 space-y-3'
+                }
+            >
                 {/* Inline Grievance Selector OR Modal Grievance Summary */}
                 {variant === 'inline' && !complaint ? (
                     <div className="space-y-1.5">
@@ -460,29 +488,73 @@ export default function TaskAssignment({
                         })}
                     </div>
 
-                    <p className="text-[11px] text-(--text-muted)">
-                        {priorityChanged ? (
-                            <>
-                                Priority updates from <strong className="capitalize text-(--text-primary)">{currentPriority}</strong> to{' '}
-                                <strong className="capitalize" style={{ color: selectedPriorityConfig.accent }}>
-                                    {priority}
-                                </strong>{' '}
-                                and recalculates the statutory SLA to{' '}
-                                <span className="font-mono tabular-nums font-semibold text-(--text-primary)">
-                                    {selectedPriorityConfig.slaHours}h
+                    {/* Immediate Recalculated SLA Deadline Visual Indicator */}
+                    <div
+                        data-testid="task-assignment-sla-indicator"
+                        aria-live="polite"
+                        className="rounded-md border px-3 py-2.5 space-y-1.5 transition-colors"
+                        style={{
+                            background: 'var(--bg-page)',
+                            borderColor: priorityChanged || priorityInteracted ? selectedPriorityConfig.accent : 'var(--border)',
+                        }}
+                    >
+                        <div className="flex items-center justify-between gap-2">
+                            <span
+                                className="inline-flex items-center gap-1.5 text-[11px] font-semibold"
+                                style={{ color: selectedPriorityConfig.accent }}
+                            >
+                                <CalendarClock size={13} className="shrink-0" />
+                                <span>
+                                    {priorityChanged || priorityInteracted
+                                        ? 'Recalculated SLA Deadline'
+                                        : 'Target SLA Deadline'}
                                 </span>
-                                .
-                            </>
-                        ) : (
-                            <>
-                                Statutory SLA window:{' '}
+                            </span>
+                            <span
+                                data-testid="task-assignment-sla-delta"
+                                className="text-[11px] font-mono tabular-nums font-semibold"
+                                style={{
+                                    color:
+                                        slaDelta.direction === 'tighter'
+                                            ? '#DC2626'
+                                            : slaDelta.direction === 'extended'
+                                            ? '#0369A1'
+                                            : 'var(--text-muted)',
+                                }}
+                            >
+                                {slaDelta.label}
+                            </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                            <span
+                                data-testid="task-assignment-recalculated-deadline"
+                                className="text-xs font-mono font-bold tabular-nums text-(--text-primary)"
+                            >
+                                {formatSlaDeadline(recalculatedDeadlineIso)}
+                            </span>
+                            <span className="text-[11px] font-mono tabular-nums text-(--text-muted)">
+                                {selectedPriorityConfig.slaHours}h from dispatch
+                            </span>
+                        </div>
+
+                        {activeComplaint?.sla_deadline && (
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-(--text-muted) pt-1 border-t" style={{ borderColor: 'var(--border)' }}>
+                                <span>Current:</span>
+                                <span className="font-mono tabular-nums text-(--text-secondary)">
+                                    {formatSlaDeadline(activeComplaint.sla_deadline)}
+                                </span>
+                                <ArrowRight size={11} className="shrink-0" aria-hidden="true" />
+                                <span className="capitalize font-semibold" style={{ color: selectedPriorityConfig.accent }}>
+                                    {priority}
+                                </span>
+                                <span aria-hidden="true">·</span>
                                 <span className="font-mono tabular-nums font-semibold text-(--text-primary)">
-                                    {selectedPriorityConfig.slaHours} hours
-                                </span>{' '}
-                                from dispatch.
-                            </>
+                                    {formatSlaDeadline(recalculatedDeadlineIso)}
+                                </span>
+                            </div>
                         )}
-                    </p>
+                    </div>
                 </div>
 
                 {/* Instructions Input + Quick Presets */}
@@ -523,6 +595,15 @@ export default function TaskAssignment({
                         ))}
                     </div>
                 </div>
+
+                {/* Chronological Task History Audit Trail (.timeline) */}
+                {activeComplaint && (
+                    <TaskHistory
+                        variant="embedded"
+                        complaintId={activeComplaint.id}
+                        initialComplaint={activeComplaint}
+                    />
+                )}
 
                 {/* Inline Error Feedback */}
                 {localError && (
