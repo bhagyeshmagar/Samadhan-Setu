@@ -14,6 +14,8 @@ desktop.ini
 *.key
 firebase-credentials.json
 *firebase-credentials*.json
+firebase-applet-config.json
+**/firebase-applet-config.json
 serviceAccountKey.json
 backend/firebase-credentials.json
 *.sql

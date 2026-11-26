@@ -8,13 +8,27 @@ import {
   GoogleAuthProvider,
   onAuthStateChanged,
 } from 'firebase/auth';
-import firebaseConfig from '../../../firebase-applet-config.json';
 
 // Least-privilege Gmail scope for sending grievance notifications on the user's behalf
 export const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send'];
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
+function getEnvFirebaseConfig() {
+  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '';
+  const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '';
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '';
+  if (!apiKey || !authDomain || !projectId) return null;
+  return {
+    apiKey,
+    authDomain,
+    projectId,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
+  };
+}
+
+let authInstance = null;
+let authInitPromise = null;
 
 const provider = new GoogleAuthProvider();
 GMAIL_SCOPES.forEach((scope) => provider.addScope(scope));
@@ -24,11 +38,53 @@ provider.setCustomParameters({ prompt: 'select_account' });
 let cachedAccessToken = null;
 let isSigningIn = false;
 
+async function resolveFirebaseAuth() {
+  if (authInstance) return authInstance;
+  if (authInitPromise) return authInitPromise;
+
+  authInitPromise = (async () => {
+    let config = getEnvFirebaseConfig();
+    if (!config && typeof window !== 'undefined') {
+      try {
+        const res = await fetch('/api/config/firebase', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.configured && data?.config?.apiKey) {
+            config = data.config;
+          }
+        }
+      } catch {
+        // Fallback failed silently; handled below
+      }
+    }
+
+    if (!config?.apiKey || !config?.authDomain || !config?.projectId) {
+      return null;
+    }
+
+    const app = getApps().length > 0 ? getApp() : initializeApp(config);
+    authInstance = getAuth(app);
+    return authInstance;
+  })();
+
+  const resolved = await authInitPromise;
+  if (!resolved) {
+    authInitPromise = null;
+  }
+  return resolved;
+}
+
 export function getCachedGmailToken() {
   return cachedAccessToken;
 }
 
 export async function connectGmailWithPopup() {
+  const auth = await resolveFirebaseAuth();
+  if (!auth) {
+    throw new Error(
+      'Google Sign-In is not configured. Set NEXT_PUBLIC_FIREBASE_API_KEY, NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, and NEXT_PUBLIC_FIREBASE_PROJECT_ID in environment variables.'
+    );
+  }
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, provider);
@@ -54,7 +110,10 @@ export async function connectGmailWithPopup() {
 export async function disconnectGmailSession() {
   cachedAccessToken = null;
   try {
-    await auth.signOut();
+    const auth = authInstance || (await resolveFirebaseAuth());
+    if (auth) {
+      await auth.signOut();
+    }
   } catch {
     // Ignore sign-out errors if no active Firebase session
   }
@@ -65,6 +124,7 @@ const GmailAuthContext = createContext({
   isConnected: false,
   needsAuth: true,
   isConnecting: false,
+  isConfigured: true,
   authError: '',
   connectGmail: async () => null,
   disconnectGmail: async () => {},
@@ -76,34 +136,51 @@ export function GmailAuthProvider({ children }) {
   const [googleUser, setGoogleUser] = useState(null);
   const [hasToken, setHasToken] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(true);
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
-      if (fbUser && cachedAccessToken) {
-        setGoogleUser({
-          uid: fbUser.uid,
-          email: fbUser.email,
-          displayName: fbUser.displayName,
-          photoURL: fbUser.photoURL,
-        });
-        setHasToken(true);
-      } else if (!isSigningIn) {
-        cachedAccessToken = null;
-        setHasToken(false);
-        if (fbUser) {
+    let active = true;
+    let unsubscribe = null;
+
+    resolveFirebaseAuth().then((auth) => {
+      if (!active) return;
+      if (!auth) {
+        setIsConfigured(false);
+        return;
+      }
+      setIsConfigured(true);
+      unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+        if (!active) return;
+        if (fbUser && cachedAccessToken) {
           setGoogleUser({
             uid: fbUser.uid,
             email: fbUser.email,
             displayName: fbUser.displayName,
             photoURL: fbUser.photoURL,
           });
-        } else {
-          setGoogleUser(null);
+          setHasToken(true);
+        } else if (!isSigningIn) {
+          cachedAccessToken = null;
+          setHasToken(false);
+          if (fbUser) {
+            setGoogleUser({
+              uid: fbUser.uid,
+              email: fbUser.email,
+              displayName: fbUser.displayName,
+              photoURL: fbUser.photoURL,
+            });
+          } else {
+            setGoogleUser(null);
+          }
         }
-      }
+      });
     });
-    return () => unsubscribe();
+
+    return () => {
+      active = false;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, []);
 
   const connectGmail = useCallback(async () => {
@@ -113,6 +190,7 @@ export function GmailAuthProvider({ children }) {
       const res = await connectGmailWithPopup();
       setGoogleUser(res.user);
       setHasToken(true);
+      setIsConfigured(true);
       return res;
     } catch (err) {
       const msg =
@@ -150,6 +228,7 @@ export function GmailAuthProvider({ children }) {
         isConnected: Boolean(googleUser && hasToken),
         needsAuth: !hasToken,
         isConnecting,
+        isConfigured,
         authError,
         connectGmail,
         disconnectGmail,
