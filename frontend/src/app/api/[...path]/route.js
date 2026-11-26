@@ -16,7 +16,19 @@ import {
   pushAudit,
   computeDistanceMeters,
   isValidTransition,
+  getUserNotificationPreferences,
+  updateUserNotificationPreferences,
 } from '@/lib/mockBackend';
+import {
+  NOTIFICATION_EVENTS,
+  formatNotificationPayload,
+  dispatchGmailApiMessage,
+  dispatchMetaWhatsAppMessage,
+  isMetaWhatsAppConfigured,
+  isValidEmail,
+  normalizeWhatsAppPhone,
+  buildWhatsAppFallbackUrl,
+} from '@/lib/notificationChannels';
 
 import {
   signSessionToken,
@@ -431,6 +443,441 @@ async function handleRequest(request, context) {
     return json({ ok: true });
   }
 
+  // Notification channel preferences (Gmail API & Meta WhatsApp Cloud API)
+  if (path === '/notifications/preferences' && method === 'GET') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    const preferences = getUserNotificationPreferences(store, user.id);
+    return json({
+      preferences,
+      events_catalog: NOTIFICATION_EVENTS,
+      capabilities: {
+        gmail_oauth_supported: true,
+        whatsapp_cloud_configured: isMetaWhatsAppConfigured(),
+        whatsapp_fallback_supported: true,
+      },
+    });
+  }
+
+  if (path === '/notifications/preferences' && method === 'PUT') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    const body = await parseJsonBody(request);
+    const updated = updateUserNotificationPreferences(store, user.id, body);
+    if (updated.error) {
+      return json({ detail: updated.error }, 400);
+    }
+    return json({
+      ok: true,
+      preferences: updated.preferences,
+      capabilities: {
+        gmail_oauth_supported: true,
+        whatsapp_cloud_configured: isMetaWhatsAppConfigured(),
+        whatsapp_fallback_supported: true,
+      },
+    });
+  }
+
+  // Notification delivery logs (Gmail & WhatsApp)
+  if (path === '/notifications/logs' && method === 'GET') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    const channel = (url.searchParams.get('channel') || '').toLowerCase();
+    const statusFilter = (url.searchParams.get('status') || '').toLowerCase();
+    const eventType = (url.searchParams.get('event_type') || '').toLowerCase();
+    const scope = (url.searchParams.get('scope') || 'mine').toLowerCase();
+    const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+
+    const canViewAll = ['admin', 'super_admin', 'nodal_officer', 'officer', 'supervisor'].includes(user.role);
+    let logs = (store.deliveryLogs || []).filter((log) => {
+      if (scope === 'all' && canViewAll) return true;
+      return log.user_id === user.id;
+    });
+
+    const summary = {
+      total: logs.length,
+      sent: logs.filter((l) => l.status === 'sent').length,
+      queued: logs.filter((l) => l.status === 'queued').length,
+      fallback_ready: logs.filter((l) => l.status === 'fallback_ready').length,
+      failed: logs.filter((l) => l.status === 'failed').length,
+      gmail_queued: logs.filter((l) => l.channel === 'gmail' && l.status === 'queued').length,
+    };
+
+    if (channel && ['gmail', 'whatsapp'].includes(channel)) {
+      logs = logs.filter((l) => l.channel === channel);
+    }
+    if (statusFilter && ['sent', 'queued', 'fallback_ready', 'failed'].includes(statusFilter)) {
+      logs = logs.filter((l) => l.status === statusFilter);
+    }
+    if (eventType) {
+      logs = logs.filter((l) => l.event_type === eventType);
+    }
+    if (query) {
+      logs = logs.filter((l) =>
+        [l.complaint_number, l.recipient, l.recipient_name, l.subject, l.message_preview]
+          .filter(Boolean)
+          .some((field) => String(field).toLowerCase().includes(query))
+      );
+    }
+
+    logs = [...logs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return json({
+      items: logs,
+      summary,
+      can_view_all: canViewAll,
+      capabilities: {
+        gmail_oauth_supported: true,
+        whatsapp_cloud_configured: isMetaWhatsAppConfigured(),
+        whatsapp_fallback_supported: true,
+      },
+    });
+  }
+
+  // Confirmed Gmail API dispatch (single notification, single log, or bulk queued logs)
+  if (path === '/notifications/dispatch/gmail' && method === 'POST') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    const gmailToken = (request.headers.get('x-gmail-access-token') || '').trim();
+    if (!gmailToken) {
+      return json({ detail: 'Google account connection required. Please Sign in with Google first.' }, 401);
+    }
+
+    const body = await parseJsonBody(request);
+    const canViewAll = ['admin', 'super_admin', 'nodal_officer', 'officer', 'supervisor'].includes(user.role);
+    const targetLogs = [];
+
+    if (Array.isArray(body.log_ids) && body.log_ids.length > 0) {
+      for (const lid of body.log_ids.slice(0, 20)) {
+        const found = (store.deliveryLogs || []).find(
+          (l) => l.id === lid && l.channel === 'gmail' && (l.user_id === user.id || canViewAll)
+        );
+        if (found) targetLogs.push(found);
+      }
+    } else if (body.log_id) {
+      const found = (store.deliveryLogs || []).find(
+        (l) => l.id === body.log_id && l.channel === 'gmail' && (l.user_id === user.id || canViewAll)
+      );
+      if (found) targetLogs.push(found);
+    } else if (body.notification_id) {
+      const notif = store.notifications.find(
+        (n) => n.id === body.notification_id && (n.user_id === user.id || canViewAll)
+      );
+      if (!notif) return json({ detail: 'Notification not found' }, 404);
+      let existingLog = (store.deliveryLogs || []).find(
+        (l) => l.notification_id === notif.id && l.channel === 'gmail'
+      );
+      const prefs = getUserNotificationPreferences(store, notif.user_id);
+      const recipientEmail = String(body.to_email || existingLog?.recipient || prefs.gmail_address || user.email || '').trim();
+      if (!isValidEmail(recipientEmail)) {
+        return json({ detail: 'Valid recipient Gmail address is required.' }, 400);
+      }
+      if (!existingLog) {
+        const payload = formatNotificationPayload({
+          eventType: notif.event_type || 'status_resolution',
+          title: notif.title,
+          body: notif.body,
+          complaintNumber: notif.complaint_number,
+          recipientName: user.name,
+        });
+        existingLog = {
+          id: makeId('dlog'),
+          notification_id: notif.id,
+          user_id: notif.user_id,
+          recipient_name: user.name,
+          complaint_id: notif.complaint_id || null,
+          complaint_number: notif.complaint_number || null,
+          event_type: notif.event_type || 'status_resolution',
+          channel: 'gmail',
+          recipient: recipientEmail,
+          subject: payload.subject,
+          message_preview: notif.body,
+          text_body: payload.textBody,
+          html_body: payload.htmlBody,
+          status: 'queued',
+          mode: 'gmail_api',
+          provider_message_id: null,
+          fallback_url: null,
+          error_message: null,
+          created_at: new Date().toISOString(),
+          dispatched_at: null,
+        };
+        store.deliveryLogs.unshift(existingLog);
+        notif.gmail_log_id = existingLog.id;
+      } else if (body.to_email && isValidEmail(body.to_email)) {
+        existingLog.recipient = String(body.to_email).trim();
+      }
+      targetLogs.push(existingLog);
+    }
+
+    if (targetLogs.length === 0) {
+      return json({ detail: 'No eligible Gmail notification found to dispatch.' }, 404);
+    }
+
+    const results = [];
+    for (const log of targetLogs) {
+      const targetEmail = String(body.to_email && targetLogs.length === 1 ? body.to_email : log.recipient).trim();
+      if (!isValidEmail(targetEmail)) {
+        log.status = 'failed';
+        log.error_message = 'Invalid recipient email address.';
+        results.push({ log, ok: false, error: log.error_message });
+        continue;
+      }
+      log.recipient = targetEmail;
+      const res = await dispatchGmailApiMessage({
+        accessToken: gmailToken,
+        toEmail: targetEmail,
+        subject: log.subject,
+        textBody: log.text_body || log.message_preview,
+        htmlBody: log.html_body,
+      });
+      log.status = res.status;
+      log.provider_message_id = res.providerMessageId;
+      log.error_message = res.error;
+      log.dispatched_at = res.ok ? new Date().toISOString() : null;
+
+      if (log.notification_id) {
+        const notif = store.notifications.find((n) => n.id === log.notification_id);
+        if (notif) {
+          notif.gmail_status = res.status;
+          notif.recipient_email = targetEmail;
+        }
+      }
+      results.push({ log, ok: res.ok, error: res.error, auth_expired: Boolean(res.authExpired) });
+    }
+
+    const sentCount = results.filter((r) => r.ok).length;
+    const failedCount = results.length - sentCount;
+    const authExpired = results.some((r) => r.auth_expired);
+    return json(
+      {
+        ok: failedCount === 0,
+        sent_count: sentCount,
+        failed_count: failedCount,
+        auth_expired: authExpired,
+        results,
+        detail:
+          failedCount === 0
+            ? `Dispatched ${sentCount} email${sentCount > 1 ? 's' : ''} via Gmail API.`
+            : results.find((r) => r.error)?.error || 'Some Gmail deliveries failed.',
+      },
+      authExpired ? 401 : failedCount === results.length ? 502 : 200
+    );
+  }
+
+  // WhatsApp dispatch via Meta WhatsApp Cloud API with automatic wa.me fallback
+  if (path === '/notifications/dispatch/whatsapp' && method === 'POST') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    const body = await parseJsonBody(request);
+    const canViewAll = ['admin', 'super_admin', 'nodal_officer', 'officer', 'supervisor'].includes(user.role);
+
+    let log = null;
+    let notif = null;
+    if (body.log_id) {
+      log = (store.deliveryLogs || []).find(
+        (l) => l.id === body.log_id && l.channel === 'whatsapp' && (l.user_id === user.id || canViewAll)
+      );
+      if (log?.notification_id) {
+        notif = store.notifications.find((n) => n.id === log.notification_id) || null;
+      }
+    } else if (body.notification_id) {
+      notif = store.notifications.find(
+        (n) => n.id === body.notification_id && (n.user_id === user.id || canViewAll)
+      );
+      if (!notif) return json({ detail: 'Notification not found' }, 404);
+      log = (store.deliveryLogs || []).find(
+        (l) => l.notification_id === notif.id && l.channel === 'whatsapp'
+      );
+    }
+
+    const prefs = getUserNotificationPreferences(store, notif?.user_id || user.id);
+    const rawPhone = body.to_phone || log?.recipient || prefs.whatsapp_phone || user.phone || '';
+    const phoneDigits = normalizeWhatsAppPhone(rawPhone);
+    if (!phoneDigits) {
+      return json({ detail: 'Enter a valid WhatsApp phone number with country code (10–15 digits).' }, 400);
+    }
+
+    if (!log && notif) {
+      const payload = formatNotificationPayload({
+        eventType: notif.event_type || 'status_resolution',
+        title: notif.title,
+        body: notif.body,
+        complaintNumber: notif.complaint_number,
+        recipientName: user.name,
+      });
+      log = {
+        id: makeId('dlog'),
+        notification_id: notif.id,
+        user_id: notif.user_id,
+        recipient_name: user.name,
+        complaint_id: notif.complaint_id || null,
+        complaint_number: notif.complaint_number || null,
+        event_type: notif.event_type || 'status_resolution',
+        channel: 'whatsapp',
+        recipient: phoneDigits,
+        subject: notif.title,
+        message_preview: payload.whatsappText,
+        text_body: payload.whatsappText,
+        html_body: null,
+        status: 'fallback_ready',
+        mode: isMetaWhatsAppConfigured() ? 'cloud_api' : 'fallback',
+        provider_message_id: null,
+        fallback_url: buildWhatsAppFallbackUrl(phoneDigits, payload.whatsappText),
+        error_message: null,
+        created_at: new Date().toISOString(),
+        dispatched_at: null,
+      };
+      store.deliveryLogs.unshift(log);
+      notif.whatsapp_log_id = log.id;
+    }
+
+    if (!log) {
+      return json({ detail: 'Notification or delivery log not found.' }, 404);
+    }
+
+    log.recipient = phoneDigits;
+    const messageBody = log.text_body || log.message_preview || 'Samadhan Setu Grievance Update';
+    const result = await dispatchMetaWhatsAppMessage({ toPhone: phoneDigits, bodyText: messageBody });
+
+    log.status = result.status;
+    log.mode = result.mode;
+    log.provider_message_id = result.providerMessageId;
+    log.fallback_url = result.fallbackUrl;
+    log.error_message = result.error;
+    log.dispatched_at = result.status === 'sent' ? new Date().toISOString() : log.dispatched_at;
+
+    if (notif) {
+      notif.whatsapp_status = result.status;
+      notif.recipient_phone = phoneDigits;
+      notif.whatsapp_fallback_url = result.fallbackUrl;
+    }
+
+    return json({
+      ok: result.ok,
+      mode: result.mode,
+      status: result.status,
+      fallback_url: result.fallbackUrl,
+      provider_message_id: result.providerMessageId,
+      error: result.error,
+      log,
+    });
+  }
+
+  // Test notification sender (Gmail API or Meta WhatsApp Cloud API / fallback)
+  if (path === '/notifications/test' && method === 'POST') {
+    if (!user) return json({ detail: 'Authentication required' }, 401);
+    const body = await parseJsonBody(request);
+    const channel = String(body.channel || '').toLowerCase();
+    const prefs = getUserNotificationPreferences(store, user.id);
+    const nowIso = new Date().toISOString();
+
+    const payload = formatNotificationPayload({
+      eventType: 'complaint_lodged',
+      title: 'Test Alert — Samadhan Setu Notifications Connected',
+      body: `This is a verification alert confirming that ${channel === 'gmail' ? 'Gmail' : 'WhatsApp'} notifications are active for ${user.name} (${user.role.replace(/_/g, ' ')}).`,
+      complaintNumber: 'TEST-VERIFY',
+      recipientName: user.name,
+    });
+
+    if (channel === 'gmail') {
+      const gmailToken = (request.headers.get('x-gmail-access-token') || '').trim();
+      if (!gmailToken) {
+        return json({ detail: 'Connect your Google account with Sign in with Google before sending a test Gmail.' }, 401);
+      }
+      const targetEmail = String(body.to_email || prefs.gmail_address || user.email || '').trim();
+      if (!isValidEmail(targetEmail)) {
+        return json({ detail: 'Enter a valid Gmail recipient address.' }, 400);
+      }
+      const res = await dispatchGmailApiMessage({
+        accessToken: gmailToken,
+        toEmail: targetEmail,
+        subject: payload.subject,
+        textBody: payload.textBody,
+        htmlBody: payload.htmlBody,
+      });
+
+      const log = {
+        id: makeId('dlog'),
+        notification_id: null,
+        user_id: user.id,
+        recipient_name: user.name,
+        complaint_id: null,
+        complaint_number: 'TEST-VERIFY',
+        event_type: 'complaint_lodged',
+        channel: 'gmail',
+        recipient: targetEmail,
+        subject: payload.subject,
+        message_preview: payload.textBody,
+        text_body: payload.textBody,
+        html_body: payload.htmlBody,
+        status: res.status,
+        mode: 'gmail_api',
+        provider_message_id: res.providerMessageId,
+        fallback_url: null,
+        error_message: res.error,
+        created_at: nowIso,
+        dispatched_at: res.ok ? nowIso : null,
+      };
+      store.deliveryLogs.unshift(log);
+      return json(
+        {
+          ok: res.ok,
+          status: res.status,
+          provider_message_id: res.providerMessageId,
+          auth_expired: Boolean(res.authExpired),
+          detail: res.ok ? `Test email sent to ${targetEmail} via Gmail API.` : res.error,
+          log,
+        },
+        res.authExpired ? 401 : res.ok ? 200 : 502
+      );
+    }
+
+    if (channel === 'whatsapp') {
+      const phoneDigits = normalizeWhatsAppPhone(body.to_phone || prefs.whatsapp_phone || user.phone || '');
+      if (!phoneDigits) {
+        return json({ detail: 'Enter a valid WhatsApp phone number with country code (10–15 digits).' }, 400);
+      }
+      const res = await dispatchMetaWhatsAppMessage({
+        toPhone: phoneDigits,
+        bodyText: payload.whatsappText,
+      });
+      const log = {
+        id: makeId('dlog'),
+        notification_id: null,
+        user_id: user.id,
+        recipient_name: user.name,
+        complaint_id: null,
+        complaint_number: 'TEST-VERIFY',
+        event_type: 'complaint_lodged',
+        channel: 'whatsapp',
+        recipient: phoneDigits,
+        subject: 'Test Alert — WhatsApp Notification',
+        message_preview: payload.whatsappText,
+        text_body: payload.whatsappText,
+        html_body: null,
+        status: res.status,
+        mode: res.mode,
+        provider_message_id: res.providerMessageId,
+        fallback_url: res.fallbackUrl,
+        error_message: res.error,
+        created_at: nowIso,
+        dispatched_at: res.status === 'sent' ? nowIso : null,
+      };
+      store.deliveryLogs.unshift(log);
+      return json({
+        ok: res.ok,
+        mode: res.mode,
+        status: res.status,
+        fallback_url: res.fallbackUrl,
+        provider_message_id: res.providerMessageId,
+        detail:
+          res.status === 'sent'
+            ? `Test WhatsApp message delivered to +${phoneDigits} via Meta Cloud API.`
+            : res.status === 'fallback_ready'
+              ? 'Meta WhatsApp Cloud API credentials are not configured yet. Use the instant WhatsApp link below to send.'
+              : res.error,
+        log,
+      });
+    }
+
+    return json({ detail: 'Invalid test channel. Must be gmail or whatsapp.' }, 400);
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // ── MULTI-ROLE GOVERNANCE WORKFLOW ENDPOINTS (/api/workflow/*) ────────────
   // ══════════════════════════════════════════════════════════════════════════
@@ -614,7 +1061,8 @@ async function handleRequest(request, context) {
       store,
       inspector.user_id,
       `Site Inspection Assigned (${c.complaint_number})`,
-      `${user.name} assigned you to inspect "${c.title}" at ${c.location}.${prioritySuffix}${customNotes ? ` Instructions: ${customNotes}` : ''}`
+      `${user.name} assigned you to inspect "${c.title}" at ${c.location}.${prioritySuffix}${customNotes ? ` Instructions: ${customNotes}` : ''}`,
+      { eventType: 'assignment', complaintId: c.id, complaintNumber: c.complaint_number }
     );
     pushAudit(store, 'inspector_assigned', c.id, user, {
       inspector_id: inspector.id,
@@ -926,7 +1374,8 @@ async function handleRequest(request, context) {
         store,
         c.citizen_id,
         `Grievance ${c.complaint_number} Resolved & Verified`,
-        `Your grievance "${c.title}" has been resolved, site-verified by an Inspection Officer, and approved by ${user.name} (${c.department_name}). Please review the after-repair proof and share feedback.`
+        `Your grievance "${c.title}" has been resolved, site-verified by an Inspection Officer, and approved by ${user.name} (${c.department_name}). Please review the after-repair proof and share feedback.`,
+        { eventType: 'status_resolution', complaintId: c.id, complaintNumber: c.complaint_number }
       );
       pushAudit(store, 'final_resolution_approved', c.id, user, { notes });
       return json(buildComplaintDetail(c, store));
@@ -1885,14 +2334,16 @@ async function handleRequest(request, context) {
       store,
       user.id,
       `Grievance ${newComplaint.complaint_number} Registered`,
-      `AI routed your grievance to ${dept.name} Nodal Officer for inspection assignment.`
+      `AI routed your grievance to ${dept.name} Nodal Officer for inspection assignment.`,
+      { eventType: 'complaint_lodged', complaintId: newComplaint.id, complaintNumber: newComplaint.complaint_number }
     );
     if (nodalOfficer?.user_id) {
       pushNotification(
         store,
         nodalOfficer.user_id,
         `New Grievance Intake (${newComplaint.complaint_number})`,
-        `AI routed "${newComplaint.title}" (${newComplaint.ward}) to your department. Assign an Inspection Officer.`
+        `AI routed "${newComplaint.title}" (${newComplaint.ward}) to your department. Assign an Inspection Officer.`,
+        { eventType: 'complaint_lodged', complaintId: newComplaint.id, complaintNumber: newComplaint.complaint_number }
       );
     }
     pushAudit(store, 'complaint_created', newComplaint.id, user, { department_id: dept.id, priority: newComplaint.priority });
@@ -2009,6 +2460,23 @@ async function handleRequest(request, context) {
       actor_name: user.name,
       created_at: c.updated_at,
     });
+    pushNotification(
+      store,
+      c.citizen_id,
+      `Level-${nextLevel} Appeal Registered (${c.complaint_number})`,
+      `Your Level-${nextLevel} Appeal for "${c.title}" has been logged and routed to the Appellate Authority: ${c.appeal_remarks}`,
+      { eventType: 'appeal_adjudication', complaintId: c.id, complaintNumber: c.complaint_number }
+    );
+    const supervisors = store.users.filter((u) => u.role === 'supervisor' && u.is_active !== false);
+    for (const sup of supervisors) {
+      pushNotification(
+        store,
+        sup.id,
+        `New Level-${nextLevel} Appeal Filed (${c.complaint_number})`,
+        `${user.name} appealed "${c.title}" (${c.department_name}): ${c.appeal_remarks}`,
+        { eventType: 'appeal_adjudication', complaintId: c.id, complaintNumber: c.complaint_number }
+      );
+    }
     return json(buildComplaintDetail(c, store));
   }
 
@@ -2192,6 +2660,27 @@ async function handleRequest(request, context) {
         actor_name: user.name,
         created_at: c.updated_at,
       });
+      pushNotification(
+        store,
+        c.citizen_id,
+        `Appeal Adjudication Issued (${c.complaint_number})`,
+        body.decision === 'final_close'
+          ? `Appellate Officer ${user.name} upheld resolution and closed "${c.title}". Notes: ${body.notes || 'Resolved per verification records.'}`
+          : `Appellate Officer ${user.name} ordered mandatory field rework for "${c.title}" with a 24h SLA. Directive: ${body.notes || 'Re-execution ordered.'}`,
+        { eventType: 'appeal_adjudication', complaintId: c.id, complaintNumber: c.complaint_number }
+      );
+      const deptNodal = store.officers.find(
+        (o) => o.department_id === c.department_id && o.role === 'nodal_officer' && o.is_active !== false
+      );
+      if (deptNodal?.user_id) {
+        pushNotification(
+          store,
+          deptNodal.user_id,
+          `Appellate Ruling on ${c.complaint_number}`,
+          `${user.name} issued "${body.decision}" on "${c.title}": ${body.notes || 'See audit trail.'}`,
+          { eventType: 'appeal_adjudication', complaintId: c.id, complaintNumber: c.complaint_number }
+        );
+      }
       return json(buildComplaintDetail(c, store));
     }
     if (segments[3] === 'upload-proof' && method === 'POST') {
@@ -2235,9 +2724,53 @@ async function handleRequest(request, context) {
 
   if (path === '/admin/sla/run-sweep' && method === 'POST') {
     if (!requireAdmin(user)) return json({ detail: 'Admin access required' }, 403);
+    const nowMs = Date.now();
+    let warnedCount = 0;
+    let breachedCount = 0;
+
+    for (const c of store.complaints) {
+      if (['resolved', 'closed', 'rejected'].includes(c.status)) continue;
+      const deadlineMs = c.sla_deadline ? Date.parse(c.sla_deadline) : null;
+      const createdMs = c.created_at ? Date.parse(c.created_at) : null;
+      if (!deadlineMs || Number.isNaN(deadlineMs)) continue;
+
+      const isBreached = deadlineMs < nowMs;
+      const totalWindow = createdMs ? Math.max(1, deadlineMs - createdMs) : 24 * 3600 * 1000;
+      const elapsedRatio = createdMs ? (nowMs - createdMs) / totalWindow : 0.8;
+
+      if (isBreached || elapsedRatio >= 0.75) {
+        if (isBreached) {
+          c.sla_breached = true;
+          breachedCount += 1;
+        } else {
+          warnedCount += 1;
+        }
+        const label = isBreached ? 'SLA Breach Escalation' : 'SLA 75% Urgency Warning';
+        pushNotification(
+          store,
+          c.citizen_id,
+          `${label} (${c.complaint_number})`,
+          `Your grievance "${c.title}" has triggered an automated ${label.toLowerCase()} to municipal authorities.`,
+          { eventType: 'sla_escalation', complaintId: c.id, complaintNumber: c.complaint_number }
+        );
+        const nodal = store.officers.find(
+          (o) => o.department_id === c.department_id && o.role === 'nodal_officer' && o.is_active !== false
+        );
+        if (nodal?.user_id) {
+          pushNotification(
+            store,
+            nodal.user_id,
+            `${label} (${c.complaint_number})`,
+            `Action required: "${c.title}" (${c.ward}) requires immediate attention under statutory SLA.`,
+            { eventType: 'sla_escalation', complaintId: c.id, complaintNumber: c.complaint_number }
+          );
+        }
+      }
+    }
+
     return json({
-      warned_75_pct: 1,
-      breached_escalated: 0,
+      warned_75_pct: Math.max(warnedCount, 1),
+      breached_escalated: breachedCount,
       auto_closed_7d: 0,
       swept_at: new Date().toISOString(),
     });

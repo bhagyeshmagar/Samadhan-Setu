@@ -65,6 +65,11 @@ class Settings:
     SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "samadhan-setu@nic.in")
     SMTP_TLS: bool = os.getenv("SMTP_TLS", "true").lower() == "true"
 
+    # Meta WhatsApp Cloud API settings
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = os.getenv("WHATSAPP_ACCESS_TOKEN", None)
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = os.getenv("WHATSAPP_PHONE_NUMBER_ID", None)
+    WHATSAPP_GRAPH_VERSION: str = os.getenv("WHATSAPP_GRAPH_VERSION", "v21.0")
+
     def validate(self) -> None:
         """Fail fast on dangerous misconfigurations.
 

@@ -1,4 +1,16 @@
 import crypto from 'crypto';
+import {
+  NOTIFICATION_EVENTS,
+  VALID_EVENT_KEYS,
+  inferEventTypeFromTitle,
+  getDefaultNotificationPreferences,
+  formatNotificationPayload,
+  buildWhatsAppFallbackUrl,
+  normalizeWhatsAppPhone,
+  isValidEmail,
+  isMetaWhatsAppConfigured,
+  dispatchMetaWhatsAppMessage,
+} from './notificationChannels';
 
 // Haversine distance in meters between two WGS84 coordinates
 export function computeDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -1874,6 +1886,9 @@ function createInitialStore() {
     {
       id: 'notif-1',
       user_id: 'user-citizen-1',
+      event_type: 'status_resolution',
+      complaint_id: 'cmp-2026-001003',
+      complaint_number: 'SS-2026-001003',
       title: 'Grievance SS-2026-001003 Resolved',
       body: 'Electricity department resolved your streetlight complaint on Hill Road. Please review and submit feedback.',
       is_read: false,
@@ -1882,6 +1897,9 @@ function createInitialStore() {
     {
       id: 'notif-2',
       user_id: 'user-nodal-roads',
+      event_type: 'status_resolution',
+      complaint_id: 'cmp-2026-001018',
+      complaint_number: 'SS-2026-001018',
       title: 'Final Approval Pending (SS-2026-001018)',
       body: 'Inspector Sneha Kulkarni verified repair at Prabhadevi Junction. Compare proofs to approve and notify citizen.',
       is_read: false,
@@ -1890,6 +1908,9 @@ function createInitialStore() {
     {
       id: 'notif-3',
       user_id: 'user-nodal-roads',
+      event_type: 'status_resolution',
+      complaint_id: 'cmp-2026-001013',
+      complaint_number: 'SS-2026-001013',
       title: 'Inspection Proof Submitted (SS-2026-001013)',
       body: 'Sneha Kulkarni uploaded initial inspection photos for Ranade Road pothole. Review side-by-side.',
       is_read: false,
@@ -1898,6 +1919,9 @@ function createInitialStore() {
     {
       id: 'notif-4',
       user_id: 'user-inspector-roads-1',
+      event_type: 'assignment',
+      complaint_id: 'cmp-2026-001017',
+      complaint_number: 'SS-2026-001017',
       title: 'Post-Repair Verification Assigned (SS-2026-001017)',
       body: 'Dadar Pothole Squad completed resurfacing at Tilak Bridge East Ramp. Visit site and verify resolution.',
       is_read: false,
@@ -1906,6 +1930,9 @@ function createInitialStore() {
     {
       id: 'notif-5',
       user_id: 'user-inspector-roads-2',
+      event_type: 'assignment',
+      complaint_id: 'cmp-2026-001012',
+      complaint_number: 'SS-2026-001012',
       title: 'New Site Inspection Assigned (SS-2026-001012)',
       body: 'Nodal Officer assigned you to inspect broken footpath drain slabs on Lady Jamshedji Road, Mahim.',
       is_read: false,
@@ -1914,6 +1941,9 @@ function createInitialStore() {
     {
       id: 'notif-6',
       user_id: 'user-teamlead-roads-1',
+      event_type: 'assignment',
+      complaint_id: 'cmp-2026-001015',
+      complaint_number: 'SS-2026-001015',
       title: 'New Work Order Dispatched (SS-2026-001015)',
       body: 'Nodal Officer assigned Senapati Bapat Marg pothole repair to Dadar Quick Response Pothole Squad.',
       is_read: false,
@@ -1922,12 +1952,108 @@ function createInitialStore() {
     {
       id: 'notif-7',
       user_id: 'user-admin-1',
+      event_type: 'sla_escalation',
+      complaint_id: 'cmp-2026-001002',
+      complaint_number: 'SS-2026-001002',
       title: 'SLA Watch Alert: Ward 8 Water Supply',
       body: 'Critical complaint SS-2026-001002 is within 4 hours of its statutory SLA deadline.',
       is_read: false,
       created_at: new Date(now - 2 * hr).toISOString(),
     },
+    {
+      id: 'notif-8',
+      user_id: 'user-citizen-1',
+      event_type: 'appeal_adjudication',
+      complaint_id: 'cmp-2026-001004',
+      complaint_number: 'SS-2026-001004',
+      title: 'Level-1 Appeal Logged (SS-2026-001004)',
+      body: 'Your Level-1 Appeal on garbage collection has been escalated to the Appellate Supervisor for review.',
+      is_read: false,
+      created_at: new Date(now - 6 * hr).toISOString(),
+    },
   ];
+
+  // Seed per-user channel preferences & matching delivery logs for initial notifications
+  const notificationPreferences = new Map();
+  const deliveryLogs = [];
+
+  for (const n of notifications) {
+    const recipient = users.find((u) => u.id === n.user_id);
+    const prefs = getDefaultNotificationPreferences(recipient);
+    if (recipient) {
+      notificationPreferences.set(recipient.id, prefs);
+    }
+    const payload = formatNotificationPayload({
+      eventType: n.event_type,
+      title: n.title,
+      body: n.body,
+      complaintNumber: n.complaint_number,
+      recipientName: recipient?.name,
+    });
+    const email = prefs.gmail_address || recipient?.email || '';
+    const phone = prefs.whatsapp_phone || normalizeWhatsAppPhone(recipient?.phone || '');
+    const waUrl = phone ? buildWhatsAppFallbackUrl(phone, payload.whatsappText) : null;
+
+    n.recipient_email = email || null;
+    n.recipient_phone = phone || null;
+    n.gmail_status = email ? 'queued' : 'disabled';
+    n.whatsapp_status = phone ? 'fallback_ready' : 'disabled';
+    n.whatsapp_fallback_url = waUrl;
+
+    if (email) {
+      const gmailLogId = `dlog-gmail-${n.id}`;
+      n.gmail_log_id = gmailLogId;
+      deliveryLogs.push({
+        id: gmailLogId,
+        notification_id: n.id,
+        user_id: n.user_id,
+        recipient_name: recipient?.name || 'User',
+        complaint_id: n.complaint_id || null,
+        complaint_number: n.complaint_number || null,
+        event_type: n.event_type,
+        channel: 'gmail',
+        recipient: email,
+        subject: payload.subject,
+        message_preview: n.body,
+        text_body: payload.textBody,
+        html_body: payload.htmlBody,
+        status: 'queued',
+        mode: 'gmail_api',
+        provider_message_id: null,
+        fallback_url: null,
+        error_message: null,
+        created_at: n.created_at,
+        dispatched_at: null,
+      });
+    }
+
+    if (phone) {
+      const waLogId = `dlog-wa-${n.id}`;
+      n.whatsapp_log_id = waLogId;
+      deliveryLogs.push({
+        id: waLogId,
+        notification_id: n.id,
+        user_id: n.user_id,
+        recipient_name: recipient?.name || 'User',
+        complaint_id: n.complaint_id || null,
+        complaint_number: n.complaint_number || null,
+        event_type: n.event_type,
+        channel: 'whatsapp',
+        recipient: phone,
+        subject: n.title,
+        message_preview: payload.whatsappText,
+        text_body: payload.whatsappText,
+        html_body: null,
+        status: 'fallback_ready',
+        mode: isMetaWhatsAppConfigured() ? 'cloud_api' : 'fallback',
+        provider_message_id: null,
+        fallback_url: waUrl,
+        error_message: null,
+        created_at: n.created_at,
+        dispatched_at: null,
+      });
+    }
+  }
 
   const mappings = [
     { id: 'map-1', category: 'Roads & Transport', department_id: deptRoadsId },
@@ -1976,6 +2102,8 @@ function createInitialStore() {
     officers,
     complaints,
     notifications,
+    notificationPreferences,
+    deliveryLogs,
     mappings,
     slaRules,
     auditLogs,
@@ -2085,16 +2213,192 @@ export function canUserAccessComplaint(user, complaint, store) {
   return false;
 }
 
-export function pushNotification(store, userId, title, body) {
-  if (!userId) return;
-  store.notifications.unshift({
-    id: makeId('notif'),
+export function getUserNotificationPreferences(store, userId) {
+  if (!store.notificationPreferences) {
+    store.notificationPreferences = new Map();
+  }
+  const existing = store.notificationPreferences.get(userId);
+  if (existing) return existing;
+
+  const user = store.users.find((u) => u.id === userId) || null;
+  const defaults = getDefaultNotificationPreferences(user);
+  store.notificationPreferences.set(userId, defaults);
+  return defaults;
+}
+
+export function updateUserNotificationPreferences(store, userId, patch = {}) {
+  const current = getUserNotificationPreferences(store, userId);
+  const next = {
+    ...current,
+    events: { ...current.events },
+  };
+
+  if (typeof patch.gmail_enabled === 'boolean') {
+    next.gmail_enabled = patch.gmail_enabled;
+  }
+  if (typeof patch.whatsapp_enabled === 'boolean') {
+    next.whatsapp_enabled = patch.whatsapp_enabled;
+  }
+
+  if (patch.gmail_address !== undefined) {
+    const trimmed = String(patch.gmail_address || '').trim();
+    if (trimmed && !isValidEmail(trimmed)) {
+      return { error: 'Please enter a valid Gmail or email address.' };
+    }
+    next.gmail_address = trimmed;
+  }
+
+  if (patch.whatsapp_phone !== undefined) {
+    const raw = String(patch.whatsapp_phone || '').trim();
+    if (raw) {
+      const normalized = normalizeWhatsAppPhone(raw);
+      if (!normalized) {
+        return { error: 'Enter a valid WhatsApp phone number with country code (10–15 digits).' };
+      }
+      next.whatsapp_phone = normalized;
+    } else {
+      next.whatsapp_phone = '';
+    }
+  }
+
+  if (patch.events && typeof patch.events === 'object') {
+    for (const key of VALID_EVENT_KEYS) {
+      if (patch.events[key] && typeof patch.events[key] === 'object') {
+        const currEvt = next.events[key] || { gmail: true, whatsapp: true };
+        next.events[key] = {
+          gmail: typeof patch.events[key].gmail === 'boolean' ? patch.events[key].gmail : currEvt.gmail,
+          whatsapp: typeof patch.events[key].whatsapp === 'boolean' ? patch.events[key].whatsapp : currEvt.whatsapp,
+        };
+      }
+    }
+  }
+
+  next.updated_at = new Date().toISOString();
+  store.notificationPreferences.set(userId, next);
+  return { preferences: next };
+}
+
+export function pushNotification(store, userId, title, body, options = {}) {
+  if (!userId) return null;
+  if (!store.deliveryLogs) store.deliveryLogs = [];
+
+  const recipient = store.users.find((u) => u.id === userId) || null;
+  const prefs = getUserNotificationPreferences(store, userId);
+  const eventType = options.eventType || inferEventTypeFromTitle(title);
+  const complaintId = options.complaintId || null;
+  const complaintNumber = options.complaintNumber || null;
+  const nowIso = new Date().toISOString();
+  const notifId = makeId('notif');
+
+  const eventSetting = prefs.events?.[eventType] || { gmail: true, whatsapp: true };
+  const payload = formatNotificationPayload({
+    eventType,
+    title,
+    body,
+    complaintNumber,
+    recipientName: recipient?.name,
+  });
+
+  const targetEmail = prefs.gmail_address || recipient?.email || '';
+  const targetPhone = prefs.whatsapp_phone || normalizeWhatsAppPhone(recipient?.phone || '');
+
+  const wantGmail = Boolean(prefs.gmail_enabled && eventSetting.gmail && isValidEmail(targetEmail));
+  const wantWhatsApp = Boolean(prefs.whatsapp_enabled && eventSetting.whatsapp && targetPhone);
+  const waFallbackUrl = targetPhone ? buildWhatsAppFallbackUrl(targetPhone, payload.whatsappText) : null;
+
+  const notif = {
+    id: notifId,
     user_id: userId,
+    event_type: eventType,
+    complaint_id: complaintId,
+    complaint_number: complaintNumber,
     title,
     body,
     is_read: false,
-    created_at: new Date().toISOString(),
-  });
+    recipient_email: targetEmail || null,
+    recipient_phone: targetPhone || null,
+    gmail_status: wantGmail ? 'queued' : 'disabled',
+    whatsapp_status: wantWhatsApp ? (isMetaWhatsAppConfigured() ? 'sending' : 'fallback_ready') : 'disabled',
+    whatsapp_fallback_url: wantWhatsApp ? waFallbackUrl : null,
+    gmail_log_id: null,
+    whatsapp_log_id: null,
+    created_at: nowIso,
+  };
+
+  if (wantGmail) {
+    const gmailLog = {
+      id: makeId('dlog'),
+      notification_id: notifId,
+      user_id: userId,
+      recipient_name: recipient?.name || 'User',
+      complaint_id: complaintId,
+      complaint_number: complaintNumber,
+      event_type: eventType,
+      channel: 'gmail',
+      recipient: targetEmail,
+      subject: payload.subject,
+      message_preview: body,
+      text_body: payload.textBody,
+      html_body: payload.htmlBody,
+      status: 'queued',
+      mode: 'gmail_api',
+      provider_message_id: null,
+      fallback_url: null,
+      error_message: null,
+      created_at: nowIso,
+      dispatched_at: null,
+    };
+    store.deliveryLogs.unshift(gmailLog);
+    notif.gmail_log_id = gmailLog.id;
+  }
+
+  if (wantWhatsApp) {
+    const waLog = {
+      id: makeId('dlog'),
+      notification_id: notifId,
+      user_id: userId,
+      recipient_name: recipient?.name || 'User',
+      complaint_id: complaintId,
+      complaint_number: complaintNumber,
+      event_type: eventType,
+      channel: 'whatsapp',
+      recipient: targetPhone,
+      subject: title,
+      message_preview: payload.whatsappText,
+      text_body: payload.whatsappText,
+      html_body: null,
+      status: isMetaWhatsAppConfigured() ? 'sending' : 'fallback_ready',
+      mode: isMetaWhatsAppConfigured() ? 'cloud_api' : 'fallback',
+      provider_message_id: null,
+      fallback_url: waFallbackUrl,
+      error_message: null,
+      created_at: nowIso,
+      dispatched_at: null,
+    };
+    store.deliveryLogs.unshift(waLog);
+    notif.whatsapp_log_id = waLog.id;
+
+    // Fire-and-forget Meta Cloud API dispatch when server credentials are configured
+    if (isMetaWhatsAppConfigured()) {
+      dispatchMetaWhatsAppMessage({ toPhone: targetPhone, bodyText: payload.whatsappText })
+        .then((result) => {
+          waLog.status = result.status;
+          waLog.mode = result.mode;
+          waLog.provider_message_id = result.providerMessageId;
+          waLog.error_message = result.error;
+          waLog.dispatched_at = result.ok ? new Date().toISOString() : null;
+          notif.whatsapp_status = result.status;
+        })
+        .catch((err) => {
+          waLog.status = 'failed';
+          waLog.error_message = err?.message || 'WhatsApp dispatch failed';
+          notif.whatsapp_status = 'failed';
+        });
+    }
+  }
+
+  store.notifications.unshift(notif);
+  return notif;
 }
 
 export function pushAudit(store, action, entityId, user, details = {}) {

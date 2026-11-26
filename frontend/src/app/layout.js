@@ -1,5 +1,6 @@
 import './globals.css';
 import { AuthProvider } from '@/lib/auth';
+import { GmailAuthProvider } from '@/lib/gmailAuth';
 import { ThemeProvider } from '@/lib/theme';
 import { LanguageProvider } from '@/lib/i18n';
 import Navbar from '@/components/Navbar';
@@ -45,26 +46,28 @@ export default function RootLayout({ children }) {
         </a>
         <ThemeProvider>
           <AuthProvider>
-            <LanguageProvider>
-              <div className="relative flex flex-col min-h-screen" style={{ background: 'var(--bg-page)' }}>
+            <GmailAuthProvider>
+              <LanguageProvider>
+                <div className="relative flex flex-col min-h-screen" style={{ background: 'var(--bg-page)' }}>
 
-                {/* Sticky Header */}
-                <div className="sticky top-0 z-50 w-full" style={{ background: 'var(--bg-header)', borderBottom: '1px solid var(--nav-border)', boxShadow: 'var(--shadow-xs)' }}>
-                  <Navbar />
+                  {/* Sticky Header */}
+                  <div className="sticky top-0 z-50 w-full" style={{ background: 'var(--bg-header)', borderBottom: '1px solid var(--nav-border)', boxShadow: 'var(--shadow-xs)' }}>
+                    <Navbar />
+                  </div>
+
+                  {/* Main Content */}
+                  <main
+                    id="main-content"
+                    className="flex-grow flex flex-col w-full max-w-[1400px] mx-auto px-4 md:px-8 pt-6 pb-16"
+                  >
+                    {children}
+                  </main>
+
+                  {/* Footer */}
+                  <Footer />
                 </div>
-
-                {/* Main Content */}
-                <main
-                  id="main-content"
-                  className="flex-grow flex flex-col w-full max-w-[1400px] mx-auto px-4 md:px-8 pt-6 pb-16"
-                >
-                  {children}
-                </main>
-
-                {/* Footer */}
-                <Footer />
-              </div>
-            </LanguageProvider>
+              </LanguageProvider>
+            </GmailAuthProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

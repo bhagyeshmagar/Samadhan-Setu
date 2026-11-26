@@ -95,3 +95,105 @@ async def notify_sla_warning(to_email: str, complaint_number: str):
         f"Samadhan Setu Autonomous SLA Monitor"
     )
     await dispatch_notification(to_email, subject, text)
+
+
+def normalize_whatsapp_phone(phone: Optional[str]) -> Optional[str]:
+    """Normalize a phone string into E.164 digits without a leading '+'."""
+    if not phone:
+        return None
+    digits = "".join(ch for ch in str(phone) if ch.isdigit())
+    if len(digits) == 10:
+        digits = f"91{digits}"
+    if 10 <= len(digits) <= 15:
+        return digits
+    return None
+
+
+def build_whatsapp_fallback_url(phone: Optional[str], message: str) -> Optional[str]:
+    """Build a safe wa.me click-to-send fallback URL."""
+    from urllib.parse import quote
+
+    digits = normalize_whatsapp_phone(phone)
+    if not digits:
+        return None
+    return f"https://wa.me/{digits}?text={quote(message[:1500])}"
+
+
+def _send_whatsapp_sync(to_phone: str, message: str) -> dict:
+    """Dispatch a text message via Meta WhatsApp Cloud API with click-to-send fallback."""
+    import json
+    import urllib.request
+    import urllib.error
+
+    digits = normalize_whatsapp_phone(to_phone)
+    if not digits:
+        return {"ok": False, "status": "failed", "error": "Invalid WhatsApp phone number"}
+
+    fallback_url = build_whatsapp_fallback_url(digits, message)
+    if not settings.WHATSAPP_ACCESS_TOKEN or not settings.WHATSAPP_PHONE_NUMBER_ID:
+        logger.info(f"[WHATSAPP FALLBACK READY] To: {digits} | URL generated")
+        return {
+            "ok": True,
+            "mode": "fallback",
+            "status": "fallback_ready",
+            "fallback_url": fallback_url,
+            "provider_message_id": None,
+        }
+
+    url = (
+        f"https://graph.facebook.com/{settings.WHATSAPP_GRAPH_VERSION}/"
+        f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    )
+    payload = json.dumps({
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": digits,
+        "type": "text",
+        "text": {"preview_url": False, "body": message[:4096]},
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            msg_id = (data.get("messages") or [{}])[0].get("id")
+            return {
+                "ok": True,
+                "mode": "cloud_api",
+                "status": "sent",
+                "provider_message_id": msg_id,
+                "fallback_url": fallback_url,
+            }
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        logger.warning(f"Meta WhatsApp Cloud API error ({exc.code}): {detail}")
+        return {
+            "ok": False,
+            "mode": "cloud_api",
+            "status": "failed",
+            "error": f"WhatsApp Cloud API HTTP {exc.code}",
+            "fallback_url": fallback_url,
+        }
+    except Exception as exc:
+        logger.warning(f"Failed to send WhatsApp message via Cloud API: {exc}")
+        return {
+            "ok": False,
+            "mode": "cloud_api",
+            "status": "failed",
+            "error": str(exc),
+            "fallback_url": fallback_url,
+        }
+
+
+async def dispatch_whatsapp_notification(to_phone: str, message: str) -> dict:
+    """Send a WhatsApp alert asynchronously via Meta Cloud API or return fallback URL."""
+    return await asyncio.to_thread(_send_whatsapp_sync, to_phone, message)
+

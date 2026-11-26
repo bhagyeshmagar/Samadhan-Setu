@@ -623,13 +623,42 @@ export const analyticsAPI = {
     getSmartAlerts: (days = 7) => apiRequest(`/api/analytics/smart-alerts?days=${days}`),
 };
 
-// Notifications API (H7)
+// Notifications API (H7 + Gmail API & Meta WhatsApp Cloud API channels)
 export const notificationsAPI = {
     getNotifications: (page = 1, per_page = 20, unread_only = false) =>
         apiRequest(`/api/notifications?page=${page}&per_page=${per_page}&unread_only=${unread_only}`),
     getCount: () => apiRequest('/api/notifications/count'),
     markRead: (id) => apiRequest(`/api/notifications/${id}/read`, { method: 'POST' }),
     markAllRead: () => apiRequest('/api/notifications/read-all', { method: 'POST' }),
+    getPreferences: () => apiRequest('/api/notifications/preferences'),
+    updatePreferences: (data) => apiRequest('/api/notifications/preferences', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+    }),
+    getDeliveryLogs: ({ channel = '', status = '', event_type = '', scope = 'mine', q = '' } = {}) => {
+        const params = new URLSearchParams();
+        if (channel) params.append('channel', channel);
+        if (status) params.append('status', status);
+        if (event_type) params.append('event_type', event_type);
+        if (scope) params.append('scope', scope);
+        if (q) params.append('q', q);
+        const qs = params.toString();
+        return apiRequest(`/api/notifications/logs${qs ? `?${qs}` : ''}`);
+    },
+    dispatchGmail: (payload, gmailAccessToken) => apiRequest('/api/notifications/dispatch/gmail', {
+        method: 'POST',
+        headers: gmailAccessToken ? { 'X-Gmail-Access-Token': gmailAccessToken } : {},
+        body: JSON.stringify(payload),
+    }),
+    dispatchWhatsApp: (payload) => apiRequest('/api/notifications/dispatch/whatsapp', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    }),
+    sendTest: (channel, payload = {}, gmailAccessToken = null) => apiRequest('/api/notifications/test', {
+        method: 'POST',
+        headers: gmailAccessToken ? { 'X-Gmail-Access-Token': gmailAccessToken } : {},
+        body: JSON.stringify({ channel, ...payload }),
+    }),
 };
 
 // AI Insights API (Phase 2)

@@ -10,5 +10,8 @@
     "build": "npm run build --workspace=frontend",
     "start": "npm run start --workspace=frontend",
     "lint": "npm run lint --workspace=frontend"
+  },
+  "dependencies": {
+    "firebase": "^13.4.0"
   }
 }

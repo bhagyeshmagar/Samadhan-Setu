@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { useRouter, usePathname } from 'next/navigation';
-import { Menu, X, User, LogOut, ChevronDown, Bell } from 'lucide-react';
-import { useState, useSyncExternalStore, useEffect, useRef, useCallback } from 'react';
+import { Menu, X, User, LogOut, ChevronDown, Bell, Mail, MessageCircle, Settings, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { useState, useSyncExternalStore, useEffect, useRef } from 'react';
 import { notificationsAPI } from '@/lib/api';
+import { useGmailAuth } from '@/lib/gmailAuth';
+import GmailConfirmModal from './GmailConfirmModal';
 import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
 
@@ -106,10 +108,14 @@ export default function Navbar() {
     const [prevPathname, setPrevPathname] = useState(pathname);
 
     // ── Notification bell state ──────────────────────────────────────────────
+    const { isConnected: gmailConnected, googleUser, markTokenExpired } = useGmailAuth();
     const [unreadCount, setUnreadCount] = useState(0);
     const [notifOpen, setNotifOpen] = useState(false);
     const [notifications, setNotifications] = useState([]);
     const [notifLoading, setNotifLoading] = useState(false);
+    const [notifFeedback, setNotifFeedback] = useState(null);
+    const [sendingWaId, setSendingWaId] = useState(null);
+    const [gmailModalNotif, setGmailModalNotif] = useState(null);
     const notifRef = useRef(null);
 
     // Poll unread count every 30 s when user is logged in
@@ -168,6 +174,63 @@ export default function Navbar() {
         await notificationsAPI.markRead(id).catch(() => {});
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
         setUnreadCount(prev => Math.max(0, prev - 1));
+    };
+
+    const handleConfirmBellGmail = async ({ toEmail, accessToken }) => {
+        if (!gmailModalNotif) return;
+        try {
+            const res = await notificationsAPI.dispatchGmail(
+                { notification_id: gmailModalNotif.id, to_email: toEmail },
+                accessToken
+            );
+            setNotifications(prev =>
+                prev.map(item =>
+                    item.id === gmailModalNotif.id
+                        ? { ...item, gmail_status: 'sent', recipient_email: toEmail }
+                        : item
+                )
+            );
+            setNotifFeedback({ type: 'success', text: res?.detail || `Sent via Gmail to ${toEmail}.` });
+        } catch (err) {
+            if (String(err?.message || '').toLowerCase().includes('expired')) {
+                markTokenExpired();
+            }
+            throw err;
+        }
+    };
+
+    const handleBellWhatsApp = async (notif) => {
+        setSendingWaId(notif.id);
+        setNotifFeedback(null);
+        try {
+            const res = await notificationsAPI.dispatchWhatsApp({ notification_id: notif.id });
+            setNotifications(prev =>
+                prev.map(item =>
+                    item.id === notif.id
+                        ? {
+                            ...item,
+                            whatsapp_status: res.status,
+                            whatsapp_fallback_url: res.fallback_url || item.whatsapp_fallback_url,
+                        }
+                        : item
+                )
+            );
+            if (res.status === 'sent') {
+                setNotifFeedback({ type: 'success', text: 'WhatsApp message sent via Meta Cloud API.' });
+            } else if (res.fallback_url) {
+                setNotifFeedback({
+                    type: 'info',
+                    text: 'WhatsApp message link ready — click Open WhatsApp to send.',
+                    url: res.fallback_url,
+                });
+            } else if (res.error) {
+                setNotifFeedback({ type: 'error', text: res.error });
+            }
+        } catch (err) {
+            setNotifFeedback({ type: 'error', text: err?.message || 'Unable to prepare WhatsApp alert.' });
+        } finally {
+            setSendingWaId(null);
+        }
     };
 
     // Close menus on route change without triggering cascading renders in effect
@@ -267,49 +330,188 @@ export default function Navbar() {
 
                                 {notifOpen && (
                                     <div
-                                        className="absolute right-0 top-full mt-2 w-80 max-h-[420px] flex flex-col rounded-xl shadow-xl border overflow-hidden z-50"
+                                        className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] max-h-[480px] flex flex-col rounded-xl shadow-xl border overflow-hidden z-50"
                                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                                     >
                                         {/* Header */}
                                         <div
-                                            className="flex items-center justify-between px-4 py-2.5 border-b text-sm font-semibold"
-                                            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                                            className="px-4 py-2.5 border-b"
+                                            style={{ borderColor: 'var(--border)', background: 'var(--bg-section)' }}
                                         >
-                                            <span>Notifications</span>
-                                            {unreadCount > 0 && (
-                                                <button
-                                                    onClick={handleMarkAllRead}
-                                                    className="text-xs font-medium text-(--navy) hover:underline"
-                                                >
-                                                    Mark all read
-                                                </button>
+                                            <div className="flex items-center justify-between text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                                <span>Notifications</span>
+                                                {unreadCount > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleMarkAllRead}
+                                                        className="text-xs font-medium hover:underline cursor-pointer"
+                                                        style={{ color: 'var(--text-navy)' }}
+                                                    >
+                                                        Mark all read
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                                <span>{gmailConnected ? `Gmail: ${googleUser?.email}` : 'Gmail: Not connected'}</span>
+                                                <span aria-hidden="true">·</span>
+                                                <span>WhatsApp: Ready</span>
+                                            </div>
+                                        </div>
+
+                                        {notifFeedback && (
+                                            <div
+                                                className="px-3.5 py-2 border-b text-[11px] flex items-center justify-between gap-2"
+                                                style={{
+                                                    borderColor: 'var(--border)',
+                                                    background: notifFeedback.type === 'error'
+                                                        ? 'var(--status-critical-bg)'
+                                                        : notifFeedback.type === 'success'
+                                                            ? 'var(--status-resolved-bg)'
+                                                            : 'var(--navy-xlight)',
+                                                    color: notifFeedback.type === 'error'
+                                                        ? 'var(--error)'
+                                                        : notifFeedback.type === 'success'
+                                                            ? 'var(--text-green)'
+                                                            : 'var(--text-navy)',
+                                                }}
+                                            >
+                                                <span className="truncate">{notifFeedback.text}</span>
+                                                {notifFeedback.url && (
+                                                    <a
+                                                        href={notifFeedback.url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1 font-semibold underline shrink-0"
+                                                    >
+                                                        <span>Open WhatsApp</span>
+                                                        <ExternalLink size={11} />
+                                                    </a>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Body */}
+                                        <div className="overflow-y-auto flex-1 divide-y" style={{ borderColor: 'var(--border)' }}>
+                                            {notifLoading ? (
+                                                <p className="text-xs p-4 text-center" style={{ color: 'var(--text-muted)' }}>Loading notifications…</p>
+                                            ) : notifications.length === 0 ? (
+                                                <p className="text-xs p-4 text-center" style={{ color: 'var(--text-muted)' }}>No notifications yet.</p>
+                                            ) : (
+                                                notifications.map(n => (
+                                                    <div
+                                                        key={n.id}
+                                                        className="px-4 py-3 transition-colors"
+                                                        style={{
+                                                            background: !n.is_read ? 'var(--navy-xlight)' : 'transparent',
+                                                            borderColor: 'var(--border)',
+                                                        }}
+                                                    >
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => !n.is_read && handleMarkOneRead(n.id)}
+                                                            className="w-full text-left cursor-pointer"
+                                                        >
+                                                            <p
+                                                                className="text-xs font-semibold truncate"
+                                                                style={{ color: !n.is_read ? 'var(--text-navy)' : 'var(--text-primary)' }}
+                                                            >
+                                                                {n.title}
+                                                            </p>
+                                                            <p className="text-[11px] mt-0.5 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
+                                                                {n.body}
+                                                            </p>
+                                                        </button>
+
+                                                        <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+                                                            <div className="text-[10px] tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                                                                {new Date(n.created_at).toLocaleString()}
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                {n.gmail_status === 'sent' ? (
+                                                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium" style={{ color: 'var(--text-green)' }}>
+                                                                        <CheckCircle2 size={11} />
+                                                                        Gmail sent
+                                                                    </span>
+                                                                ) : (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setGmailModalNotif(n);
+                                                                            setNotifOpen(false);
+                                                                        }}
+                                                                        className="inline-flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium transition-colors cursor-pointer whitespace-nowrap"
+                                                                        style={{
+                                                                            borderColor: 'var(--border-mid)',
+                                                                            color: 'var(--text-navy)',
+                                                                            background: 'var(--bg-card)',
+                                                                        }}
+                                                                    >
+                                                                        <Mail size={11} />
+                                                                        Send Gmail
+                                                                    </button>
+                                                                )}
+
+                                                                {n.whatsapp_status === 'sent' ? (
+                                                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium" style={{ color: 'var(--text-green)' }}>
+                                                                        <CheckCircle2 size={11} />
+                                                                        WhatsApp sent
+                                                                    </span>
+                                                                ) : n.whatsapp_fallback_url && n.whatsapp_status === 'fallback_ready' ? (
+                                                                    <a
+                                                                        href={n.whatsapp_fallback_url}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="inline-flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium transition-colors whitespace-nowrap"
+                                                                        style={{
+                                                                            borderColor: 'var(--border-mid)',
+                                                                            color: 'var(--text-green)',
+                                                                            background: 'var(--bg-card)',
+                                                                        }}
+                                                                    >
+                                                                        <MessageCircle size={11} />
+                                                                        WhatsApp
+                                                                        <ExternalLink size={9} />
+                                                                    </a>
+                                                                ) : (
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={sendingWaId === n.id}
+                                                                        onClick={() => handleBellWhatsApp(n)}
+                                                                        className="inline-flex items-center gap-1 px-2 py-1 rounded border text-[10px] font-medium transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60"
+                                                                        style={{
+                                                                            borderColor: 'var(--border-mid)',
+                                                                            color: 'var(--text-green)',
+                                                                            background: 'var(--bg-card)',
+                                                                        }}
+                                                                    >
+                                                                        <MessageCircle size={11} />
+                                                                        {sendingWaId === n.id ? 'Sending…' : 'WhatsApp'}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
                                             )}
                                         </div>
 
-                                        {/* Body */}
-                                        <div className="overflow-y-auto flex-1">
-                                            {notifLoading ? (
-                                                <p className="text-xs text-(--text-muted) p-4 text-center">Loading…</p>
-                                            ) : notifications.length === 0 ? (
-                                                <p className="text-xs text-(--text-muted) p-4 text-center">No notifications yet.</p>
-                                            ) : (
-                                                notifications.map(n => (
-                                                    <button
-                                                        key={n.id}
-                                                        onClick={() => !n.is_read && handleMarkOneRead(n.id)}
-                                                        className={`w-full text-left px-4 py-3 border-b transition-colors hover:bg-(--bg-section) ${!n.is_read ? 'bg-(--navy-xlight)' : ''}`}
-                                                        style={{ borderColor: 'var(--border)' }}
-                                                    >
-                                                        <p className={`text-xs font-semibold truncate ${!n.is_read ? 'text-(--navy)' : 'text-(--text-primary)'}`}>
-                                                            {n.title}
-                                                        </p>
-                                                        <p className="text-[11px] text-(--text-secondary) mt-0.5 line-clamp-2">{n.body}</p>
-                                                        <p className="text-[10px] text-(--text-muted) mt-1">
-                                                            {new Date(n.created_at).toLocaleString()}
-                                                        </p>
-                                                    </button>
-                                                ))
-                                            )}
+                                        {/* Footer */}
+                                        <div
+                                            className="px-4 py-2.5 border-t flex items-center justify-between"
+                                            style={{ borderColor: 'var(--border)', background: 'var(--bg-section)' }}
+                                        >
+                                            <Link
+                                                href="/notifications"
+                                                onClick={() => setNotifOpen(false)}
+                                                className="inline-flex items-center gap-1.5 text-xs font-semibold hover:underline"
+                                                style={{ color: 'var(--text-navy)' }}
+                                            >
+                                                <Settings size={13} />
+                                                <span>Preferences &amp; Delivery Logs</span>
+                                            </Link>
+                                            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                                                Gmail · WhatsApp
+                                            </span>
                                         </div>
                                     </div>
                                 )}
@@ -345,16 +547,25 @@ export default function Navbar() {
                                 {/* Dropdown */}
                                 {userMenuOpen && (
                                     <div
-                                        className="absolute right-0 top-full mt-1.5 w-44 rounded-xl shadow-lg border overflow-hidden z-50"
+                                        className="absolute right-0 top-full mt-1.5 w-52 rounded-xl shadow-lg border overflow-hidden z-50"
                                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                                     >
                                         <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
                                             <p className="text-xs font-semibold text-(--text-primary) truncate">{user.name}</p>
                                             <p className="text-[10px] text-(--text-muted) truncate">{user.email}</p>
                                         </div>
+                                        <Link
+                                            href="/notifications"
+                                            onClick={() => setUserMenuOpen(false)}
+                                            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm border-b transition-colors hover:bg-(--bg-section)"
+                                            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                                        >
+                                            <Settings size={14} style={{ color: 'var(--text-secondary)' }} />
+                                            <span>Notification Settings</span>
+                                        </Link>
                                         <button
                                             onClick={handleLogout}
-                                            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                                            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                                         >
                                             <LogOut size={14} />
                                             Sign out
@@ -375,12 +586,9 @@ export default function Navbar() {
                     {/* Mobile: Notification Bell & Hamburger (M-21 fix) */}
                     <div className="flex md:hidden items-center gap-1.5">
                         {user && (
-                            <button
-                                onClick={() => {
-                                    if (!notifOpen) setNotifLoading(true);
-                                    setNotifOpen(!notifOpen);
-                                    setMobileOpen(false);
-                                }}
+                            <Link
+                                href="/notifications"
+                                onClick={() => setMobileOpen(false)}
                                 className="relative p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
                                 aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ''}`}
                             >
@@ -393,7 +601,7 @@ export default function Navbar() {
                                         {unreadCount > 99 ? '99+' : unreadCount}
                                     </span>
                                 )}
-                            </button>
+                            </Link>
                         )}
                         <button
                             className="p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
@@ -460,6 +668,15 @@ export default function Navbar() {
 
                         {user ? (
                             <>
+                                <Link
+                                    href="/notifications"
+                                    onClick={() => setMobileOpen(false)}
+                                    className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-(--bg-section)"
+                                    style={{ color: 'var(--text-primary)' }}
+                                >
+                                    <Settings size={14} style={{ color: 'var(--text-secondary)' }} />
+                                    <span>Notification Settings (Gmail &amp; WhatsApp)</span>
+                                </Link>
                                 <div className="px-3 py-2">
                                     <p className="text-xs font-semibold text-(--text-primary)">{user.name}</p>
                                     <p className="text-[10px] text-(--text-muted)">{user.email}</p>
@@ -484,6 +701,18 @@ export default function Navbar() {
                     </nav>
                 </div>
             )}
+
+            {/* Explicit confirmation modal for Gmail dispatch triggered from the bell dropdown */}
+            <GmailConfirmModal
+                isOpen={Boolean(gmailModalNotif)}
+                onClose={() => setGmailModalNotif(null)}
+                onConfirm={handleConfirmBellGmail}
+                mode="single"
+                recipientEmail={gmailModalNotif?.recipient_email || googleUser?.email || user?.email || ''}
+                subject={gmailModalNotif ? `[Samadhan Setu] ${gmailModalNotif.title}` : ''}
+                previewBody={gmailModalNotif?.body || ''}
+                allowEditRecipient
+            />
         </HeaderShell>
     );
 }
