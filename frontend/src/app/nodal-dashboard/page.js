@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { workflowAPI, adminAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
@@ -29,6 +30,7 @@ import {
 
 function NodalOfficerDashboard() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tPriority } = useLanguage();
 
     const [dashboard, setDashboard] = useState(null);
     const [departments, setDepartments] = useState([]);
@@ -191,11 +193,11 @@ function NodalOfficerDashboard() {
     });
 
     const TABS = [
-        { key: 'intake', label: 'Intake & Inspection', count: (metrics.new_intake || 0) + (metrics.inspection_in_flight || 0) },
-        { key: 'review', label: 'Inspection Review', count: metrics.inspection_review || 0 },
-        { key: 'dispatch', label: 'Team Dispatch & Work', count: (metrics.ready_for_team || 0) + (metrics.active_field_work || 0) },
-        { key: 'final', label: 'Final Approval', count: metrics.final_approval || 0 },
-        { key: 'all', label: 'All Grievances', count: metrics.total || 0 },
+        { key: 'intake', label: t('tab_intake'), count: (metrics.new_intake || 0) + (metrics.inspection_in_flight || 0) },
+        { key: 'review', label: t('tab_review'), count: metrics.inspection_review || 0 },
+        { key: 'dispatch', label: t('tab_dispatch'), count: (metrics.ready_for_team || 0) + (metrics.active_field_work || 0) },
+        { key: 'final', label: t('tab_final'), count: metrics.final_approval || 0 },
+        { key: 'all', label: t('tab_all'), count: metrics.total || 0 },
     ];
 
     return (
@@ -203,11 +205,12 @@ function NodalOfficerDashboard() {
             {/* Toast */}
             {toast && (
                 <div
-                    className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg border shadow-lg text-xs font-semibold flex items-center gap-2 ${
-                        toast.tone === 'error'
-                            ? 'bg-red-50 border-red-200 text-red-700'
-                            : 'bg-[#E8F5E9] border-[#138808]/30 text-[#0A6B05]'
-                    }`}
+                    className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg border shadow-lg text-xs font-semibold flex items-center gap-2"
+                    style={{
+                        background: toast.tone === 'error' ? 'var(--status-critical-bg)' : 'var(--status-resolved-bg)',
+                        borderColor: toast.tone === 'error' ? 'var(--error)' : 'var(--india-green)',
+                        color: toast.tone === 'error' ? 'var(--error)' : 'var(--text-green)',
+                    }}
                 >
                     {toast.tone === 'error' ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
                     <span>{toast.message}</span>
@@ -219,15 +222,15 @@ function NodalOfficerDashboard() {
                 <div>
                     <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-(--text-muted)">
                         <Building2 size={13} className="text-(--navy)" />
-                        <span>{department?.name || 'Department'}</span>
+                        <span>{department?.name || t('department')}</span>
                         <span>·</span>
-                        <span>Nodal Officer Command</span>
+                        <span>{t('nodal_command')}</span>
                     </div>
-                    <h1 className="text-2xl font-bold tracking-tight text-(--text-primary) mt-1">
-                        Grievance Orchestration & Proof Verification
+                    <h1 className="text-2xl font-bold tracking-tight mt-1" style={{ color: 'var(--navy)' }}>
+                        {t('nodal_title')}
                     </h1>
                     <p className="text-xs text-(--text-secondary) mt-1">
-                        Assign inspections, verify site proofs side-by-side, dispatch field teams, and approve final citizen notifications.
+                        {t('nodal_sub')}
                     </p>
                 </div>
 
@@ -253,17 +256,17 @@ function NodalOfficerDashboard() {
                     <button
                         type="button"
                         onClick={() => loadDashboard(selectedDeptId || undefined)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap cursor-pointer"
                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)', color: 'var(--text-primary)' }}
                     >
                         <RefreshCw size={13} />
-                        <span>Refresh</span>
+                        <span>{t('refresh')}</span>
                     </button>
                 </div>
             </div>
 
             {error && (
-                <div className="p-3.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs flex items-center gap-2">
+                <div className="gov-alert error text-xs">
                     <AlertTriangle size={15} />
                     <span>{error}</span>
                 </div>
@@ -272,17 +275,17 @@ function NodalOfficerDashboard() {
             {/* KPI Strip — Single-elevation 1px hairline border */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 {[
-                    { label: 'New Intake', value: metrics.new_intake ?? 0, sub: 'Awaiting Inspector', accent: '#003580', tab: 'intake' },
-                    { label: 'Inspection Review', value: metrics.inspection_review ?? 0, sub: 'Verify Proof (Step 4)', accent: '#C2410C', tab: 'review' },
-                    { label: 'Ready for Team', value: metrics.ready_for_team ?? 0, sub: 'Dispatch Squad (Step 5)', accent: '#0369A1', tab: 'dispatch' },
-                    { label: 'Final Approval', value: metrics.final_approval ?? 0, sub: '3-Way Check (Step 8)', accent: '#138808', tab: 'final' },
-                    { label: 'Resolved', value: metrics.resolved ?? 0, sub: 'Citizen Notified', accent: '#475569', tab: 'all' },
+                    { label: t('tab_intake'), value: metrics.new_intake ?? 0, sub: t('wf_inspect'), accent: 'var(--navy)', tab: 'intake' },
+                    { label: t('tab_review'), value: metrics.inspection_review ?? 0, sub: t('wf_nodal_check'), accent: 'var(--text-saffron)', tab: 'review' },
+                    { label: t('tab_dispatch'), value: metrics.ready_for_team ?? 0, sub: t('wf_team'), accent: 'var(--navy)', tab: 'dispatch' },
+                    { label: t('tab_final'), value: metrics.final_approval ?? 0, sub: t('wf_verify'), accent: 'var(--text-green)', tab: 'final' },
+                    { label: t('resolved'), value: metrics.resolved ?? 0, sub: t('wf_resolved'), accent: 'var(--text-secondary)', tab: 'all' },
                 ].map((kpi) => (
                     <button
                         key={kpi.label}
                         type="button"
                         onClick={() => setActiveTab(kpi.tab)}
-                        className="text-left rounded-lg border p-3.5 transition-colors hover:bg-(--bg-card-hover)"
+                        className="text-left rounded-lg border p-3.5 transition-colors hover:bg-(--bg-card-hover) cursor-pointer"
                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
                         <div className="text-[11px] font-semibold uppercase tracking-wider text-(--text-muted)">{kpi.label}</div>
@@ -303,26 +306,28 @@ function NodalOfficerDashboard() {
                         className="flex items-center gap-1 overflow-x-auto p-1 rounded-lg border"
                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
-                        {TABS.map((t) => {
-                            const active = activeTab === t.key;
+                        {TABS.map((tab) => {
+                            const active = activeTab === tab.key;
                             return (
                                 <button
-                                    key={t.key}
+                                    key={tab.key}
                                     type="button"
-                                    onClick={() => setActiveTab(t.key)}
-                                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                                        active
-                                            ? 'bg-[#003580] text-white'
-                                            : 'text-(--text-secondary) hover:bg-(--bg-section)'
-                                    }`}
+                                    onClick={() => setActiveTab(tab.key)}
+                                    className="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer"
+                                    style={{
+                                        background: active ? 'var(--navy)' : 'transparent',
+                                        color: active ? 'var(--primary-ink)' : 'var(--text-secondary)',
+                                    }}
                                 >
-                                    <span>{t.label}</span>
+                                    <span>{tab.label}</span>
                                     <span
-                                        className={`text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded ${
-                                            active ? 'bg-white/20 text-white' : 'bg-(--bg-section) text-(--text-muted)'
-                                        }`}
+                                        className="text-[10px] font-mono tabular-nums px-1.5 py-0.2 rounded"
+                                        style={{
+                                            background: active ? 'rgba(0,0,0,0.18)' : 'var(--bg-section)',
+                                            color: active ? 'var(--primary-ink)' : 'var(--text-muted)',
+                                        }}
                                     >
-                                        {t.count}
+                                        {tab.count}
                                     </span>
                                 </button>
                             );
@@ -359,7 +364,7 @@ function NodalOfficerDashboard() {
                                                     className="capitalize font-semibold"
                                                     style={{ color: getPriorityConfig(c.priority).accent }}
                                                 >
-                                                    {c.priority} priority
+                                                    {tPriority(c.priority)}
                                                 </span>
                                                 <span>·</span>
                                                 <span>{c.ward}</span>
@@ -389,21 +394,22 @@ function NodalOfficerDashboard() {
                                         </span>
                                         {c.assigned_inspector_name && (
                                             <span>
-                                                Inspector: <strong className="text-(--text-primary)">{c.assigned_inspector_name}</strong>
+                                                {t('role_inspection_officer')}: <strong className="text-(--text-primary)">{c.assigned_inspector_name}</strong>
                                             </span>
                                         )}
                                         {c.assigned_team_name && (
                                             <span>
-                                                Team: <strong className="text-(--text-primary)">{c.assigned_team_name}</strong>
+                                                {t('wf_team')}: <strong className="text-(--text-primary)">{c.assigned_team_name}</strong>
                                             </span>
                                         )}
                                     </div>
 
                                     {c.rework_reason && (
-                                        <div className="px-3 py-2 rounded border border-amber-200 bg-amber-50 text-amber-900 text-xs flex items-start gap-2">
+                                        <div className="px-3 py-2 rounded border text-xs flex items-start gap-2"
+                                            style={{ background: 'var(--status-progress-bg)', borderColor: 'var(--saffron)', color: 'var(--text-saffron)' }}>
                                             <AlertTriangle size={14} className="shrink-0 mt-0.5" />
                                             <span>
-                                                <strong>Rework Note:</strong> {c.rework_reason}
+                                                <strong>{t('tab_rework')}:</strong> {c.rework_reason}
                                             </span>
                                         </div>
                                     )}
@@ -425,8 +431,8 @@ function NodalOfficerDashboard() {
                                                 <button
                                                     type="button"
                                                     onClick={() => openAssignModal('inspector', c)}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-                                                    style={{ background: '#003580' }}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap cursor-pointer"
+                                                    style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}
                                                 >
                                                     <UserPlus size={13} />
                                                     <span>
@@ -440,8 +446,8 @@ function NodalOfficerDashboard() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setComparisonState({ complaint: c, mode: 'initial_inspection' })}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-                                                    style={{ background: '#C2410C' }}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                                                    style={{ background: 'var(--saffron-dark)' }}
                                                 >
                                                     <ShieldCheck size={13} />
                                                     <span>Compare & Confirm Inspection</span>
@@ -453,8 +459,8 @@ function NodalOfficerDashboard() {
                                                 <button
                                                     type="button"
                                                     onClick={() => openAssignModal('team', c)}
-                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-                                                    style={{ background: '#003580' }}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap cursor-pointer"
+                                                    style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}
                                                 >
                                                     <Wrench size={13} />
                                                     <span>{c.assigned_team_id ? 'Reassign Field Team' : 'Assign Field Team'}</span>

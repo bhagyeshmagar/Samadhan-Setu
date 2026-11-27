@@ -28,8 +28,8 @@ export default function RootLayout({ children }) {
             position: absolute;
             top: -100%;
             left: 0;
-            background: #003580;
-            color: white;
+            background: var(--navy);
+            color: var(--primary-ink);
             padding: 0.5rem 1rem;
             font-size: 0.875rem;
             font-weight: 600;

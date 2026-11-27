@@ -4,27 +4,19 @@ import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Loader2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { resolveRouteDecision } from '@/lib/roleRouting';
 
-/**
- * Higher-Order Component (`withRoleGuard`) that enforces client-side role
- * detection and conditional dashboard redirection in tandem with Next.js
- * server middleware (`src/proxy.js`).
- *
- * Options:
- *  - allowedRoles?: string[]   Explicit roles permitted to render WrappedComponent
- *  - redirectOnly?: boolean    Always redirect authenticated users to their dashboard (/dashboard, /department)
- *  - loadingLabel?: string     Accessible status label while checking permissions
- */
 export default function withRoleGuard(WrappedComponent, options = {}) {
     const {
         allowedRoles = null,
         redirectOnly = false,
-        loadingLabel = 'Verifying role permissions…',
+        loadingLabel,
     } = options;
 
     function RoleGuardedComponent(props) {
         const { user, loading } = useAuth();
+        const { t } = useLanguage();
         const router = useRouter();
         const pathname = usePathname();
 
@@ -46,10 +38,10 @@ export default function withRoleGuard(WrappedComponent, options = {}) {
 
         if (loading || decision.action !== 'allow') {
             const statusText = loading
-                ? loadingLabel
+                ? (loadingLabel || t('verifying_permissions'))
                 : decision.destination?.startsWith('/login')
-                ? 'Redirecting to sign in…'
-                : 'Redirecting to your role dashboard…';
+                ? t('redirecting_signin')
+                : t('redirecting_dashboard');
 
             return (
                 <div
@@ -72,7 +64,7 @@ export default function withRoleGuard(WrappedComponent, options = {}) {
                         {statusText}
                     </p>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        Routing based on your authenticated departmental role.
+                        {t('routing_role_note')}
                     </p>
                 </div>
             );

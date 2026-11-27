@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { workflowAPI, getImageUrl } from '@/lib/api';
 import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
@@ -29,6 +30,7 @@ import {
 
 function InspectionOfficerDashboard() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tPriority } = useLanguage();
 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -150,11 +152,12 @@ function InspectionOfficerDashboard() {
                 <div
                     role="status"
                     data-testid="inspector-toast"
-                    className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg border shadow-lg text-xs font-semibold flex items-center gap-2 ${
-                        toast.tone === 'error'
-                            ? 'bg-red-50 border-red-200 text-red-700'
-                            : 'bg-[#E8F5E9] border-[#138808]/30 text-[#0A6B05]'
-                    }`}
+                    className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg border shadow-lg text-xs font-semibold flex items-center gap-2"
+                    style={{
+                        background: toast.tone === 'error' ? 'var(--status-critical-bg)' : 'var(--status-resolved-bg)',
+                        borderColor: toast.tone === 'error' ? 'var(--error)' : 'var(--india-green)',
+                        color: toast.tone === 'error' ? 'var(--error)' : 'var(--text-green)',
+                    }}
                 >
                     {toast.tone === 'error' ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
                     <span>{toast.message}</span>
@@ -165,35 +168,35 @@ function InspectionOfficerDashboard() {
             <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
                 <div>
                     <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-(--text-muted)">
-                        <span>{officer?.department_name || 'Department'}</span>
+                        <span>{officer?.department_name || t('department')}</span>
                         <span aria-hidden="true">·</span>
-                        <span className="font-mono">{officer?.employee_id || 'INSPECTOR'}</span>
+                        <span className="font-mono">{officer?.employee_id || t('role_inspection_officer')}</span>
                         <span aria-hidden="true">·</span>
-                        <span className="inline-flex items-center gap-1 text-[#0369A1]">
-                            <Lock size={11} /> Strictly Isolated Queue
+                        <span className="inline-flex items-center gap-1" style={{ color: 'var(--text-navy)' }}>
+                            <Lock size={11} /> {t('inspector_scope')}
                         </span>
                     </div>
-                    <h1 className="text-2xl font-bold tracking-tight text-(--text-primary) mt-1">
-                        Field Inspection & Verification Desk
+                    <h1 className="text-2xl font-bold tracking-tight mt-1" style={{ color: 'var(--navy)' }}>
+                        {t('inspector_title')}
                     </h1>
                     <p className="text-xs text-(--text-secondary) mt-1">
-                        Signed in as <strong>{user?.name}</strong> ({officer?.designation || 'Inspection Officer'}). You only see site inspections and post-repair checks assigned directly to you.
+                        {t('inspector_sub')} · <strong>{user?.name}</strong>
                     </p>
                 </div>
 
                 <button
                     type="button"
                     onClick={loadDashboard}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-md border whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-md border whitespace-nowrap cursor-pointer"
                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)', color: 'var(--text-primary)' }}
                 >
                     <RefreshCw size={13} />
-                    <span>Refresh Tasks</span>
+                    <span>{t('refresh')}</span>
                 </button>
             </div>
 
             {error && (
-                <div className="p-3.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs flex items-center gap-2">
+                <div className="gov-alert error text-xs">
                     <AlertTriangle size={15} />
                     <span>{error}</span>
                 </div>
@@ -202,16 +205,16 @@ function InspectionOfficerDashboard() {
             {/* KPI Strip */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: 'Initial Inspections', value: metrics.initial_pending ?? 0, sub: 'Step 3 · Field Site Check', accent: '#003580', tab: 'initial' },
-                    { label: 'Post-Repair Checks', value: metrics.post_verification_pending ?? 0, sub: 'Step 7 · Verify Resolution', accent: '#138808', tab: 'verification' },
-                    { label: 'Rework Requested', value: metrics.rework_requested ?? 0, sub: 'Returned by Nodal Officer', accent: '#DC2626', tab: 'initial' },
-                    { label: 'Submitted / Done', value: metrics.completed_or_submitted ?? 0, sub: 'Awaiting Next Stage', accent: '#475569', tab: 'all' },
+                    { label: t('tab_initial_insp'), value: metrics.initial_pending ?? 0, sub: t('wf_inspect'), accent: 'var(--navy)', tab: 'initial' },
+                    { label: t('tab_post_verify'), value: metrics.post_verification_pending ?? 0, sub: t('wf_verify'), accent: 'var(--text-green)', tab: 'verification' },
+                    { label: t('tab_rework'), value: metrics.rework_requested ?? 0, sub: t('role_nodal_officer'), accent: 'var(--error)', tab: 'initial' },
+                    { label: t('tab_submitted'), value: metrics.completed_or_submitted ?? 0, sub: t('tab_final'), accent: 'var(--text-secondary)', tab: 'all' },
                 ].map((kpi) => (
                     <button
                         key={kpi.label}
                         type="button"
                         onClick={() => setActiveTab(kpi.tab)}
-                        className="text-left rounded-lg border p-3.5 transition-colors hover:bg-(--bg-card-hover)"
+                        className="text-left rounded-lg border p-3.5 transition-colors hover:bg-(--bg-card-hover) cursor-pointer"
                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
                         <div className="text-xs font-semibold text-(--text-muted)">{kpi.label}</div>
@@ -229,30 +232,34 @@ function InspectionOfficerDashboard() {
                 style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
             >
                 {[
-                    { key: 'initial', label: 'Initial Site Inspections (Step 3)', count: initialInspections.length },
-                    { key: 'verification', label: 'Post-Repair Verifications (Step 7)', count: postVerifications.length },
-                    { key: 'all', label: 'All My Assigned Tasks', count: allTasks.length },
-                ].map((t) => {
-                    const active = activeTab === t.key;
+                    { key: 'initial', label: t('tab_initial_insp'), count: initialInspections.length },
+                    { key: 'verification', label: t('tab_post_verify'), count: postVerifications.length },
+                    { key: 'all', label: t('tab_all_tasks'), count: allTasks.length },
+                ].map((tab) => {
+                    const active = activeTab === tab.key;
                     return (
                         <button
-                            key={t.key}
+                            key={tab.key}
                             type="button"
                             onClick={() => {
-                                setActiveTab(t.key);
+                                setActiveTab(tab.key);
                                 setActiveFormTask(null);
                             }}
-                            className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                                active ? 'bg-[#003580] text-white' : 'text-(--text-secondary) hover:bg-(--bg-section)'
-                            }`}
+                            className="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer"
+                            style={{
+                                background: active ? 'var(--navy)' : 'transparent',
+                                color: active ? 'var(--primary-ink)' : 'var(--text-secondary)',
+                            }}
                         >
-                            <span>{t.label}</span>
+                            <span>{tab.label}</span>
                             <span
-                                className={`text-[10px] font-mono tabular-nums px-1.5 rounded ${
-                                    active ? 'bg-white/20 text-white' : 'bg-(--bg-section) text-(--text-muted)'
-                                }`}
+                                className="text-[10px] font-mono tabular-nums px-1.5 rounded"
+                                style={{
+                                    background: active ? 'rgba(0,0,0,0.18)' : 'var(--bg-section)',
+                                    color: active ? 'var(--primary-ink)' : 'var(--text-muted)',
+                                }}
                             >
-                                {t.count}
+                                {tab.count}
                             </span>
                         </button>
                     );
@@ -298,7 +305,7 @@ function InspectionOfficerDashboard() {
                                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-(--text-muted)">
                                             <span className="font-mono font-bold text-(--navy)">{c.complaint_number}</span>
                                             <span aria-hidden="true">·</span>
-                                            <span className="capitalize font-semibold text-(--text-secondary)">{c.priority} priority</span>
+                                            <span className="capitalize font-semibold text-(--text-secondary)">{tPriority(c.priority)}</span>
                                             <span aria-hidden="true">·</span>
                                             <span>{c.ward}</span>
                                         </div>
@@ -328,10 +335,11 @@ function InspectionOfficerDashboard() {
 
                                 {/* Rework Banner */}
                                 {c.status === 'inspection_rework' && c.rework_reason && (
-                                    <div className="p-3 rounded-md border border-red-200 bg-red-50 text-red-800 text-xs flex items-start gap-2">
+                                    <div className="p-3 rounded-md border text-xs flex items-start gap-2"
+                                        style={{ background: 'var(--status-critical-bg)', borderColor: 'var(--error)', color: 'var(--error)' }}>
                                         <AlertTriangle size={15} className="shrink-0 mt-0.5" />
                                         <div>
-                                            <div className="font-bold">Rework Requested by Nodal Officer</div>
+                                            <div className="font-bold">{t('tab_rework')}</div>
                                             <p className="mt-0.5">{c.rework_reason}</p>
                                         </div>
                                     </div>
@@ -554,8 +562,8 @@ function InspectionOfficerDashboard() {
                                                     type="button"
                                                     data-testid={`open-inspection-upload-${c.complaint_number}`}
                                                     onClick={() => setActiveFormTask({ complaint: c, type: 'initial' })}
-                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-                                                    style={{ background: '#003580' }}
+                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold whitespace-nowrap cursor-pointer"
+                                                    style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}
                                                 >
                                                     <Camera size={14} />
                                                     <span>
@@ -568,8 +576,8 @@ function InspectionOfficerDashboard() {
                                                     type="button"
                                                     data-testid={`open-verification-upload-${c.complaint_number}`}
                                                     onClick={() => setActiveFormTask({ complaint: c, type: 'verification' })}
-                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-                                                    style={{ background: '#138808' }}
+                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                                                    style={{ background: 'var(--india-green)' }}
                                                 >
                                                     <ShieldCheck size={14} />
                                                     <span>Verify Resolution On-Site</span>

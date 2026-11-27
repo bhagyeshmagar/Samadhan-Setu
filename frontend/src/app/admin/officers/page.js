@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { adminAPI } from '@/lib/api';
 import {
     Users, Plus, Edit2, Trash2, X, Check, AlertTriangle,
     Loader2, ChevronRight, Search, Building2, Shield,
-    UserCheck, UserX, RefreshCw, BadgeCheck,
+    UserCheck, UserX, RefreshCw,
 } from 'lucide-react';
 
 /* ── Modal wrapper ── */
@@ -51,11 +52,11 @@ const ROLE_OPTIONS = [
 ];
 
 const ROLE_BADGE_MAP = {
-    nodal_officer: { label: 'Nodal Officer', bg: '#FFF7ED', color: '#C2410C' },
-    inspection_officer: { label: 'Inspector', bg: '#E0F2FE', color: '#0369A1' },
-    team_lead: { label: 'Team Lead', bg: '#ECFDF5', color: '#047857' },
-    supervisor: { label: 'Supervisor', bg: '#FEF3C7', color: '#B45309' },
-    officer: { label: 'Officer', bg: '#EEF3FB', color: '#003580' },
+    nodal_officer: { bg: 'var(--saffron-light)', color: 'var(--text-saffron)' },
+    inspection_officer: { bg: 'var(--navy-light)', color: 'var(--text-navy)' },
+    team_lead: { bg: 'var(--india-green-light)', color: 'var(--text-green)' },
+    supervisor: { bg: 'var(--status-progress-bg)', color: 'var(--status-progress)' },
+    officer: { bg: 'var(--navy-light)', color: 'var(--text-navy)' },
 };
 
 /* ── Create Officer Modal ── */
@@ -172,7 +173,7 @@ function CreateOfficerModal({ departments, teams, onClose, onCreated }) {
                     </button>
                     <button type="submit" disabled={loading}
                         className="flex items-center gap-2 text-sm px-5 py-2 rounded-lg font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white', opacity: loading ? 0.7 : 1 }}>
+                        style={{ background: 'var(--navy)', color: 'var(--primary-ink)', opacity: loading ? 0.7 : 1 }}>
                         {loading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                         {loading ? 'Creating…' : 'Create Officer'}
                     </button>
@@ -264,7 +265,7 @@ function EditOfficerModal({ officer, departments, teams, onClose, onUpdated }) {
                     <button type="button" onClick={onClose} className="btn-ghost text-sm px-4 py-2">Cancel</button>
                     <button type="submit" disabled={loading}
                         className="flex items-center gap-2 text-sm px-5 py-2 rounded-lg font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white', opacity: loading ? 0.7 : 1 }}>
+                        style={{ background: 'var(--navy)', color: 'var(--primary-ink)', opacity: loading ? 0.7 : 1 }}>
                         {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                         {loading ? 'Saving…' : 'Save Changes'}
                     </button>
@@ -316,6 +317,7 @@ function ConfirmModal({ officer, onClose, onConfirm }) {
 /* ── Main page ── */
 export default function OfficersManagementPage() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tRole } = useLanguage();
     const router = useRouter();
 
     const [officers, setOfficers] = useState([]);
@@ -391,7 +393,7 @@ export default function OfficersManagementPage() {
             <div className="flex justify-center items-center h-[60vh]">
                 <div className="flex flex-col items-center gap-3">
                     <Loader2 className="animate-spin" size={32} style={{ color: 'var(--navy)' }} />
-                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading officers…</p>
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('loading_officers')}</p>
                 </div>
             </div>
         );
@@ -432,26 +434,26 @@ export default function OfficersManagementPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                     <div className="breadcrumb mb-2">
-                        <span>Admin</span>
+                        <span>{t('admin_oversight')}</span>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span className="breadcrumb-current">Officers</span>
+                        <span className="breadcrumb-current">{t('officers')}</span>
                     </div>
                     <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                        Officer Management
+                        {t('officers_mgmt_title')}
                     </h1>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        Manage field officers across all departments — अधिकारी प्रबंधन
+                        {t('officers_mgmt_sub')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={fetchData} className="btn-ghost flex items-center gap-1.5 text-xs">
-                        <RefreshCw size={13} /> Refresh
+                        <RefreshCw size={13} /> {t('refresh')}
                     </button>
                     <button
                         onClick={() => setShowCreate(true)}
                         className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white' }}>
-                        <Plus size={15} /> Add Officer
+                        style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}>
+                        <Plus size={15} /> {t('add_officer')}
                     </button>
                 </div>
             </div>
@@ -478,7 +480,7 @@ export default function OfficersManagementPage() {
                                 color: 'var(--text-primary)',
                                 outline: 'none',
                             }}
-                            placeholder="Search by name, email, employee ID…"
+                            placeholder={t('search_officers_placeholder')}
                             value={search}
                             onChange={e => setSearch(e.target.value)}
                         />
@@ -494,11 +496,11 @@ export default function OfficersManagementPage() {
                         }}
                         value={roleFilter}
                         onChange={e => setRoleFilter(e.target.value)}>
-                        <option value="">All Roles</option>
-                        <option value="nodal_officer">Nodal Officers</option>
-                        <option value="inspection_officer">Inspection Officers</option>
-                        <option value="team_lead">Field Team Leads</option>
-                        <option value="supervisor">Supervisors</option>
+                        <option value="">{t('all_roles')}</option>
+                        <option value="nodal_officer">{tRole('nodal_officer')}</option>
+                        <option value="inspection_officer">{tRole('inspection_officer')}</option>
+                        <option value="team_lead">{tRole('team_lead')}</option>
+                        <option value="supervisor">{tRole('supervisor')}</option>
                     </select>
                     <select
                         className="py-2 px-3 rounded-lg text-sm"
@@ -511,7 +513,7 @@ export default function OfficersManagementPage() {
                         }}
                         value={deptFilter}
                         onChange={e => setDeptFilter(e.target.value)}>
-                        <option value="">All Departments</option>
+                        <option value="">{t('all_departments')}</option>
                         {departments.map(d => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
@@ -522,9 +524,9 @@ export default function OfficersManagementPage() {
             {/* Stats row */}
             <div className="grid grid-cols-3 gap-4 mb-5">
                 {[
-                    { label: 'Total Officers', val: officers.length, color: 'var(--navy)', icon: <Users size={18}/> },
-                    { label: 'Active', val: officers.filter(o => o.is_active).length, color: 'var(--india-green)', icon: <UserCheck size={18}/> },
-                    { label: 'Inactive', val: officers.filter(o => !o.is_active).length, color: 'var(--text-muted)', icon: <UserX size={18}/> },
+                    { label: t('total_officers'), val: officers.length, color: 'var(--navy)', icon: <Users size={18}/> },
+                    { label: t('active'), val: officers.filter(o => o.is_active).length, color: 'var(--india-green)', icon: <UserCheck size={18}/> },
+                    { label: t('inactive'), val: officers.filter(o => !o.is_active).length, color: 'var(--text-muted)', icon: <UserX size={18}/> },
                 ].map(s => (
                     <div key={s.label} className="gov-card p-4 flex items-center gap-4">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -544,19 +546,19 @@ export default function OfficersManagementPage() {
             <div className="gov-section">
                 <div className="gov-section-header">
                     <span className="gov-section-title flex items-center gap-2">
-                        <Shield size={12} /> Officers ({filtered.length})
+                        <Shield size={12} /> {t('officers')} ({filtered.length})
                     </span>
                 </div>
                 {filtered.length === 0 ? (
                     <div className="flex flex-col items-center py-16 gap-3">
                         <Users size={36} style={{ color: 'var(--border-mid)' }} />
                         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                            {search ? 'No officers match your search' : 'No officers found'}
+                            {search ? t('no_officers_match') : t('no_officers_found')}
                         </p>
                         <button onClick={() => setShowCreate(true)}
                             className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold mt-2"
-                            style={{ background: 'var(--navy)', color: 'white' }}>
-                            <Plus size={14} /> Add First Officer
+                            style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}>
+                            <Plus size={14} /> {t('add_first_officer')}
                         </button>
                     </div>
                 ) : (
@@ -564,19 +566,20 @@ export default function OfficersManagementPage() {
                         <table className="gov-table">
                             <thead>
                                 <tr>
-                                    <th>Officer</th>
-                                    <th>Role & Team</th>
-                                    <th>Employee ID</th>
-                                    <th>Department</th>
-                                    <th>Designation</th>
-                                    <th>Workload</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th>{t('col_officer')}</th>
+                                    <th>{t('col_role_team')}</th>
+                                    <th>{t('col_employee_id')}</th>
+                                    <th>{t('department')}</th>
+                                    <th>{t('col_designation')}</th>
+                                    <th>{t('col_workload')}</th>
+                                    <th>{t('col_status')}</th>
+                                    <th>{t('col_actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filtered.map(o => {
-                                    const rBadge = ROLE_BADGE_MAP[o.role || o.officer_role] || ROLE_BADGE_MAP.officer;
+                                    const roleKey = o.role || o.officer_role || 'officer';
+                                    const rBadge = ROLE_BADGE_MAP[roleKey] || ROLE_BADGE_MAP.officer;
                                     return (
                                     <tr key={o.id}>
                                         <td>
@@ -592,7 +595,7 @@ export default function OfficersManagementPage() {
                                                     className="inline-block text-[11px] font-bold px-2 py-0.5 rounded"
                                                     style={{ background: rBadge.bg, color: rBadge.color }}
                                                 >
-                                                    {rBadge.label}
+                                                    {tRole(roleKey)}
                                                 </span>
                                                 {o.team_name && (
                                                     <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
@@ -617,21 +620,21 @@ export default function OfficersManagementPage() {
                                         <td>
                                             <div className="text-xs space-y-0.5 tabular-nums">
                                                 <div style={{ color: 'var(--navy)' }}>
-                                                    {o.current_active_count ?? 0} active
+                                                    {o.current_active_count ?? 0} {t('active').toLowerCase()}
                                                 </div>
                                                 <div style={{ color: 'var(--india-green)' }}>
-                                                    ✓ {o.total_resolved} resolved
+                                                    ✓ {o.total_resolved} {t('resolved').toLowerCase()}
                                                 </div>
                                             </div>
                                         </td>
                                         <td>
                                             {o.is_active ? (
                                                 <span className="badge badge-resolved">
-                                                    <span className="badge-dot" /> Active
+                                                    <span className="badge-dot" /> {t('active')}
                                                 </span>
                                             ) : (
                                                 <span className="badge badge-muted">
-                                                    <span className="badge-dot" /> Inactive
+                                                    <span className="badge-dot" /> {t('inactive')}
                                                 </span>
                                             )}
                                         </td>
@@ -640,7 +643,7 @@ export default function OfficersManagementPage() {
                                                 <button
                                                     onClick={() => setEditOfficer(o)}
                                                     className="btn-ghost p-1.5 rounded-lg"
-                                                    title="Edit officer">
+                                                    title={t('edit_officer')}>
                                                     <Edit2 size={13} />
                                                 </button>
                                                 {o.is_active && (
@@ -648,7 +651,7 @@ export default function OfficersManagementPage() {
                                                         onClick={() => setDeleteOfficer(o)}
                                                         className="btn-ghost p-1.5 rounded-lg"
                                                         style={{ color: 'var(--status-critical)' }}
-                                                        title="Deactivate officer">
+                                                        title={t('deactivate_officer')}>
                                                         <Trash2 size={13} />
                                                     </button>
                                                 )}

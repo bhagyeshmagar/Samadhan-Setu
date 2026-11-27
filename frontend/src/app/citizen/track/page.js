@@ -4,19 +4,23 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { complaintsAPI, aiAPI } from '@/lib/api';
 import {
     computeDashboardSummaryFromComplaints,
     filterComplaintsBySummaryBucket,
 } from '@/lib/dashboardSummary';
-import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
 import DashboardSummarySection from '@/components/DashboardSummarySection';
-import { MapPin, Loader2, ArrowRight, ExternalLink, Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ListTodo, Brain, Link2, BarChart3, Search, Camera } from 'lucide-react';
+import {
+    MapPin, Loader2, ArrowRight, Clock, CheckCircle, AlertTriangle,
+    ChevronDown, ChevronUp, ListTodo, Brain, BarChart3, Search
+} from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 const getImageUrl = (img) => {
-    const raw = typeof img === 'string' ? img : img?.path || img?.url;
+    if (!img) return '';
+    const raw = typeof img === 'string' ? img : (img?.s3_key || img?.path || img?.url || '');
     if (!raw) return '';
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
     if (raw.startsWith('/api/')) return `${API_BASE}${raw}`;
@@ -25,34 +29,6 @@ const getImageUrl = (img) => {
 };
 
 const STATUS_ORDER = ['submitted', 'inspection', 'field_work', 'verification', 'resolved', 'closed'];
-const STATUS_LABELS = {
-    submitted: 'Filed & AI Routed',
-    inspection: 'Site Inspection',
-    field_work: 'Field Redressal',
-    verification: 'Post-Repair Check',
-    resolved: 'Resolved & Notified',
-    closed: 'Closed',
-    verified: 'Verified',
-    assigned: 'Assigned',
-    inspection_assigned: 'Inspector Assigned',
-    inspection_submitted: 'Inspection Under Review',
-    inspection_rework: 'Site Re-Inspection',
-    inspection_verified: 'Inspection Confirmed',
-    team_assigned: 'Field Team Assigned',
-    work_in_progress: 'Work In Progress',
-    in_progress: 'In Progress',
-    resolution_submitted: 'Resolution Proof Uploaded',
-    verification_assigned: 'Post-Repair Site Check',
-    verification_submitted: 'Final Nodal Approval',
-    redressal_rework: 'Field Rework',
-    pending_info: 'Pending Info',
-    reopened: 'Reopened',
-    escalated: 'Escalated',
-    rejected: 'Rejected',
-    appealed: 'Appealed',
-    appealed_l1: 'Appeal Level 1 (Nodal Authority)',
-    appealed_l2: 'Appeal Level 2 (Appellate Authority)',
-};
 
 const getStatusIndex = (status) => {
     if (!status) return 0;
@@ -68,11 +44,13 @@ const getStatusIndex = (status) => {
 
 export default function TrackGrievance() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tStatus, tPriority, tCategory, locale } = useLanguage();
     const router = useRouter();
 
     const [complaints, setComplaints] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [actionMessage, setActionMessage] = useState(null);
     const [expandedId, setExpandedId] = useState(null);
     const [detailData, setDetailData] = useState({});
     const [aiData, setAiData] = useState({});
@@ -136,7 +114,6 @@ export default function TrackGrievance() {
                 console.error('Failed to load detail:', err);
             }
         }
-        // Fetch AI analysis (non-blocking)
         if (!aiData[id]) {
             aiAPI.getSummary(id).then(data => {
                 if (data && data.pipeline_status !== 'not_run') {
@@ -149,21 +126,22 @@ export default function TrackGrievance() {
     const handleFeedbackSubmit = async (id, satisfied = true) => {
         const rating = feedbackForm[id]?.rating;
         if (!rating) {
-            alert('Please select a star rating (1 to 5 stars) before submitting feedback.');
+            setActionMessage({ id, type: 'error', text: t('rate_resolution_quality') });
             return;
         }
         setFeedbackLoading(true);
+        setActionMessage(null);
         try {
             await complaintsAPI.submitFeedback(id, {
                 rating: rating,
                 feedback_text: feedbackForm[id]?.text || (satisfied ? 'Citizen confirmed resolution.' : 'Unsatisfied with resolution.'),
                 satisfied: satisfied,
             });
-            fetchComplaints(); // refresh the list
+            fetchComplaints();
             setFeedbackForm(prev => ({ ...prev, [id]: { ...prev[id], submitted: true } }));
         } catch (err) {
             console.error('Feedback error:', err);
-            alert(err.message || 'Failed to submit feedback.');
+            setActionMessage({ id, type: 'error', text: err.message || 'Failed to submit feedback.' });
         } finally {
             setFeedbackLoading(false);
         }
@@ -172,10 +150,11 @@ export default function TrackGrievance() {
     const handleAppealSubmit = async (id) => {
         const reason = (appealReasons[id] || '').trim();
         if (reason.length < 10) {
-            alert('Please provide a clear appeal reason (at least 10 characters).');
+            setActionMessage({ id, type: 'error', text: t('appeal_placeholder') });
             return;
         }
         setAppealLoading(true);
+        setActionMessage(null);
         try {
             await complaintsAPI.appealComplaint(id, reason);
             setShowAppealBoxes(prev => ({ ...prev, [id]: false }));
@@ -183,28 +162,17 @@ export default function TrackGrievance() {
             fetchComplaints();
         } catch (err) {
             console.error('Appeal error:', err);
-            alert(err.message || 'Failed to file appeal.');
+            setActionMessage({ id, type: 'error', text: err.message || 'Failed to file appeal.' });
         } finally {
             setAppealLoading(false);
         }
-    };
-
-    const getImageUrl = (img) => {
-        if (!img) return '';
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-        const raw = typeof img === 'string' ? img : (img?.s3_key || img?.path || img?.url || '');
-        if (!raw) return '';
-        if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-        if (raw.startsWith('/api/')) return `${apiBase}${raw}`;
-        if (raw.startsWith('/uploads/')) return `${apiBase}${raw}`;
-        return `${apiBase}/api/media/${raw.replace(/^\//, '')}`;
     };
 
     if (authLoading || loading) {
         return (
             <div className="flex h-[60vh] items-center justify-center flex-col gap-3">
                 <Loader2 className="animate-spin" size={32} style={{ color: 'var(--navy)' }} />
-                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading your grievances…</p>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('loading_grievances')}</p>
             </div>
         );
     }
@@ -215,21 +183,21 @@ export default function TrackGrievance() {
             <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <div className="breadcrumb mb-2">
-                        <Link href="/">Home</Link>
+                        <Link href="/">{t('home')}</Link>
                         <ChevronDown size={10} className="breadcrumb-sep -rotate-90" />
-                        <span className="breadcrumb-current">My Grievances</span>
+                        <span className="breadcrumb-current">{t('my_grievances')}</span>
                     </div>
-                    <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>My Grievances</h1>
+                    <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>{t('my_grievances')}</h1>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        मेरी शिकायतें &nbsp;|&nbsp; {complaints.length} total complaint{complaints.length !== 1 ? 's' : ''}
+                        {t('total_complaints_count', { count: complaints.length })}
                     </p>
                 </div>
                 <button onClick={fetchComplaints} className="btn-outline flex items-center gap-2 text-sm">
-                    <Loader2 size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+                    <Loader2 size={14} className={loading ? 'animate-spin' : ''} /> {t('refresh')}
                 </button>
             </div>
 
-            {/* Logged-in User Dashboard Summary Section using metric-card components */}
+            {/* Logged-in User Dashboard Summary Section */}
             <div className="mb-7">
                 <DashboardSummarySection
                     user={user}
@@ -240,7 +208,6 @@ export default function TrackGrievance() {
                     showRefreshButton={false}
                     activeFilter={summaryFilter}
                     onSelectFilter={setSummaryFilter}
-                    heading="Dashboard Summary"
                 />
             </div>
 
@@ -250,26 +217,26 @@ export default function TrackGrievance() {
                         style={{ background: 'var(--navy-light)' }}>
                         <Search size={22} style={{ color: 'var(--navy)' }} />
                     </div>
-                    <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>No grievances filed yet</p>
-                    <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>अभी तक कोई शिकायत दर्ज नहीं की गई</p>
+                    <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>{t('no_grievances_yet')}</p>
+                    <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{t('no_grievances_sub')}</p>
                     <Link href="/citizen/lodge" className="btn-primary inline-flex">
-                        File a Grievance <ArrowRight size={15} />
+                        {t('file_a_grievance')} <ArrowRight size={15} />
                     </Link>
                 </div>
             ) : visibleComplaints.length === 0 ? (
                 <div className="gov-card p-10 text-center">
                     <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-                        No grievances match this summary filter
+                        {t('no_match_filter')}
                     </p>
                     <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>
-                        You have {complaints.length} total grievance{complaints.length !== 1 ? 's' : ''} across other statuses.
+                        {t('other_statuses_note', { count: complaints.length })}
                     </p>
                     <button
                         type="button"
                         onClick={() => setSummaryFilter('all')}
                         className="btn-outline text-sm inline-flex items-center gap-1.5 cursor-pointer"
                     >
-                        Show all grievances
+                        {t('show_all_grievances')}
                     </button>
                 </div>
             ) : (
@@ -280,12 +247,11 @@ export default function TrackGrievance() {
                         const sNorm = (complaint.status || '').toLowerCase().replace(/\s+/g, '_');
                         const pNorm = (complaint.priority || '').toLowerCase();
                         const statusIdx = getStatusIndex(complaint.status);
-                        const isTerminal = ['resolved', 'closed'].includes(sNorm);
                         const isReopened = sNorm === 'reopened';
                         const isAppealed = sNorm.startsWith('appealed') || sNorm === 'escalated';
 
                         const statusBadge = ['resolved', 'closed'].includes(sNorm) ? 'resolved' :
-                            ['in_progress', 'assigned'].includes(sNorm) ? 'progress' :
+                            ['in_progress', 'assigned', 'work_in_progress', 'team_assigned'].includes(sNorm) ? 'progress' :
                             sNorm.startsWith('appealed') || sNorm === 'escalated' ? 'appealed' : 'submitted';
 
                         const priorityBadge = ['high', 'critical'].includes(pNorm) ? 'badge-critical' :
@@ -309,10 +275,10 @@ export default function TrackGrievance() {
                                                     #{complaint.id?.substring(0, 8).toUpperCase()}
                                                 </span>
                                                 <span className={`badge badge-${statusBadge}`}>
-                                                    <span className="badge-dot" />{STATUS_LABELS[sNorm] || complaint.status}
+                                                    <span className="badge-dot" />{tStatus(sNorm || complaint.status)}
                                                 </span>
                                                 <span className={`badge ${priorityBadge} capitalize`}>
-                                                    {complaint.priority}
+                                                    {tPriority(complaint.priority)}
                                                 </span>
                                                 <DeadlineTimer
                                                     deadline={complaint.deadline}
@@ -324,14 +290,14 @@ export default function TrackGrievance() {
                                                 />
                                             </div>
                                             <h3 className="text-base font-bold mb-1 truncate" style={{ color: 'var(--navy)' }}>
-                                                {complaint.title || complaint.category}
+                                                {complaint.title || tCategory(complaint.category)}
                                             </h3>
                                             <p className="text-sm truncate pr-8" style={{ color: 'var(--text-secondary)' }}>
                                                 {complaint.description?.substring(0, 120)}
                                             </p>
                                             <div className="flex flex-wrap items-center gap-4 mt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
                                                 <span className="flex items-center gap-1.5"><MapPin size={12} style={{ color: 'var(--navy)' }} /> {complaint.location}</span>
-                                                <span className="flex items-center gap-1.5"><Clock size={12} style={{ color: 'var(--navy)' }} /> {new Date(complaint.created_at).toLocaleDateString('en-IN')}</span>
+                                                <span className="flex items-center gap-1.5"><Clock size={12} style={{ color: 'var(--navy)' }} /> {new Date(complaint.created_at).toLocaleDateString(locale)}</span>
                                             </div>
                                         </div>
                                         <div className="p-1.5 rounded-lg shrink-0"
@@ -348,8 +314,8 @@ export default function TrackGrievance() {
                                         ))}
                                     </div>
                                     <div className="flex justify-between mt-1.5 text-[10px] font-semibold" style={{ color: 'var(--text-muted)' }}>
-                                        <span>Submitted</span>
-                                        <span>Resolved</span>
+                                        <span>{t('submitted')}</span>
+                                        <span>{t('resolved')}</span>
                                     </div>
                                 </div>
 
@@ -375,7 +341,7 @@ export default function TrackGrievance() {
                                                 <div className="gov-card p-5">
                                                     <h4 className="text-[10px] font-bold tracking-widest uppercase mb-4 flex items-center gap-2"
                                                         style={{ color: 'var(--navy)' }}>
-                                                        <Clock size={12} /> Audit Trail — गतिविधि लॉग
+                                                        <Clock size={12} /> {t('audit_trail')}
                                                     </h4>
 
                                                     {detail?.status_history && detail.status_history.length > 0 ? (
@@ -387,21 +353,21 @@ export default function TrackGrievance() {
                                                                     }`} />
                                                                     <div className="p-3 rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                                                         <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--navy)' }}>
-                                                                            {log.to_status}
+                                                                            {tStatus(log.to_status)}
                                                                         </p>
                                                                         {log.remarks && (
                                                                             <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{log.remarks}</p>
                                                                         )}
                                                                         <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                                                                            {new Date(log.created_at).toLocaleString('en-IN')}
+                                                                            {new Date(log.created_at).toLocaleString(locale)}
                                                                         </p>
                                                                     </div>
                                                                 </div>
                                                             ))}
                                                         </div>
                                                     ) : (
-                                                        <div className="flex items-center gap-2 text-sm font-medium text-theme-muted">
-                                                            <Loader2 className="animate-spin" size={16} /> Fetching timeline...
+                                                        <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                                                            <Loader2 className="animate-spin" size={16} /> {t('fetching_timeline')}
                                                         </div>
                                                     )}
 
@@ -409,41 +375,41 @@ export default function TrackGrievance() {
                                                         <div className="gov-alert warning mt-3">
                                                             <AlertTriangle size={14} />
                                                             <span className="text-sm">
-                                                                {isReopened ? 'This grievance was reopened for further review.' : 'This grievance is under appeal review.'}
+                                                                {isReopened ? t('reopened_notice') : t('appeal_review_notice')}
                                                             </span>
                                                         </div>
                                                     )}
                                                 </div>
 
-                                                {/* AI Insights Panel (M-14 FIX) */}
+                                                {/* AI Insights Panel */}
                                                 {(aiData[complaint.id] || complaint.ai_category) && (
                                                     <div className="gov-card p-5">
                                                         <h4 className="text-[10px] font-bold tracking-widest uppercase mb-4 flex items-center gap-2"
                                                             style={{ color: 'var(--navy)' }}>
-                                                            <Brain size={12} /> AI Verification & Triage
+                                                            <Brain size={12} /> {t('ai_verification_triage')}
                                                         </h4>
                                                         <div className="space-y-4">
                                                             <div className="p-3 rounded-lg mb-3" style={{ background: 'var(--navy-xlight)', border: '1px solid var(--border)' }}>
                                                                 <div className="flex justify-between items-center mb-2">
-                                                                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>AI Assessed Category</span>
+                                                                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('ai_assessed_category')}</span>
                                                                     <span className="badge badge-submitted font-semibold">
-                                                                        {aiData[complaint.id]?.text_analysis?.category || complaint.ai_category || complaint.category}
+                                                                        {tCategory(aiData[complaint.id]?.text_analysis?.category || complaint.ai_category || complaint.category)}
                                                                     </span>
                                                                 </div>
                                                                 <div className="flex flex-wrap gap-2 text-xs">
                                                                     {(aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) && (
                                                                         <span className="badge badge-closed">
-                                                                            Confidence: {Math.round((aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) > 1 ? (aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) : (aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) * 100)}%
+                                                                            {t('confidence')}: {Math.round((aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) > 1 ? (aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) : (aiData[complaint.id]?.ai_confidence || complaint.ai_confidence) * 100)}%
                                                                         </span>
                                                                     )}
                                                                     {aiData[complaint.id]?.text_analysis?.urgency_level && (
                                                                         <span className="badge badge-closed">
-                                                                            Urgency: {aiData[complaint.id].text_analysis.urgency_level}
+                                                                            {t('urgency')}: {tPriority(aiData[complaint.id].text_analysis.urgency_level)}
                                                                         </span>
                                                                     )}
                                                                     {aiData[complaint.id]?.text_analysis?.severity_level && (
                                                                         <span className="badge badge-closed">
-                                                                            Severity: {aiData[complaint.id].text_analysis.severity_level}
+                                                                            {t('severity')}: {tPriority(aiData[complaint.id].text_analysis.severity_level)}
                                                                         </span>
                                                                     )}
                                                                 </div>
@@ -451,12 +417,12 @@ export default function TrackGrievance() {
 
                                                             {(aiData[complaint.id]?.priority?.score || complaint.priority_score) && (
                                                                 <div className="p-3 rounded-lg flex justify-between items-center"
-                                                                    style={{ background: 'var(--navy-light)', border: '1px solid rgba(0,53,128,0.2)' }}>
+                                                                    style={{ background: 'var(--navy-light)', border: '1px solid var(--border-mid)' }}>
                                                                     <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: 'var(--navy)' }}>
-                                                                        <BarChart3 size={12} /> Priority Score
+                                                                        <BarChart3 size={12} /> {t('priority_score')}
                                                                     </span>
                                                                     <span className="text-sm font-bold" style={{ color: 'var(--navy)' }}>
-                                                                        {(aiData[complaint.id]?.priority?.score || complaint.priority_score)?.toFixed?.(2) ?? '—'} → {aiData[complaint.id]?.priority?.priority || complaint.priority}
+                                                                        {(aiData[complaint.id]?.priority?.score || complaint.priority_score)?.toFixed?.(2) ?? '—'} → {tPriority(aiData[complaint.id]?.priority?.priority || complaint.priority)}
                                                                     </span>
                                                                 </div>
                                                             )}
@@ -470,44 +436,50 @@ export default function TrackGrievance() {
                                                 <div className="gov-card p-5">
                                                     <h4 className="text-[10px] font-bold tracking-widest uppercase mb-4 flex items-center gap-2"
                                                         style={{ color: 'var(--navy)' }}>
-                                                        <ListTodo size={12} /> Assigned Actions
+                                                        <ListTodo size={12} /> {t('assigned_actions')}
                                                     </h4>
 
                                                     {detail?.tasks && detail.tasks.length > 0 ? (
                                                         <div className="space-y-4">
                                                             {detail.tasks.map((task, idx) => {
-                                                                const tStatus = (task.status || '').toLowerCase().replace(/\s+/g, '_');
-                                                                const isDone = ['completed', 'resolved', 'closed'].includes(tStatus);
-                                                                const isProg = ['in_progress', 'assigned', 'active'].includes(tStatus);
-                                                                const isRej = ['rejected', 'cancelled'].includes(tStatus);
+                                                                const tStatusNorm = (task.status || '').toLowerCase().replace(/\s+/g, '_');
+                                                                const isDone = ['completed', 'resolved', 'closed'].includes(tStatusNorm);
+                                                                const isProg = ['in_progress', 'assigned', 'active'].includes(tStatusNorm);
+                                                                const isRej = ['rejected', 'cancelled'].includes(tStatusNorm);
                                                                 const borderColor = isDone ? 'var(--india-green)' : isProg ? 'var(--navy)' : isRej ? 'var(--status-critical)' : 'var(--border-mid)';
                                                                 const badgeClass = isDone ? 'badge-resolved' : isProg ? 'badge-progress' : isRej ? 'badge-critical' : 'badge-submitted';
                                                                 return (
-                                                                <div key={idx} className="relative overflow-hidden rounded-lg"
-                                                                    style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${borderColor}` }}>
-                                                                    <div className="flex items-center justify-between p-3">
-                                                                        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                                                                            {task.department_name || 'Department'}
-                                                                        </span>
-                                                                        <span className={`badge ${badgeClass} capitalize`}>{STATUS_LABELS[tStatus] || task.status}</span>
+                                                                    <div key={idx} className="relative overflow-hidden rounded-lg"
+                                                                        style={{ border: '1px solid var(--border)', borderLeft: `3px solid ${borderColor}` }}>
+                                                                        <div className="flex items-center justify-between p-3">
+                                                                            <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                                                                {task.department_name || t('department')}
+                                                                            </span>
+                                                                            <span className={`badge ${badgeClass} capitalize`}>{tStatus(tStatusNorm || task.status)}</span>
+                                                                        </div>
+                                                                        {task.notes && <p className="text-xs px-3 pb-3" style={{ color: 'var(--text-secondary)' }}>{task.notes}</p>}
                                                                     </div>
-                                                                    {task.notes && <p className="text-xs px-3 pb-3" style={{ color: 'var(--text-secondary)' }}>{task.notes}</p>}
-                                                                </div>
                                                                 );
                                                             })}
                                                         </div>
                                                     ) : (
-                                                        <p className="text-sm font-medium text-theme-muted">Awaiting departmental assignment.</p>
+                                                        <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                                                            {t('awaiting_dept_assignment')}
+                                                        </p>
                                                     )}
                                                 </div>
 
                                                 {/* Attachments */}
                                                 {complaint.attachments && complaint.attachments.length > 0 && (
                                                     <div className="gov-card p-5">
-                                                        <h4 className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: 'var(--navy)' }}>Evidence Uploaded by You / संलग्न प्रमाण</h4>
+                                                        <h4 className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: 'var(--navy)' }}>
+                                                            {t('evidence_uploaded_by_you')}
+                                                        </h4>
                                                         <div className="flex gap-3 flex-wrap">
                                                             {complaint.attachments.map((img, idx) => (
-                                                                <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-gray-200 dark:border-theme hover:border-primary transition-all shadow-sm">
+                                                                <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer"
+                                                                    className="block overflow-hidden rounded-xl transition-all shadow-sm"
+                                                                    style={{ border: '1px solid var(--border)' }}>
                                                                     <img src={getImageUrl(img)} alt="Evidence" className="w-20 h-20 object-cover hover:scale-105 transition-transform" />
                                                                 </a>
                                                             ))}
@@ -517,14 +489,18 @@ export default function TrackGrievance() {
 
                                                 {/* Official Resolution Proofs uploaded by Officer */}
                                                 {complaint.resolution_proof && complaint.resolution_proof.length > 0 && (
-                                                    <div className="gov-card p-5 border border-emerald-300 bg-emerald-50/30">
-                                                        <h4 className="text-[10px] font-bold tracking-widest uppercase mb-3 flex items-center gap-1.5 text-emerald-800">
-                                                            <CheckCircle size={12} className="text-emerald-600" />
-                                                            Officer Field Redressal Proof / समाधान प्रमाण
+                                                    <div className="gov-card p-5"
+                                                        style={{ background: 'var(--status-resolved-bg)', borderColor: 'var(--india-green)' }}>
+                                                        <h4 className="text-[10px] font-bold tracking-widest uppercase mb-3 flex items-center gap-1.5"
+                                                            style={{ color: 'var(--text-green)' }}>
+                                                            <CheckCircle size={12} />
+                                                            {t('officer_redressal_proof')}
                                                         </h4>
                                                         <div className="flex gap-3 flex-wrap">
                                                             {complaint.resolution_proof.map((img, idx) => (
-                                                                <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-emerald-300 shadow-sm hover:scale-105 transition-transform">
+                                                                <a key={idx} href={getImageUrl(img)} target="_blank" rel="noopener noreferrer"
+                                                                    className="block overflow-hidden rounded-xl shadow-sm hover:scale-105 transition-transform"
+                                                                    style={{ border: '1px solid var(--india-green)' }}>
                                                                     <img src={getImageUrl(img)} alt="Resolution Proof" className="w-20 h-20 object-cover" />
                                                                 </a>
                                                             ))}
@@ -532,50 +508,77 @@ export default function TrackGrievance() {
                                                     </div>
                                                 )}
 
-                                                {/* Samadhan Setu Action Taken Report (ATR) & Citizen Satisfaction Gate */}
+                                                {/* Action Taken Report (ATR) & Citizen Satisfaction Gate */}
                                                 {['resolved'].includes(sNorm) && (
-                                                    <div className="mt-4 p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
-                                                        <div className="flex items-center justify-between mb-2">
-                                                            <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                                                                Action Taken Report (ATR) Filed by Department
+                                                    <div className="mt-4 p-4 rounded-xl border"
+                                                        style={{
+                                                            borderColor: 'var(--india-green)',
+                                                            background: 'var(--status-resolved-bg)',
+                                                        }}>
+                                                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                                            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-green)' }}>
+                                                                {t('atr_filed_heading')}
                                                             </span>
-                                                            <span className="text-[11px] text-gray-500">Auto-closes in 7 days if no reply</span>
+                                                            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                                                {t('auto_closes_7d')}
+                                                            </span>
                                                         </div>
-                                                        <p className="text-sm text-gray-800 dark:text-gray-200 mb-3">
+                                                        <p className="text-sm mb-3" style={{ color: 'var(--text-primary)' }}>
                                                             {complaint.resolution_remarks || complaint.resolution_notes || 'Field inspection completed and resolution proof uploaded by the nodal team.'}
                                                         </p>
 
                                                         {((detail?.inspection_images?.length || 0) > 0 || (detail?.resolution_proof?.length || 0) > 0) && (
-                                                            <div className="mb-4 rounded-lg border border-emerald-200 bg-white/70 p-3 dark:border-slate-700 dark:bg-slate-900/50">
-                                                                <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                                                                    Field evidence comparison
+                                                            <div className="mb-4 rounded-lg border p-3"
+                                                                style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+                                                                <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-green)' }}>
+                                                                    {t('field_evidence_comparison')}
                                                                 </h4>
                                                                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                                                     {detail?.inspection_images?.[0] && (
                                                                         <a href={getImageUrl(detail.inspection_images[0])} target="_blank" rel="noopener noreferrer" className="block">
-                                                                            <span className="mb-1 block text-[10px] font-semibold uppercase text-amber-700 dark:text-amber-300">Before · Inspection</span>
-                                                                            <img src={getImageUrl(detail.inspection_images[0])} alt="Site inspection before work" className="h-36 w-full rounded-lg border border-amber-200 object-cover" />
+                                                                            <span className="mb-1 block text-[10px] font-semibold uppercase" style={{ color: 'var(--text-saffron)' }}>
+                                                                                {t('before_inspection')}
+                                                                            </span>
+                                                                            <img src={getImageUrl(detail.inspection_images[0])} alt="Site inspection before work"
+                                                                                className="h-36 w-full rounded-lg border object-cover" style={{ borderColor: 'var(--border-mid)' }} />
                                                                         </a>
                                                                     )}
                                                                     {detail?.resolution_proof?.[0] && (
                                                                         <a href={getImageUrl(detail.resolution_proof[0])} target="_blank" rel="noopener noreferrer" className="block">
-                                                                            <span className="mb-1 block text-[10px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">After · Resolution</span>
-                                                                            <img src={getImageUrl(detail.resolution_proof[0])} alt="Resolution after work" className="h-36 w-full rounded-lg border border-emerald-200 object-cover" />
+                                                                            <span className="mb-1 block text-[10px] font-semibold uppercase" style={{ color: 'var(--text-green)' }}>
+                                                                                {t('after_resolution')}
+                                                                            </span>
+                                                                            <img src={getImageUrl(detail.resolution_proof[0])} alt="Resolution after work"
+                                                                                className="h-36 w-full rounded-lg border object-cover" style={{ borderColor: 'var(--border-mid)' }} />
                                                                         </a>
                                                                     )}
                                                                 </div>
                                                             </div>
                                                         )}
 
-                                                        {/* Optional Rating stars before deciding */}
+                                                        {actionMessage?.id === complaint.id && (
+                                                            <div className="gov-alert error mb-3 text-xs">
+                                                                <AlertTriangle size={13} />
+                                                                <span>{actionMessage.text}</span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Rating stars */}
                                                         <div className="mb-3">
-                                                            <span className="text-xs text-gray-600 block mb-1">Rate the resolution quality:</span>
+                                                            <span className="text-xs block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                                                                {t('rate_resolution_quality')}
+                                                            </span>
                                                             <div className="flex gap-1.5 text-2xl cursor-pointer">
                                                                 {[1, 2, 3, 4, 5].map(star => (
-                                                                    <span 
-                                                                        key={star} 
+                                                                    <span
+                                                                        key={star}
                                                                         onClick={() => setFeedbackForm(prev => ({ ...prev, [complaint.id]: { ...prev[complaint.id], rating: star } }))}
-                                                                        className={(feedbackForm[complaint.id]?.rating || 0) >= star ? 'text-amber-400 hover:scale-110 transition-transform' : 'text-gray-300 hover:text-amber-200'}
+                                                                        style={{
+                                                                            color: (feedbackForm[complaint.id]?.rating || 0) >= star
+                                                                                ? 'var(--saffron)'
+                                                                                : 'var(--border-mid)',
+                                                                        }}
+                                                                        className="hover:scale-110 transition-transform"
                                                                     >
                                                                         ★
                                                                     </span>
@@ -587,35 +590,38 @@ export default function TrackGrievance() {
                                                             <button
                                                                 onClick={() => handleFeedbackSubmit(complaint.id, true)}
                                                                 disabled={feedbackLoading}
-                                                                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2"
+                                                                className="px-4 py-2 rounded-lg text-white text-xs font-semibold flex items-center gap-2 cursor-pointer"
+                                                                style={{ background: 'var(--india-green)' }}
                                                             >
                                                                 {feedbackLoading && <Loader2 size={12} className="animate-spin" />}
-                                                                ✓ Satisfied — Close Grievance
+                                                                ✓ {t('satisfied_close')}
                                                             </button>
                                                             <button
                                                                 onClick={() => setShowAppealBoxes(prev => ({ ...prev, [complaint.id]: !prev[complaint.id] }))}
-                                                                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold"
+                                                                className="px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer"
+                                                                style={{ background: 'var(--saffron-dark)', color: '#FFFFFF' }}
                                                             >
-                                                                ✗ Not Satisfied — File Appeal (L1 / L2)
+                                                                ✗ {t('not_satisfied_appeal')}
                                                             </button>
                                                         </div>
 
                                                         {showAppealBoxes[complaint.id] && (
-                                                            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700">
+                                                            <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
                                                                 <textarea
                                                                     value={appealReasons[complaint.id] || ''}
                                                                     onChange={(e) => setAppealReasons(prev => ({ ...prev, [complaint.id]: e.target.value }))}
-                                                                    placeholder="Explain why the resolution is incomplete or unsatisfactory (routes to Nodal / Appellate Authority)..."
-                                                                    className="w-full p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-sm text-gray-900 dark:text-white"
+                                                                    placeholder={t('appeal_placeholder')}
+                                                                    className="gov-input text-sm"
                                                                     rows={3}
                                                                 />
                                                                 <button
                                                                     onClick={() => handleAppealSubmit(complaint.id)}
                                                                     disabled={appealLoading}
-                                                                    className="mt-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold flex items-center gap-2"
+                                                                    className="mt-2 px-4 py-2 rounded-lg text-white text-xs font-semibold flex items-center gap-2 cursor-pointer"
+                                                                    style={{ background: 'var(--error)' }}
                                                                 >
                                                                     {appealLoading && <Loader2 size={12} className="animate-spin" />}
-                                                                    Submit Official Appeal
+                                                                    {t('submit_official_appeal')}
                                                                 </button>
                                                             </div>
                                                         )}
@@ -623,16 +629,17 @@ export default function TrackGrievance() {
                                                 )}
 
                                                 {/* Appeal Active Notice */}
-                                                {sNorm === 'appealed' && (
-                                                    <div className="mt-4 p-4 rounded-xl border border-rose-500/30 bg-rose-500/10">
+                                                {sNorm.startsWith('appealed') && (
+                                                    <div className="mt-4 p-4 rounded-xl border"
+                                                        style={{ borderColor: 'var(--status-appealed)', background: 'var(--status-appealed-bg)' }}>
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <AlertTriangle size={15} className="text-rose-500" />
-                                                            <span className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
-                                                                Samadhan Setu Appeal Under Review
+                                                            <AlertTriangle size={15} style={{ color: 'var(--status-appealed)' }} />
+                                                            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--status-appealed)' }}>
+                                                                {tStatus(sNorm)}
                                                             </span>
                                                         </div>
-                                                        <p className="text-xs text-rose-800 dark:text-rose-200">
-                                                            Your grievance has been officially escalated to the Appellate Authority with an expedited SLA deadline for re-investigation.
+                                                        <p className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                                                            {t('appeal_review_notice')}
                                                         </p>
                                                     </div>
                                                 )}
@@ -643,15 +650,18 @@ export default function TrackGrievance() {
                                                         {complaint.citizen_rating && (
                                                             <div className="gov-card p-4">
                                                                 <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>
-                                                                    Citizen Satisfaction Rating
+                                                                    {t('rate_resolution_quality')}
                                                                 </p>
                                                                 <div className="flex items-center gap-1 mb-2 text-xl">
                                                                     {[1, 2, 3, 4, 5].map(star => (
-                                                                        <span key={star} className={star <= complaint.citizen_rating ? 'text-amber-400' : 'text-gray-300'}>★</span>
+                                                                        <span key={star} style={{ color: star <= complaint.citizen_rating ? 'var(--saffron)' : 'var(--border-mid)' }}>★</span>
                                                                     ))}
                                                                 </div>
                                                                 {complaint.feedback_text && (
-                                                                    <p className="text-sm font-medium italic text-gray-700 bg-gray-50 p-2.5 rounded-lg">&quot;{complaint.feedback_text}&quot;</p>
+                                                                    <p className="text-sm font-medium italic p-2.5 rounded-lg"
+                                                                        style={{ color: 'var(--text-secondary)', background: 'var(--bg-section)' }}>
+                                                                        &quot;{complaint.feedback_text}&quot;
+                                                                    </p>
                                                                 )}
                                                             </div>
                                                         )}

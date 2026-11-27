@@ -730,8 +730,11 @@ export default function ProofUploadForm({
                     type="submit"
                     disabled={isBusy}
                     data-testid="proof-submit-btn"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md text-white transition-colors whitespace-nowrap disabled:opacity-60"
-                    style={{ background: showVerdict && verdict === 'rework' ? '#DC2626' : mode === 'resolution' ? '#138808' : '#003580' }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap disabled:opacity-60"
+                    style={{
+                        background: showVerdict && verdict === 'rework' ? 'var(--status-critical)' : mode === 'resolution' ? 'var(--india-green)' : 'var(--navy)',
+                        color: showVerdict && verdict === 'rework' ? '#FFFFFF' : mode === 'resolution' ? '#FFFFFF' : 'var(--primary-ink)',
+                    }}
                 >
                     {submitting && <Loader2 size={13} className="animate-spin" />}
                     <span>{submitting ? 'Submitting…' : submitLabel}</span>

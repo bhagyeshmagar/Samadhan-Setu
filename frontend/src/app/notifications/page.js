@@ -18,22 +18,22 @@ import {
   Save,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { useGmailAuth } from '@/lib/gmailAuth';
 import { notificationsAPI } from '@/lib/api';
 import {
   NOTIFICATION_EVENTS,
-  getEventLabel,
   formatPhoneDisplay,
 } from '@/lib/notificationChannels';
 import GoogleSignInButton from '@/components/GoogleSignInButton';
 import GmailConfirmModal from '@/components/GmailConfirmModal';
 
 const STATUS_META = {
-  sent: { label: 'Sent', color: 'var(--text-green)', icon: CheckCircle2 },
-  queued: { label: 'Queued', color: 'var(--text-saffron)', icon: Clock },
-  fallback_ready: { label: 'Fallback Ready', color: 'var(--text-navy)', icon: ExternalLink },
-  sending: { label: 'Sending', color: 'var(--text-navy)', icon: Clock },
-  failed: { label: 'Failed', color: 'var(--error)', icon: AlertCircle },
+  sent: { key: 'log_sent', color: 'var(--text-green)', icon: CheckCircle2 },
+  queued: { key: 'log_queued', color: 'var(--text-saffron)', icon: Clock },
+  fallback_ready: { key: 'log_fallback_ready', color: 'var(--text-navy)', icon: ExternalLink },
+  sending: { key: 'log_sending', color: 'var(--text-navy)', icon: Clock },
+  failed: { key: 'log_failed', color: 'var(--error)', icon: AlertCircle },
 };
 
 function ChannelSwitch({ checked, onChange, label, disabled = false }) {
@@ -63,6 +63,7 @@ function ChannelSwitch({ checked, onChange, label, disabled = false }) {
 
 export default function NotificationsCenterPage() {
   const { user, loading: authLoading } = useAuth();
+  const { t, tEvent, tEventDesc, locale } = useLanguage();
   const {
     googleUser,
     isConnected: gmailConnected,
@@ -361,15 +362,15 @@ export default function NotificationsCenterPage() {
           className="rounded-xl border p-8 space-y-4"
           style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
         >
-          <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Sign in to manage notification channels
+          <h1 className="text-xl font-bold" style={{ color: 'var(--navy)' }}>
+            {t('notif_signin_title')}
           </h1>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Connect your Google account for Gmail alerts, configure your WhatsApp mobile number, and review grievance delivery logs.
+            {t('notif_signin_desc')}
           </p>
           <div className="pt-2">
             <Link href="/login" className="btn-gov-primary text-sm">
-              Sign In to Samadhan Setu
+              {t('notif_signin_cta')}
             </Link>
           </div>
         </div>
@@ -383,18 +384,18 @@ export default function NotificationsCenterPage() {
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
         <div className="space-y-1.5">
           <nav className="breadcrumb" aria-label="Breadcrumb">
-            <Link href="/">Home</Link>
+            <Link href="/">{t('home')}</Link>
             <span className="breadcrumb-sep">/</span>
-            <span className="breadcrumb-current">Notification Preferences &amp; Delivery Center</span>
+            <span className="breadcrumb-current">{t('notif_center_title')}</span>
           </nav>
           <h1
             className="text-2xl md:text-3xl font-bold tracking-tight"
-            style={{ color: 'var(--text-primary)', textWrap: 'balance' }}
+            style={{ color: 'var(--navy)', textWrap: 'balance' }}
           >
-            Notification Preferences &amp; Delivery Center
+            {t('notif_center_title')}
           </h1>
           <p className="text-sm max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
-            Configure Gmail API and WhatsApp Business alerts across all five grievance lifecycle events, run verification tests, and audit outbound delivery status.
+            {t('notif_center_sub')}
           </p>
         </div>
 
@@ -406,7 +407,7 @@ export default function NotificationsCenterPage() {
               className="btn-gov-primary text-sm whitespace-nowrap shrink-0"
             >
               <Send size={15} />
-              <span>Send Queued Gmail ({queuedGmailLogs.length})</span>
+              <span>{t('send_queued_gmail', { count: queuedGmailLogs.length })}</span>
             </button>
           ) : (
             <button
@@ -416,7 +417,7 @@ export default function NotificationsCenterPage() {
               className="btn-gov-primary text-sm whitespace-nowrap shrink-0"
             >
               <Save size={15} />
-              <span>{savingPrefs ? 'Saving…' : 'Save Preferences'}</span>
+              <span>{savingPrefs ? t('saving') : t('save_preferences')}</span>
             </button>
           )}
         </div>
@@ -449,7 +450,7 @@ export default function NotificationsCenterPage() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 font-semibold underline whitespace-nowrap"
               >
-                <span>Open in WhatsApp</span>
+                <span>{t('open_whatsapp')}</span>
                 <ExternalLink size={14} />
               </a>
             )}
@@ -458,20 +459,20 @@ export default function NotificationsCenterPage() {
               onClick={() => setActionBanner(null)}
               className="text-xs underline cursor-pointer"
             >
-              Dismiss
+              {t('dismiss')}
             </button>
           </div>
         </div>
       )}
 
-      {/* 4-Column Summary Strip (flat hairline cards, tabular-nums, no thick left borders) */}
+      {/* 4-Column Summary Strip */}
       <section aria-label="Delivery summary">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Total Logged', value: summary.total, note: 'Gmail & WhatsApp' },
-            { label: 'Delivered', value: summary.sent, note: 'Confirmed by API' },
-            { label: 'Queued for Gmail', value: summary.queued, note: 'Awaiting review' },
-            { label: 'WhatsApp Ready', value: summary.fallback_ready, note: capabilities.whatsapp_cloud_configured ? 'Cloud API active' : 'Instant send links' },
+            { label: t('stat_total_logged'), value: summary.total, note: t('stat_gmail_wa') },
+            { label: t('stat_delivered'), value: summary.sent, note: t('stat_confirmed_api') },
+            { label: t('stat_queued_gmail'), value: summary.queued, note: t('stat_awaiting_review') },
+            { label: t('stat_whatsapp_ready'), value: summary.fallback_ready, note: capabilities.whatsapp_cloud_configured ? t('stat_cloud_active') : t('stat_instant_links') },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -483,7 +484,7 @@ export default function NotificationsCenterPage() {
               </div>
               <div
                 className="mt-1.5 text-2xl md:text-3xl font-bold font-mono tabular-nums"
-                style={{ color: 'var(--text-primary)' }}
+                style={{ color: 'var(--navy)' }}
               >
                 {stat.value}
               </div>
@@ -507,18 +508,18 @@ export default function NotificationsCenterPage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Mail size={18} style={{ color: 'var(--text-navy)' }} />
-                  <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    Gmail Notifications
+                  <h2 className="text-base font-semibold" style={{ color: 'var(--navy)' }}>
+                    {t('gmail_notifications')}
                   </h2>
                 </div>
                 <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                  Send official grievance emails directly through your connected Google account with explicit confirmation before every send.
+                  {t('gmail_card_desc')}
                 </p>
               </div>
               <ChannelSwitch
                 checked={Boolean(prefs?.gmail_enabled)}
                 onChange={(val) => setPrefs((p) => (p ? { ...p, gmail_enabled: val } : p))}
-                label="Enable Gmail notifications"
+                label={t('gmail_notifications')}
                 disabled={prefsLoading}
               />
             </div>
@@ -530,7 +531,7 @@ export default function NotificationsCenterPage() {
             >
               <div className="min-w-0">
                 <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-                  Google Account Status
+                  {t('google_account_status')}
                 </div>
                 {gmailConnected ? (
                   <div className="mt-1 flex items-center gap-1.5 text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
@@ -540,8 +541,8 @@ export default function NotificationsCenterPage() {
                 ) : (
                   <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
                     {googleUser?.email
-                      ? `Session refreshed (${googleUser.email}) — reconnect to send`
-                      : 'Sign in with Google to authorize Gmail sending'}
+                      ? t('google_reconnect_hint', { email: googleUser.email })
+                      : t('google_not_connected_hint')}
                   </div>
                 )}
               </div>
@@ -553,13 +554,12 @@ export default function NotificationsCenterPage() {
                   className="btn-ghost text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
                   <LogOut size={13} />
-                  <span>Disconnect</span>
+                  <span>{t('disconnect')}</span>
                 </button>
               ) : (
                 <GoogleSignInButton
                   onClick={handleConnectGmailClick}
                   loading={gmailConnecting}
-                  label="Sign in with Google"
                 />
               )}
             </div>
@@ -580,7 +580,7 @@ export default function NotificationsCenterPage() {
 
             <div>
               <label htmlFor="gmail-recipient-input" className="gov-label">
-                Recipient Gmail Address
+                {t('recipient_gmail_address')}
               </label>
               <input
                 id="gmail-recipient-input"
@@ -596,7 +596,7 @@ export default function NotificationsCenterPage() {
 
           <div className="pt-3 border-t flex items-center justify-between gap-3" style={{ borderColor: 'var(--border)' }}>
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Access token stays in browser memory only
+              {t('gmail_memory_note')}
             </span>
             <button
               type="button"
@@ -605,7 +605,7 @@ export default function NotificationsCenterPage() {
               className="btn-ghost text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <Send size={13} />
-              <span>Send Test Gmail</span>
+              <span>{t('send_test_gmail')}</span>
             </button>
           </div>
         </div>
@@ -620,18 +620,18 @@ export default function NotificationsCenterPage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <MessageCircle size={18} style={{ color: 'var(--text-green)' }} />
-                  <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    WhatsApp Notifications
+                  <h2 className="text-base font-semibold" style={{ color: 'var(--navy)' }}>
+                    {t('whatsapp_notifications')}
                   </h2>
                 </div>
                 <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                  Delivers automated alerts via Meta WhatsApp Cloud API when configured, with instant one-click WhatsApp links as an always-ready fallback.
+                  {t('whatsapp_card_desc')}
                 </p>
               </div>
               <ChannelSwitch
                 checked={Boolean(prefs?.whatsapp_enabled)}
                 onChange={(val) => setPrefs((p) => (p ? { ...p, whatsapp_enabled: val } : p))}
-                label="Enable WhatsApp notifications"
+                label={t('whatsapp_notifications')}
                 disabled={prefsLoading}
               />
             </div>
@@ -644,13 +644,13 @@ export default function NotificationsCenterPage() {
               <div className="space-y-0.5">
                 <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
                   {capabilities.whatsapp_cloud_configured
-                    ? 'Meta WhatsApp Cloud API Connected'
-                    : 'Instant WhatsApp Fallback Mode Active'}
+                    ? t('wa_cloud_connected')
+                    : t('wa_fallback_active')}
                 </div>
                 <div style={{ color: 'var(--text-secondary)' }}>
                   {capabilities.whatsapp_cloud_configured
-                    ? 'Automated server-side delivery is enabled via Meta Graph API.'
-                    : 'Add Meta Cloud API secrets in Settings → Secrets for automated background sends.'}
+                    ? t('wa_cloud_desc')
+                    : t('wa_fallback_desc')}
                 </div>
               </div>
               <button
@@ -659,7 +659,7 @@ export default function NotificationsCenterPage() {
                 className="inline-flex items-center gap-1 font-semibold whitespace-nowrap shrink-0 cursor-pointer"
                 style={{ color: 'var(--text-navy)' }}
               >
-                <span>Setup guide</span>
+                <span>{t('setup_guide')}</span>
                 {setupGuideOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
             </div>
@@ -683,7 +683,7 @@ export default function NotificationsCenterPage() {
 
             <div>
               <label htmlFor="whatsapp-phone-input" className="gov-label">
-                WhatsApp Mobile Number (with Country Code)
+                {t('whatsapp_mobile_label')}
               </label>
               <input
                 id="whatsapp-phone-input"
@@ -696,7 +696,7 @@ export default function NotificationsCenterPage() {
               />
               {prefs?.whatsapp_phone && (
                 <p className="mt-1 text-[11px] font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                  Formatted target: {formatPhoneDisplay(prefs.whatsapp_phone) || 'Enter 10–15 digits'}
+                  {formatPhoneDisplay(prefs.whatsapp_phone) || '10–15 digits'}
                 </p>
               )}
             </div>
@@ -719,7 +719,7 @@ export default function NotificationsCenterPage() {
                     className="inline-flex items-center gap-1 font-semibold underline whitespace-nowrap"
                     style={{ color: 'var(--text-green)' }}
                   >
-                    <span>Open in WhatsApp</span>
+                    <span>{t('open_whatsapp')}</span>
                     <ExternalLink size={12} />
                   </a>
                 )}
@@ -729,7 +729,7 @@ export default function NotificationsCenterPage() {
 
           <div className="pt-3 border-t flex items-center justify-between gap-3" style={{ borderColor: 'var(--border)' }}>
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              10-digit Indian numbers default to +91
+              {t('whatsapp_default_in')}
             </span>
             <button
               type="button"
@@ -738,7 +738,7 @@ export default function NotificationsCenterPage() {
               className="btn-ghost text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
               <MessageCircle size={13} />
-              <span>{testingWa ? 'Testing…' : 'Send Test WhatsApp'}</span>
+              <span>{testingWa ? t('testing') : t('send_test_whatsapp')}</span>
             </button>
           </div>
         </div>
@@ -755,11 +755,11 @@ export default function NotificationsCenterPage() {
           style={{ borderColor: 'var(--border)', background: 'var(--bg-section)' }}
         >
           <div>
-            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Grievance Lifecycle Triggers
+            <h2 className="text-base font-semibold" style={{ color: 'var(--navy)' }}>
+              {t('lifecycle_triggers')}
             </h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-              Choose which events dispatch alerts via Gmail and WhatsApp.
+              {t('lifecycle_triggers_sub')}
             </p>
           </div>
 
@@ -770,7 +770,7 @@ export default function NotificationsCenterPage() {
             className="btn-gov-primary text-xs whitespace-nowrap shrink-0"
           >
             <Save size={14} />
-            <span>{savingPrefs ? 'Saving…' : 'Save Preferences'}</span>
+            <span>{savingPrefs ? t('saving') : t('save_preferences')}</span>
           </button>
         </div>
 
@@ -785,7 +785,7 @@ export default function NotificationsCenterPage() {
           >
             <span>{prefsBanner.text}</span>
             <button type="button" onClick={() => setPrefsBanner(null)} className="underline cursor-pointer">
-              Dismiss
+              {t('dismiss')}
             </button>
           </div>
         )}
@@ -794,7 +794,7 @@ export default function NotificationsCenterPage() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b text-xs" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-                <th className="py-3 px-6 font-semibold">Lifecycle Event</th>
+                <th className="py-3 px-6 font-semibold">{t('lifecycle_event')}</th>
                 <th className="py-3 px-4 font-semibold text-center w-32">Gmail</th>
                 <th className="py-3 px-6 font-semibold text-center w-32">WhatsApp</th>
               </tr>
@@ -806,10 +806,10 @@ export default function NotificationsCenterPage() {
                   <tr key={evt.key} className="transition-colors hover:bg-(--bg-card-hover)">
                     <td className="py-3.5 px-6">
                       <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                        {evt.label}
+                        {tEvent(evt.key)}
                       </div>
                       <div className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                        {evt.description}
+                        {tEventDesc(evt.key)}
                       </div>
                     </td>
                     <td className="py-3.5 px-4 text-center">
@@ -817,7 +817,7 @@ export default function NotificationsCenterPage() {
                         <ChannelSwitch
                           checked={Boolean(cfg.gmail)}
                           onChange={(val) => handleToggleEventChannel(evt.key, 'gmail', val)}
-                          label={`Toggle Gmail for ${evt.label}`}
+                          label={`Gmail: ${tEvent(evt.key)}`}
                           disabled={prefsLoading || !prefs?.gmail_enabled}
                         />
                       </div>
@@ -827,7 +827,7 @@ export default function NotificationsCenterPage() {
                         <ChannelSwitch
                           checked={Boolean(cfg.whatsapp)}
                           onChange={(val) => handleToggleEventChannel(evt.key, 'whatsapp', val)}
-                          label={`Toggle WhatsApp for ${evt.label}`}
+                          label={`WhatsApp: ${tEvent(evt.key)}`}
                           disabled={prefsLoading || !prefs?.whatsapp_enabled}
                         />
                       </div>
@@ -852,11 +852,11 @@ export default function NotificationsCenterPage() {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Outbound Delivery Logs
+              <h2 className="text-base font-semibold" style={{ color: 'var(--navy)' }}>
+                {t('outbound_delivery_logs')}
               </h2>
               <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                Inspect queued, sent, fallback, and failed alerts across Gmail and WhatsApp.
+                {t('outbound_delivery_logs_sub')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -866,8 +866,8 @@ export default function NotificationsCenterPage() {
                   style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                 >
                   {[
-                    { value: 'mine', label: 'My Alerts' },
-                    { value: 'all', label: 'All Alerts' },
+                    { value: 'mine', label: t('my_alerts') },
+                    { value: 'all', label: t('all_alerts') },
                   ].map((opt) => (
                     <button
                       key={opt.value}
@@ -876,7 +876,7 @@ export default function NotificationsCenterPage() {
                       className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap"
                       style={{
                         background: scopeFilter === opt.value ? 'var(--navy)' : 'transparent',
-                        color: scopeFilter === opt.value ? '#FFFFFF' : 'var(--text-secondary)',
+                        color: scopeFilter === opt.value ? 'var(--primary-ink)' : 'var(--text-secondary)',
                       }}
                     >
                       {opt.label}
@@ -890,7 +890,7 @@ export default function NotificationsCenterPage() {
                 className="btn-ghost text-xs inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
                 <RefreshCw size={13} />
-                <span>Refresh</span>
+                <span>{t('refresh')}</span>
               </button>
             </div>
           </div>
@@ -907,7 +907,7 @@ export default function NotificationsCenterPage() {
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by complaint #, recipient, or subject…"
+                placeholder={t('search_logs_placeholder')}
                 className="gov-input text-xs pl-9 py-2"
               />
             </div>
@@ -918,18 +918,18 @@ export default function NotificationsCenterPage() {
               style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
             >
               {[
-                { value: '', label: 'All Channels' },
+                { value: '', label: t('all_channels') },
                 { value: 'gmail', label: 'Gmail' },
                 { value: 'whatsapp', label: 'WhatsApp' },
               ].map((tab) => (
                 <button
-                  key={tab.label}
+                  key={tab.value || 'all'}
                   type="button"
                   onClick={() => setChannelFilter(tab.value)}
                   className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap"
                   style={{
                     background: channelFilter === tab.value ? 'var(--navy)' : 'transparent',
-                    color: channelFilter === tab.value ? '#FFFFFF' : 'var(--text-secondary)',
+                    color: channelFilter === tab.value ? 'var(--primary-ink)' : 'var(--text-secondary)',
                   }}
                 >
                   {tab.label}
@@ -941,27 +941,27 @@ export default function NotificationsCenterPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="Filter by delivery status"
+              aria-label={t('all_statuses')}
               className="gov-input text-xs py-2 w-auto min-w-[140px]"
             >
-              <option value="">All Statuses</option>
-              <option value="sent">Sent</option>
-              <option value="queued">Queued</option>
-              <option value="fallback_ready">Fallback Ready</option>
-              <option value="failed">Failed</option>
+              <option value="">{t('all_statuses')}</option>
+              <option value="sent">{t('log_sent')}</option>
+              <option value="queued">{t('log_queued')}</option>
+              <option value="fallback_ready">{t('log_fallback_ready')}</option>
+              <option value="failed">{t('log_failed')}</option>
             </select>
 
             {/* Event Filter */}
             <select
               value={eventFilter}
               onChange={(e) => setEventFilter(e.target.value)}
-              aria-label="Filter by event type"
+              aria-label={t('all_lifecycle_events')}
               className="gov-input text-xs py-2 w-auto min-w-[180px]"
             >
-              <option value="">All Lifecycle Events</option>
+              <option value="">{t('all_lifecycle_events')}</option>
               {NOTIFICATION_EVENTS.map((evt) => (
                 <option key={evt.key} value={evt.key}>
-                  {evt.label}
+                  {tEvent(evt.key)}
                 </option>
               ))}
             </select>
@@ -973,7 +973,7 @@ export default function NotificationsCenterPage() {
           <div className="p-8 text-center space-y-3">
             <p className="text-sm" style={{ color: 'var(--error)' }}>{logsError}</p>
             <button type="button" onClick={loadLogs} className="btn-ghost text-xs">
-              Try Again
+              {t('try_again')}
             </button>
           </div>
         ) : logsLoading ? (
@@ -985,17 +985,17 @@ export default function NotificationsCenterPage() {
         ) : logs.length === 0 ? (
           <div className="p-10 text-center space-y-3">
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              No delivery records match your current filters.
+              {t('no_delivery_records')}
             </p>
             <p className="text-xs max-w-md mx-auto" style={{ color: 'var(--text-secondary)' }}>
-              Send a test Gmail or WhatsApp alert above, or lodge and update a grievance to see outbound notifications logged here.
+              {t('no_delivery_records_sub')}
             </p>
             <div className="pt-1 flex items-center justify-center gap-2.5">
               <button type="button" onClick={openTestGmailModal} className="btn-ghost text-xs">
-                Send Test Gmail
+                {t('send_test_gmail')}
               </button>
               <button type="button" onClick={handleTestWhatsApp} className="btn-ghost text-xs">
-                Send Test WhatsApp
+                {t('send_test_whatsapp')}
               </button>
             </div>
           </div>
@@ -1004,12 +1004,12 @@ export default function NotificationsCenterPage() {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-                  <th className="py-3 px-5 font-semibold whitespace-nowrap">Channel</th>
-                  <th className="py-3 px-4 font-semibold whitespace-nowrap">Recipient &amp; Event</th>
-                  <th className="py-3 px-4 font-semibold">Subject / Message</th>
-                  <th className="py-3 px-4 font-semibold whitespace-nowrap">Status</th>
-                  <th className="py-3 px-4 font-semibold whitespace-nowrap">Timestamp</th>
-                  <th className="py-3 px-5 font-semibold text-right whitespace-nowrap">Action</th>
+                  <th className="py-3 px-5 font-semibold whitespace-nowrap">{t('col_channel')}</th>
+                  <th className="py-3 px-4 font-semibold whitespace-nowrap">{t('col_recipient_event')}</th>
+                  <th className="py-3 px-4 font-semibold">{t('col_subject_message')}</th>
+                  <th className="py-3 px-4 font-semibold whitespace-nowrap">{t('col_status')}</th>
+                  <th className="py-3 px-4 font-semibold whitespace-nowrap">{t('col_timestamp')}</th>
+                  <th className="py-3 px-5 font-semibold text-right whitespace-nowrap">{t('col_action')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
@@ -1036,7 +1036,7 @@ export default function NotificationsCenterPage() {
                             : log.recipient}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
-                          <span>{getEventLabel(log.event_type)}</span>
+                          <span>{tEvent(log.event_type)}</span>
                           {log.complaint_number && (
                             <>
                               <span aria-hidden="true">·</span>
@@ -1058,7 +1058,7 @@ export default function NotificationsCenterPage() {
                       <td className="py-3 px-4 whitespace-nowrap">
                         <div className="inline-flex items-center gap-1.5 font-medium" style={{ color: meta.color }}>
                           <StatusIcon size={13} />
-                          <span>{meta.label}</span>
+                          <span>{t(meta.key)}</span>
                         </div>
                         {log.provider_message_id && (
                           <div className="text-[10px] font-mono tabular-nums mt-0.5" style={{ color: 'var(--text-muted)' }}>
@@ -1068,7 +1068,7 @@ export default function NotificationsCenterPage() {
                       </td>
 
                       <td className="py-3 px-4 whitespace-nowrap font-mono tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                        {new Date(log.dispatched_at || log.created_at).toLocaleString()}
+                        {new Date(log.dispatched_at || log.created_at).toLocaleString(locale)}
                       </td>
 
                       <td className="py-3 px-5 text-right whitespace-nowrap">
@@ -1084,7 +1084,7 @@ export default function NotificationsCenterPage() {
                             }}
                           >
                             <Send size={12} />
-                            <span>{log.status === 'sent' ? 'Resend' : log.status === 'failed' ? 'Retry' : 'Send via Gmail'}</span>
+                            <span>{log.status === 'sent' ? t('send_gmail') : log.status === 'failed' ? t('retry') : t('send_gmail')}</span>
                           </button>
                         ) : (
                           <div className="inline-flex items-center gap-1.5">
@@ -1101,7 +1101,7 @@ export default function NotificationsCenterPage() {
                                 }}
                               >
                                 <Send size={12} />
-                                <span>{dispatchingRowId === log.id ? 'Sending…' : log.status === 'sent' ? 'Resend API' : 'Send API'}</span>
+                                <span>{dispatchingRowId === log.id ? t('sending') : 'API'}</span>
                               </button>
                             )}
                             {log.fallback_url && (
@@ -1116,7 +1116,7 @@ export default function NotificationsCenterPage() {
                                   background: 'var(--bg-card)',
                                 }}
                               >
-                                <span>Open WhatsApp</span>
+                                <span>{t('open_whatsapp')}</span>
                                 <ExternalLink size={11} />
                               </a>
                             )}

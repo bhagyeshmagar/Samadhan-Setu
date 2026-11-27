@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { departmentAPI, complaintsAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
 import AppellateAdjudicationModal from '@/components/AppellateAdjudicationModal';
-import AuthImage from '@/components/AuthImage';
 import {
     MapPin, Clock, User, Phone, Mail, FileText, Upload, CheckCircle,
     AlertTriangle, ArrowLeft, Loader2, ImagePlus, X,
@@ -47,6 +47,7 @@ export default function HandleComplaint() {
     const params = useParams();
     const router = useRouter();
     const { user, loading: authLoading } = useAuth();
+    const { t, tStatus, tPriority, tCategory, locale } = useLanguage();
 
     const [complaint, setComplaint] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -84,6 +85,9 @@ export default function HandleComplaint() {
             const data = await complaintsAPI.getById(complaintId);
             setComplaint(data);
             setStatus(data.status);
+            setTriageCategory(data.category || '');
+            const p = data.priority;
+            setTriagePriority(typeof p === 'object' && p?.value ? p.value.toLowerCase() : String(p || 'medium').toLowerCase());
         } catch {
             setError('Failed to load complaint data');
         } finally {
@@ -93,17 +97,15 @@ export default function HandleComplaint() {
 
     useEffect(() => {
         if (user && complaintId) {
-            fetchComplaint();
+            let cancelled = false;
+            Promise.resolve().then(() => {
+                if (!cancelled) fetchComplaint();
+            });
+            return () => {
+                cancelled = true;
+            };
         }
     }, [user, complaintId, fetchComplaint]);
-
-    useEffect(() => {
-        if (complaint) {
-            setTriageCategory(complaint.category || '');
-            const p = complaint.priority;
-            setTriagePriority(typeof p === 'object' && p?.value ? p.value.toLowerCase() : String(p || 'medium').toLowerCase());
-        }
-    }, [complaint]);
 
     const handleConfirmTriage = async (isOverride = false) => {
         if (isOverride && !overrideReason.trim()) {
@@ -219,9 +221,9 @@ export default function HandleComplaint() {
     if (authLoading || loading) {
         return (
             <div className="flex justify-center items-center min-h-[60vh] flex-col gap-3">
-                <Loader2 className="animate-spin text-(--navy)" size={36} />
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Retrieving Official Grievance Dossier…
+                <Loader2 className="animate-spin" size={36} style={{ color: 'var(--navy)' }} />
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    {t('loading')}
                 </p>
             </div>
         );
@@ -229,15 +231,15 @@ export default function HandleComplaint() {
 
     if (success) {
         return (
-            <div className="max-w-xl mx-auto my-16 p-8 gov-card text-center border-t-4 border-t-green-600">
-                <CheckCircle2 size={64} className="mx-auto text-green-600 mb-4" />
-                <h2 className="text-xl font-bold text-gray-900 mb-1">
-                    Grievance Marked as Resolved
+            <div className="max-w-xl mx-auto my-16 p-8 gov-card text-center" style={{ borderTop: '4px solid var(--india-green)' }}>
+                <CheckCircle2 size={64} className="mx-auto mb-4" style={{ color: 'var(--india-green)' }} />
+                <h2 className="text-xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
+                    {t('certify_resolved')}
                 </h2>
-                <p className="text-xs text-gray-600 mb-2">
-                    शिकायत निवारण दर्ज — The citizen will receive digital email and portal notifications regarding this resolution.
+                <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    {t('grievance_registered_desc')}
                 </p>
-                <p className="text-[11px] text-gray-400">Redirecting to Department Task Desk…</p>
+                <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{t('redirecting_dashboard')}</p>
             </div>
         );
     }
@@ -245,11 +247,11 @@ export default function HandleComplaint() {
     if (!complaint) {
         return (
             <div className="max-w-lg mx-auto my-16 p-8 gov-card text-center">
-                <AlertTriangle size={48} className="mx-auto text-red-600 mb-3" />
-                <h2 className="text-lg font-bold text-gray-900 mb-1">Grievance Record Not Found</h2>
-                <p className="text-xs text-gray-500 mb-4">The requested complaint ID does not exist or has been archived.</p>
+                <AlertTriangle size={48} className="mx-auto mb-3" style={{ color: 'var(--status-critical)' }} />
+                <h2 className="text-lg font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{t('no_grievances_found')}</h2>
+                <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>{t('no_grievances_found_desc')}</p>
                 <button onClick={() => router.push('/department')} className="btn-gov-primary text-xs">
-                    Return to Dashboard
+                    {t('open_dashboard')}
                 </button>
             </div>
         );
@@ -270,30 +272,30 @@ export default function HandleComplaint() {
 
     return (
         <div className="max-w-6xl mx-auto py-6">
-            {/* ── Breadcrumb & Header ── */}
+            {/* Breadcrumb & Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                     <div className="breadcrumb mb-2">
-                        <span>Home</span>
+                        <span>{t('home')}</span>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span>Department Services</span>
+                        <span>{t('department_services')}</span>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span className="breadcrumb-current">Grievance Action Dossier</span>
+                        <span className="breadcrumb-current">{t('grievance_dossier')}</span>
                     </div>
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => router.push('/department')}
-                            className="p-1 rounded hover:bg-gray-200 text-gray-600 transition"
+                            className="btn-ghost p-1.5 rounded transition"
                             title="Back"
                         >
                             <ArrowLeft size={18} />
                         </button>
                         <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                            Grievance Action Dossier #{complaint.id?.substring(0, 8)}
+                            {t('grievance_dossier')} #{complaint.id?.substring(0, 8)}
                         </h1>
                     </div>
                     <p className="text-sm mt-0.5 ml-8" style={{ color: 'var(--text-muted)' }}>
-                        शिकायत निवारण कार्यवाही — Official field officer inspection and resolution console
+                        {t('dossier_sub')}
                     </p>
                 </div>
 
@@ -313,14 +315,20 @@ export default function HandleComplaint() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Content */}
                 <div className="lg:col-span-2 space-y-6">
-                    {/* Appellate Authority Adjudication Panel (H-06 FIX) */}
+                    {/* Appellate Authority Adjudication Panel */}
                     {(complaint.status || '').toLowerCase().startsWith('appealed') && (
-                        <div className="p-5 rounded-2xl border-2 border-rose-400 bg-rose-50/90 dark:bg-rose-950/20 shadow-sm space-y-3">
-                            <h3 className="text-sm font-bold uppercase tracking-wider text-rose-800 dark:text-rose-300 flex items-center gap-2">
-                                ⚖️ Appellate Authority Adjudication ({String(complaint.status || '').toLowerCase() === 'appealed_l2' ? 'Level 2 Appellate Review' : 'Level 1 Nodal Review'})
+                        <div
+                            className="p-5 rounded-2xl border-2 shadow-sm space-y-3"
+                            style={{ background: 'var(--status-critical-bg)', borderColor: 'var(--status-critical)' }}
+                        >
+                            <h3 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: 'var(--status-critical)' }}>
+                                {t('appellate_desk')} ({String(complaint.status || '').toLowerCase() === 'appealed_l2' ? t('level2_appellate_review') : t('level1_nodal_review')})
                             </h3>
                             {complaint.appeal_remarks && (
-                                <div className="p-3 bg-white/90 dark:bg-gray-800 rounded-lg border border-rose-200 dark:border-rose-900/60 text-xs text-rose-950 dark:text-rose-200">
+                                <div
+                                    className="p-3 rounded-lg border text-xs"
+                                    style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)', color: 'var(--text-primary)' }}
+                                >
                                     <span className="font-bold">Citizen Appeal Reason: </span>
                                     <span>{complaint.appeal_remarks}</span>
                                 </div>
@@ -328,20 +336,24 @@ export default function HandleComplaint() {
 
                             {['supervisor', 'admin', 'super_admin'].includes(user?.role) ? (
                                 <div className="pt-1">
-                                    <p className="text-xs text-rose-900 dark:text-rose-300 mb-3 leading-relaxed">
+                                    <p className="text-xs mb-3 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                                         As an authorized Appellate Authority, review the evidence and citizen grounds to issue a binding administrative order:
                                     </p>
                                     <button
                                         type="button"
                                         onClick={() => setShowAdjudicationModal(true)}
-                                        className="btn-primary text-xs px-5 py-2.5 flex items-center gap-2 rounded-xl shadow-sm bg-rose-700 hover:bg-rose-800 text-white font-bold"
+                                        className="text-xs px-5 py-2.5 flex items-center gap-2 rounded-xl shadow-sm font-bold"
+                                        style={{ background: 'var(--status-critical)', color: '#FFFFFF' }}
                                     >
-                                        ⚖️ Open Appellate Adjudication Console
+                                        Open Appellate Adjudication Console
                                     </button>
                                 </div>
                             ) : (
-                                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300">
-                                    ℹ️ This complaint is currently under official Appellate Review. Only designated Supervisors and Admins may adjudicate appeals and issue rework directives.
+                                <div
+                                    className="p-3 rounded-lg border text-xs"
+                                    style={{ background: 'var(--status-progress-bg)', borderColor: 'var(--status-progress)', color: 'var(--status-progress)' }}
+                                >
+                                    This complaint is currently under official Appellate Review. Only designated Supervisors and Admins may adjudicate appeals and issue rework directives.
                                 </div>
                             )}
                         </div>
@@ -351,17 +363,22 @@ export default function HandleComplaint() {
                     <div className="gov-section">
                         <div className="gov-section-header">
                             <span className="gov-section-title flex items-center gap-2">
-                                <FileText size={14} /> Registered Grievance Particulars
+                                <FileText size={14} /> {t('registered_particulars')}
                             </span>
                             <div className="flex items-center gap-2">
                                 <Badge status={complaint.status} />
                                 {priority && (
-                                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                                        priority === 'high' || priority === 'critical' ? 'bg-red-100 text-red-800' :
-                                        priority === 'medium' ? 'bg-amber-100 text-amber-800' :
-                                        'bg-gray-100 text-gray-700'
-                                    }`}>
-                                        AI Priority: {priority}
+                                    <span
+                                        className="text-[10px] px-2 py-0.5 rounded font-bold uppercase"
+                                        style={
+                                            priority === 'high' || priority === 'critical'
+                                                ? { background: 'var(--status-critical-bg)', color: 'var(--status-critical)' }
+                                                : priority === 'medium'
+                                                ? { background: 'var(--status-progress-bg)', color: 'var(--status-progress)' }
+                                                : { background: 'var(--bg-section)', color: 'var(--text-secondary)' }
+                                        }
+                                    >
+                                        {t('priority')}: {tPriority(priority)}
                                     </span>
                                 )}
                             </div>
@@ -369,38 +386,57 @@ export default function HandleComplaint() {
 
                         <div className="p-5 space-y-4">
                             <div>
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">
-                                    Domain / Category
+                                <span className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>
+                                    {t('category')}
                                 </span>
-                                <div className="text-sm font-bold text-gray-900">
-                                    {complaint.category || 'General Civic'}
+                                <div className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                                    {tCategory(complaint.category || 'General')}
                                 </div>
                             </div>
 
                             <div>
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">
-                                    Citizen Statement / समस्या विवरण
+                                <span className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>
+                                    {t('citizen_statement')}
                                 </span>
-                                <p className="text-sm text-gray-800 leading-relaxed bg-gray-50 p-3.5 rounded border border-gray-200">
+                                <p
+                                    className="text-sm leading-relaxed p-3.5 rounded border"
+                                    style={{ background: 'var(--bg-section)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                                >
                                     {complaint.description}
                                 </p>
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                                <div className="flex items-start gap-2.5 p-3 rounded border border-gray-200 bg-white">
-                                    <MapPin className="text-(--navy) mt-0.5 shrink-0" size={16} />
+                                <div
+                                    className="flex items-start gap-2.5 p-3 rounded border"
+                                    style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}
+                                >
+                                    <MapPin className="mt-0.5 shrink-0" size={16} style={{ color: 'var(--navy)' }} />
                                     <div className="min-w-0">
-                                        <p className="text-[10px] font-bold uppercase text-gray-500">Location / Ward</p>
-                                        <p className="text-xs font-semibold text-gray-900 truncate">{complaint.location || 'Not Specified'}</p>
-                                        {complaint.ward && <p className="text-[11px] text-gray-500">Ward: {complaint.ward}</p>}
+                                        <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>
+                                            {t('location_ward')}
+                                        </p>
+                                        <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                                            {complaint.location || 'Not Specified'}
+                                        </p>
+                                        {complaint.ward && (
+                                            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                                {complaint.ward}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
-                                <div className="flex items-start gap-2.5 p-3 rounded border border-gray-200 bg-white">
-                                    <Calendar className="text-(--navy) mt-0.5 shrink-0" size={16} />
+                                <div
+                                    className="flex items-start gap-2.5 p-3 rounded border"
+                                    style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}
+                                >
+                                    <Calendar className="mt-0.5 shrink-0" size={16} style={{ color: 'var(--navy)' }} />
                                     <div>
-                                        <p className="text-[10px] font-bold uppercase text-gray-500">Registration Timestamp</p>
-                                        <p className="text-xs font-semibold text-gray-900">
-                                            {complaint.created_at ? new Date(complaint.created_at).toLocaleString('en-IN') : '—'}
+                                        <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>
+                                            {t('registration_timestamp')}
+                                        </p>
+                                        <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                            {complaint.created_at ? new Date(complaint.created_at).toLocaleString(locale) : '—'}
                                         </p>
                                     </div>
                                 </div>
@@ -408,9 +444,9 @@ export default function HandleComplaint() {
 
                             {/* Citizen Submitted Images */}
                             {complaint.attachments && complaint.attachments.length > 0 && (
-                                <div className="mt-4 pt-4 border-t border-gray-200">
-                                    <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                        <ImagePlus size={14} className="text-(--navy)" /> Citizen Submitted Photographic Evidence ({complaint.attachments.length})
+                                <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                                    <h4 className="text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                                        <ImagePlus size={14} style={{ color: 'var(--navy)' }} /> {t('evidence_uploaded_by_you')} ({complaint.attachments.length})
                                     </h4>
                                     <div className="flex gap-3 flex-wrap">
                                         {complaint.attachments.map((img, idx) => (
@@ -427,7 +463,8 @@ export default function HandleComplaint() {
                                                     width={112}
                                                     height={112}
                                                     unoptimized
-                                                    className="w-28 h-28 object-cover rounded border border-gray-300 hover:border-(--navy) shadow-sm transition hover:scale-105"
+                                                    className="w-28 h-28 object-cover rounded border shadow-sm transition hover:scale-105"
+                                                    style={{ borderColor: 'var(--border-mid)' }}
                                                 />
                                             </a>
                                         ))}
@@ -437,41 +474,44 @@ export default function HandleComplaint() {
                         </div>
                     </div>
 
-                    {/* Samadhan Setu Nodal Governance Verification */}
-                    <div className="gov-section border-t-4 border-t-purple-600 bg-purple-50/20">
-                        <div className="gov-section-header bg-purple-50/50 flex items-center justify-between">
-                            <span className="gov-section-title flex items-center gap-2 text-purple-950 font-bold">
-                                <Brain size={14} className="text-purple-700" />
-                                Samadhan Setu Nodal Governance Verification / नोडल अधिकारी समीक्षा
+                    {/* Nodal Governance Verification */}
+                    <div className="gov-section" style={{ borderTop: '4px solid var(--navy)' }}>
+                        <div className="gov-section-header flex items-center justify-between">
+                            <span className="gov-section-title flex items-center gap-2 font-bold">
+                                <Brain size={14} style={{ color: 'var(--navy)' }} />
+                                {t('nodal_verification')}
                             </span>
-                            <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded">
+                            <span
+                                className="text-[10px] font-bold px-2 py-0.5 rounded"
+                                style={{ background: 'var(--navy-light)', color: 'var(--navy)' }}
+                            >
                                 Human-in-the-Loop
                             </span>
                         </div>
 
                         <div className="p-5 space-y-4">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="p-3 bg-white rounded border border-purple-100 shadow-sm">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
-                                        AI Recommended Category
+                                <div className="p-3 rounded border" style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider block" style={{ color: 'var(--text-muted)' }}>
+                                        {t('ai_assessed_category')}
                                     </span>
-                                    <span className="text-sm font-bold text-gray-900">
-                                        {complaint.ai_results?.[0]?.predicted_category || complaint.ai_category || complaint.category || 'General Civic'}
+                                    <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        {tCategory(complaint.ai_results?.[0]?.predicted_category || complaint.ai_category || complaint.category || 'General')}
                                     </span>
                                 </div>
-                                <div className="p-3 bg-white rounded border border-purple-100 shadow-sm">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block">
-                                        AI Recommended Priority
+                                <div className="p-3 rounded border" style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider block" style={{ color: 'var(--text-muted)' }}>
+                                        {t('priority')}
                                     </span>
-                                    <span className="text-sm font-bold uppercase text-purple-800">
-                                        {typeof complaint.priority === 'object' ? complaint.priority.value : (complaint.priority || 'Medium')}
+                                    <span className="text-sm font-bold uppercase" style={{ color: 'var(--navy)' }}>
+                                        {tPriority(typeof complaint.priority === 'object' ? complaint.priority.value : (complaint.priority || 'medium'))}
                                     </span>
                                 </div>
                             </div>
 
                             {triageSuccess && (
-                                <div className="gov-alert success text-xs bg-emerald-50 border-emerald-300 text-emerald-800">
-                                    <CheckCircle size={14} className="text-emerald-600" />
+                                <div className="gov-alert success text-xs">
+                                    <CheckCircle size={14} />
                                     <span>{triageSuccess}</span>
                                 </div>
                             )}
@@ -481,7 +521,8 @@ export default function HandleComplaint() {
                                     type="button"
                                     onClick={() => handleConfirmTriage(false)}
                                     disabled={triageSubmitting}
-                                    className="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold flex items-center gap-2"
+                                    className="px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-2"
+                                    style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}
                                 >
                                     {triageSubmitting && <Loader2 size={12} className="animate-spin" />}
                                     ✓ Confirm AI Triage Recommendation
@@ -489,17 +530,20 @@ export default function HandleComplaint() {
                                 <button
                                     type="button"
                                     onClick={() => setShowOverride(!showOverride)}
-                                    className="px-4 py-2 rounded-lg border border-purple-300 text-purple-800 hover:bg-purple-50 text-xs font-semibold"
+                                    className="btn-ghost px-4 py-2 rounded-lg text-xs font-semibold"
                                 >
-                                    {showOverride ? 'Cancel Override' : 'Override Category / Priority'}
+                                    {showOverride ? t('cancel') : 'Override Category / Priority'}
                                 </button>
                             </div>
 
                             {showOverride && (
-                                <div className="mt-3 p-4 bg-white rounded-lg border border-purple-200 space-y-3">
+                                <div
+                                    className="mt-3 p-4 rounded-lg border space-y-3"
+                                    style={{ background: 'var(--bg-section)', borderColor: 'var(--border-mid)' }}
+                                >
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div>
-                                            <label className="text-[11px] font-bold uppercase text-gray-600 block mb-1">
+                                            <label className="text-[11px] font-bold uppercase block mb-1" style={{ color: 'var(--text-secondary)' }}>
                                                 Adjusted Category
                                             </label>
                                             <input
@@ -511,7 +555,7 @@ export default function HandleComplaint() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="text-[11px] font-bold uppercase text-gray-600 block mb-1">
+                                            <label className="text-[11px] font-bold uppercase block mb-1" style={{ color: 'var(--text-secondary)' }}>
                                                 Adjusted Priority
                                             </label>
                                             <select
@@ -519,16 +563,16 @@ export default function HandleComplaint() {
                                                 onChange={(e) => setTriagePriority(e.target.value)}
                                                 className="gov-input w-full text-xs"
                                             >
-                                                <option value="low">Low (21 Days / 504h)</option>
-                                                <option value="medium">Medium (7 Days / 168h)</option>
-                                                <option value="high">High (5 Days / 120h)</option>
-                                                <option value="critical">Critical (3 Days / 72h)</option>
+                                                <option value="low">{tPriority('low')} (21 Days / 504h)</option>
+                                                <option value="medium">{tPriority('medium')} (7 Days / 168h)</option>
+                                                <option value="high">{tPriority('high')} (5 Days / 120h)</option>
+                                                <option value="critical">{tPriority('critical')} (3 Days / 72h)</option>
                                             </select>
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="text-[11px] font-bold uppercase text-gray-600 block mb-1">
-                                            Mandatory Reason for Override <span className="text-red-500">*</span>
+                                        <label className="text-[11px] font-bold uppercase block mb-1" style={{ color: 'var(--text-secondary)' }}>
+                                            Mandatory Reason for Override <span style={{ color: 'var(--status-critical)' }}>*</span>
                                         </label>
                                         <input
                                             type="text"
@@ -542,7 +586,8 @@ export default function HandleComplaint() {
                                         type="button"
                                         onClick={() => handleConfirmTriage(true)}
                                         disabled={triageSubmitting || !overrideReason.trim()}
-                                        className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold flex items-center gap-2"
+                                        className="px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-2"
+                                        style={{ background: 'var(--status-critical)', color: '#FFFFFF' }}
                                     >
                                         {triageSubmitting && <Loader2 size={12} className="animate-spin" />}
                                         Submit Official Triage Override
@@ -631,11 +676,11 @@ export default function HandleComplaint() {
                     })()}
 
                     {/* Officer Resolution Workspace */}
-                    <div className="gov-section border-t-4 border-t-(--india-green)">
-                        <div className="gov-section-header bg-green-50/50">
-                            <span className="gov-section-title flex items-center gap-2 text-green-950 font-bold">
-                                <CheckCircle size={14} className="text-green-700" />
-                                Officer Resolution Workspace / निवारण कार्यवाई
+                    <div className="gov-section" style={{ borderTop: '4px solid var(--india-green)' }}>
+                        <div className="gov-section-header">
+                            <span className="gov-section-title flex items-center gap-2 font-bold">
+                                <CheckCircle size={14} style={{ color: 'var(--india-green)' }} />
+                                {t('officer_resolution_workspace')}
                             </span>
                         </div>
 
@@ -643,8 +688,8 @@ export default function HandleComplaint() {
                             {/* Officer Remarks */}
                             <div>
                                 <div className="flex items-center justify-between mb-2">
-                                    <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                        Official Action Taken Report (ATR) Notes <span className="text-red-500">*</span>
+                                    <label className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+                                        Official Action Taken Report (ATR) Notes <span style={{ color: 'var(--status-critical)' }}>*</span>
                                     </label>
                                     <button
                                         type="button"
@@ -656,9 +701,10 @@ export default function HandleComplaint() {
                                                 console.error('ATR draft error:', err);
                                             }
                                         }}
-                                        className="px-3 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition"
+                                        className="px-3 py-1 rounded-lg border text-xs font-semibold transition"
+                                        style={{ background: 'var(--navy-light)', borderColor: 'var(--border-mid)', color: 'var(--navy)' }}
                                     >
-                                        ✨ Auto-Draft Official ATR with AI
+                                        Auto-Draft Official ATR with AI
                                     </button>
                                 </div>
                                 <textarea
@@ -672,14 +718,14 @@ export default function HandleComplaint() {
                                     <button
                                         type="button"
                                         onClick={() => setRemarks('Site inspected by field staff and necessary repairs/clearance successfully completed. Normal services restored.')}
-                                        className="text-[11px] bg-gray-100 hover:bg-gray-200 border border-gray-300 px-2.5 py-1 rounded text-gray-700 font-medium transition"
+                                        className="btn-ghost text-[11px] px-2.5 py-1 rounded font-medium transition"
                                     >
                                         Template: Inspection & Completed
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => setRemarks('Maintenance crew dispatched. Defect rectified in compliance with municipal safety standards.')}
-                                        className="text-[11px] bg-gray-100 hover:bg-gray-200 border border-gray-300 px-2.5 py-1 rounded text-gray-700 font-medium transition"
+                                        className="btn-ghost text-[11px] px-2.5 py-1 rounded font-medium transition"
                                     >
                                         Template: Maintenance Rectification
                                     </button>
@@ -688,10 +734,13 @@ export default function HandleComplaint() {
 
                             {/* Resolution Proof Upload */}
                             <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                                <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                                     Resolution Proof Photographs (Upload On-Site Photos)
                                 </label>
-                                <div className="border-2 border-dashed border-gray-300 rounded p-5 hover:bg-gray-50 transition cursor-pointer text-center">
+                                <div
+                                    className="border-2 border-dashed rounded p-5 transition cursor-pointer text-center"
+                                    style={{ borderColor: 'var(--border-mid)', background: 'var(--bg-section)' }}
+                                >
                                     <input
                                         type="file"
                                         accept="image/jpeg,image/png,image/webp"
@@ -701,9 +750,9 @@ export default function HandleComplaint() {
                                         id="proof-upload"
                                     />
                                     <label htmlFor="proof-upload" className="cursor-pointer flex flex-col items-center">
-                                        <Upload className="text-gray-400 mb-1.5" size={32} />
-                                        <span className="text-xs font-bold text-(--navy)">Attach On-Site Proof Images</span>
-                                        <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WEBP up to 5MB each (max {MAX_PROOF_FILES} files)</span>
+                                        <Upload className="mb-1.5" size={32} style={{ color: 'var(--text-muted)' }} />
+                                        <span className="text-xs font-bold" style={{ color: 'var(--navy)' }}>Attach On-Site Proof Images</span>
+                                        <span className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>JPG, PNG, WEBP up to 5MB each (max {MAX_PROOF_FILES} files)</span>
                                     </label>
                                 </div>
 
@@ -717,17 +766,22 @@ export default function HandleComplaint() {
                                                     width={80}
                                                     height={80}
                                                     unoptimized
-                                                    className="w-20 h-20 object-cover rounded border border-green-300 shadow-sm"
+                                                    className="w-20 h-20 object-cover rounded border shadow-sm"
+                                                    style={{ borderColor: 'var(--india-green)' }}
                                                 />
                                                 <button
                                                     type="button"
                                                     onClick={() => removeProof(idx)}
-                                                    className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full p-0.5 shadow hover:bg-red-700 transition"
+                                                    className="absolute -top-1.5 -right-1.5 text-white rounded-full p-0.5 shadow transition"
+                                                    style={{ background: 'var(--status-critical)' }}
                                                     title="Remove image"
                                                 >
                                                     <X size={12} />
                                                 </button>
-                                                <span className="absolute bottom-0 left-0 right-0 bg-green-700 text-white text-[9px] text-center rounded-b truncate px-1 font-semibold">
+                                                <span
+                                                    className="absolute bottom-0 left-0 right-0 text-white text-[9px] text-center rounded-b truncate px-1 font-semibold"
+                                                    style={{ background: 'var(--india-green)' }}
+                                                >
                                                     Proof #{idx + 1}
                                                 </span>
                                             </div>
@@ -744,37 +798,41 @@ export default function HandleComplaint() {
                             )}
 
                             {/* Action Buttons */}
-                            <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+                            <div className="pt-3 border-t flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
                                 <button
                                     type="button"
                                     onClick={() => handleStatusUpdate('in_progress')}
-                                    className="text-xs font-bold text-gray-600 hover:text-gray-900 underline transition"
+                                    className="text-xs font-bold underline transition"
+                                    style={{ color: 'var(--text-secondary)' }}
                                 >
-                                    Save Progress / प्रगति दर्ज करें
+                                    {t('save_progress')}
                                 </button>
                                 <button
                                     onClick={handleResolve}
                                     disabled={submitting || !remarks.trim()}
                                     className="btn-gov-primary flex items-center gap-2 text-xs py-2 px-6"
-                                    style={{ background: 'var(--india-green)', borderColor: 'var(--india-green)' }}
+                                    style={{ background: 'var(--india-green)', borderColor: 'var(--india-green)', color: '#FFFFFF' }}
                                 >
                                     {submitting ? (
                                         <Loader2 className="animate-spin" size={16} />
                                     ) : (
                                         <CheckCircle size={16} />
                                     )}
-                                    <span>Certify Resolved / समाधानित प्रमाणित करें</span>
+                                    <span>{t('certify_resolved')}</span>
                                 </button>
                             </div>
 
                             {['resolved', 'closed'].includes(String(complaint.status || '').toLowerCase()) && (
-                                <div className="rounded-xl border border-gray-200 bg-gray-50 dark:bg-slate-800/40 dark:border-slate-700 p-4">
+                                <div
+                                    className="rounded-xl border p-4"
+                                    style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}
+                                >
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div>
-                                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                                            <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-primary)' }}>
                                                 Grievance Deduplication Policy
                                             </h3>
-                                            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                                            <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
                                                 Automated mass-resolution is disabled for citizen governance integrity. Each citizen grievance requires separate, authentic on-site inspection proof.
                                             </p>
                                         </div>
@@ -791,13 +849,13 @@ export default function HandleComplaint() {
                     <div className="gov-section">
                         <div className="gov-section-header">
                             <span className="gov-section-title flex items-center gap-1.5">
-                                <Activity size={13} /> Administrative Status
+                                <Activity size={13} /> {t('administrative_status')}
                             </span>
                         </div>
                         <div className="p-4 space-y-3">
                             <div>
-                                <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">
-                                    Current Stage
+                                <label className="text-[10px] font-bold uppercase block mb-1" style={{ color: 'var(--text-muted)' }}>
+                                    {t('current_stage')}
                                 </label>
                                 <select
                                     value={status}
@@ -805,7 +863,7 @@ export default function HandleComplaint() {
                                     className="gov-input w-full text-xs font-semibold py-1.5"
                                 >
                                     {STATUS_OPTIONS.map((o) => (
-                                        <option key={o.value} value={o.value}>{o.label}</option>
+                                        <option key={o.value} value={o.value}>{tStatus(o.value)}</option>
                                     ))}
                                 </select>
                             </div>
@@ -813,8 +871,8 @@ export default function HandleComplaint() {
                             {slaHealth !== null && (
                                 <div className="pt-2">
                                     <div className="flex justify-between text-[11px] mb-1">
-                                        <span className="text-gray-500 font-semibold">SLA Time Remaining</span>
-                                        <span className="font-bold text-(--navy)">{slaHealth}%</span>
+                                        <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>SLA {t('sla_remaining')}</span>
+                                        <span className="font-bold" style={{ color: 'var(--navy)' }}>{slaHealth}%</span>
                                     </div>
                                     <div className="priority-bar">
                                         <div
@@ -834,26 +892,29 @@ export default function HandleComplaint() {
                     <div className="gov-section">
                         <div className="gov-section-header">
                             <span className="gov-section-title flex items-center gap-1.5">
-                                <User size={13} /> Citizen Profile / प्रार्थी विवरण
+                                <User size={13} /> {t('citizen_profile')}
                             </span>
                         </div>
                         <div className="p-4 space-y-3 text-xs">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-gray-100 border border-gray-300 rounded-full flex items-center justify-center font-bold text-gray-700">
+                                <div
+                                    className="w-10 h-10 border rounded-full flex items-center justify-center font-bold"
+                                    style={{ background: 'var(--bg-section)', borderColor: 'var(--border-mid)', color: 'var(--navy)' }}
+                                >
                                     {complaint.user?.name?.charAt(0) || 'C'}
                                 </div>
                                 <div>
-                                    <p className="font-bold text-gray-900">{complaint.user?.name || 'Citizen'}</p>
-                                    <p className="text-[10px] text-gray-400">Verified Citizen Account</p>
+                                    <p className="font-bold" style={{ color: 'var(--text-primary)' }}>{complaint.user?.name || t('role_citizen')}</p>
+                                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Verified Citizen Account</p>
                                 </div>
                             </div>
-                            <div className="space-y-1.5 pt-2 border-t border-gray-100 text-gray-600">
+                            <div className="space-y-1.5 pt-2 border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
                                 <div className="flex items-center gap-2">
-                                    <Mail size={13} className="text-gray-400" />
+                                    <Mail size={13} style={{ color: 'var(--text-muted)' }} />
                                     <span className="truncate">{complaint.user?.email || 'Not provided'}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <Phone size={13} className="text-gray-400" />
+                                    <Phone size={13} style={{ color: 'var(--text-muted)' }} />
                                     <span>{complaint.user?.phone || 'Not provided'}</span>
                                 </div>
                             </div>
@@ -864,26 +925,26 @@ export default function HandleComplaint() {
                     <div className="gov-section">
                         <div className="gov-section-header">
                             <span className="gov-section-title flex items-center gap-1.5">
-                                <Clock size={13} /> Official Action Audit Trail
+                                <Clock size={13} /> {t('official_audit_trail')}
                             </span>
                         </div>
                         <div className="p-4 space-y-3">
                             {history.map((log, idx) => (
                                 <div key={log.id || idx} className="flex gap-2.5 text-xs">
-                                    <div className="w-2 h-2 mt-1.5 rounded-full bg-(--navy) shrink-0" />
+                                    <div className="w-2 h-2 mt-1.5 rounded-full shrink-0" style={{ background: 'var(--navy)' }} />
                                     <div>
-                                        <p className="font-semibold text-gray-900">
-                                            Stage: <Badge status={log.to_status} size="small" />
+                                        <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                            <Badge status={log.to_status} size="small" />
                                         </p>
-                                        {log.remarks && <p className="text-gray-600 text-[11px] mt-0.5">{log.remarks}</p>}
-                                        <p className="text-[10px] text-gray-400 mt-0.5">
-                                            {new Date(log.created_at).toLocaleString('en-IN')}
+                                        {log.remarks && <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>{log.remarks}</p>}
+                                        <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                            {new Date(log.created_at).toLocaleString(locale)}
                                         </p>
                                     </div>
                                 </div>
                             ))}
                             {history.length === 0 && (
-                                <p className="text-xs text-gray-400 text-center py-2">No preceding action logged.</p>
+                                <p className="text-xs text-center py-2" style={{ color: 'var(--text-muted)' }}>No preceding action logged.</p>
                             )}
                         </div>
                     </div>

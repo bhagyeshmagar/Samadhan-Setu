@@ -1,13 +1,14 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* ================================================================
    SAMADHAN SETU — Modern Indian Gov Design System
-   Inspired by: ONDC, DigiLocker 2024, UMANG, Aadhaar portal
-   H-12 / L-11 FIX: Self-contained typography without 3rd-party font tracking.
+   Light Mode: Crisp Official Civic White & Navy
+   Dark Mode:  Pitch-Black Canvas (#000000) · Soft Warm Text ·
+               Saffron-Orange Logo, Headings, Accents & Lower Footer
    ================================================================ */
 
-
-/* ===== Design Tokens ===== */
+/* ===== Design Tokens (Light Mode) ===== */
 :root {
   /* --- Tricolor Identity --- */
   --saffron:          #FF9933;
@@ -28,6 +29,25 @@
   --bg-card-hover:    #F8FAFF;
   --bg-header:        #FFFFFF;
   --bg-footer:        #002060;
+  --bg-cta-banner:    #003580;
+
+  /* --- Emblem & Footer Tokens --- */
+  --emblem-bg:        #003580;
+  --emblem-stroke:    #FFFFFF;
+  --emblem-arch:      #FF9933;
+  --emblem-dot:       #138808;
+  --emblem-border:    transparent;
+  --brand-title:      #003580;
+  --brand-sub:        #8896A5;
+  --brand-kicker:     #E07800;
+
+  --footer-heading:   rgba(255, 255, 255, 0.55);
+  --footer-text:      rgba(255, 255, 255, 0.72);
+  --footer-muted:     rgba(255, 255, 255, 0.45);
+  --footer-link:      rgba(255, 255, 255, 0.65);
+  --footer-link-hover:#FFFFFF;
+  --footer-border:    rgba(255, 255, 255, 0.1);
+  --footer-top-glow:  transparent;
 
   /* --- Borders --- */
   --border:           #E2E8F0;
@@ -48,6 +68,7 @@
   --primary:          #003580;
   --primary-hover:    #002666;
   --primary-active:   #001A4D;
+  --primary-ink:      #FFFFFF;
   --accent:           #FF9933;
   --accent-hover:     #E07800;
   --success:          #138808;
@@ -81,7 +102,7 @@
   --nav-text:     #4A5568;
   --nav-active:   #003580;
 
-  /* --- Legacy Aliases (keeps old pages working while we migrate) --- */
+  /* --- Legacy Aliases --- */
   --background:              var(--bg-page);
   --background-secondary:    var(--bg-card);
   --background-tertiary:     var(--bg-section);
@@ -95,58 +116,112 @@
   --input-bg:                #FFFFFF;
   --input-border:            var(--border-mid);
   --input-focus:             var(--border-focus);
-  --primary-hover:           #002666;
   --primary-light:           var(--navy-light);
   --primary-foreground:      #FFFFFF;
-  --accent-hover:            var(--saffron-dark);
   --success-bg:              var(--india-green-light);
   --warning-bg:              var(--saffron-light);
   --error-bg:                #FEF2F2;
-  --nav-bg:                  var(--bg-header);
   --nav-hover:               var(--navy-xlight);
 }
 
-/* ===== Dark Theme Overrides ===== */
+/* ===== Pitch-Dark Orange Theme Overrides ===== */
 html.dark, .dark {
-  --bg-page:          #0B132B;
-  --bg-section:       #111C3A;
-  --bg-card:          #162244;
-  --bg-card-hover:    #1C2A52;
-  --bg-header:        #0E1733;
-  --bg-footer:        #080E21;
+  /* 60% Pitch-Black Canvas */
+  --bg-page:          #000000;
+  --bg-section:       #0A0908;
+  --bg-card:          #110F0D;
+  --bg-card-hover:    #191410;
+  --bg-header:        #050403;
+  --bg-footer:        #0B0704;
+  --bg-cta-banner:    #150D07;
 
-  --border:           #243258;
-  --border-mid:       #314373;
-  --border-strong:    #475E99;
-  --border-focus:     #4D88FF;
+  /* Remap Blue/Navy identity -> Luminous Saffron-Orange */
+  --saffron:          #FF9442;
+  --saffron-light:    #24160A;
+  --saffron-dark:     #FFA95E;
+  --india-green:      #34D399;
+  --india-green-light:#072419;
+  --navy:             #FF9442;
+  --navy-dark:        #FF7A1F;
+  --navy-mid:         #FFA85C;
+  --navy-light:       #22150B;
+  --navy-xlight:      #170F08;
 
-  --text-primary:     #E8EDF5;
-  --text-secondary:   #A9B7D1;
-  --text-muted:       #6C7E9E;
-  --text-inverse:     #0B132B;
-  --text-navy:        #6FA4FF;
-  --text-saffron:     #FFB25E;
-  --text-green:       #4AE052;
+  /* Logo & Lower/Footer Warm Orange Styling */
+  --emblem-bg:        #160E07;
+  --emblem-stroke:    #FFD2A6;
+  --emblem-arch:      #FF9442;
+  --emblem-dot:       #FF6B1A;
+  --emblem-border:    rgba(255, 148, 66, 0.55);
+  --brand-title:      #FF9E4F;
+  --brand-sub:        #D6A882;
+  --brand-kicker:     #FF9442;
 
-  --navy-light:       #162850;
-  --navy-xlight:      #122042;
-  --saffron-light:    #3A240A;
-  --india-green-light:#0C2E14;
+  --footer-heading:   #FF9E4F;
+  --footer-text:      #EBD2BC;
+  --footer-muted:     #B38D6D;
+  --footer-link:      #E5BE9B;
+  --footer-link-hover:#FFAE63;
+  --footer-border:    rgba(255, 148, 66, 0.22);
+  --footer-top-glow:  rgba(255, 148, 66, 0.14);
 
-  --status-submitted-bg:   #1E1E4A;
-  --status-in-progress-bg: #3E1E0E;
-  --status-resolved-bg:    #0C2E18;
-  --status-closed-bg:      #1E293B;
-  --status-critical-bg:    #3E1214;
-  --status-appealed-bg:    #2A174E;
+  /* Hairline Warm-Obsidian Borders */
+  --border:           #261D16;
+  --border-mid:       #3A2B1F;
+  --border-strong:    #5C432E;
+  --border-focus:     #FF9442;
 
-  --nav-bg:       #0E1733;
-  --nav-border:   #243258;
-  --nav-text:     #A9B7D1;
-  --nav-active:   #6FA4FF;
+  /* Soft Warm Text (WCAG AA compliant on #000000 & #110F0D) */
+  --text-primary:     #F5ECE4;
+  --text-secondary:   #CDBBA9;
+  --text-muted:       #998675;
+  --text-inverse:     #090604;
+  --text-navy:        #FF9E4F;
+  --text-saffron:     #FFB26B;
+  --text-green:       #4ADE80;
 
-  --input-bg:     #162244;
-  --input-border: #314373;
+  /* Functional Accents */
+  --primary:          #FF8C32;
+  --primary-hover:    #FFA152;
+  --primary-active:   #E8771E;
+  --primary-ink:      #090604;
+  --accent:           #FF9442;
+  --accent-hover:     #FFA85C;
+  --success:          #34D399;
+  --error:            #F87171;
+  --warning:          #FBBF24;
+  --info:             #FF9E4F;
+
+  /* Dark-Calibrated Status Surfaces (explicit text + clear contrast) */
+  --status-submitted:     #FFB26B;
+  --status-submitted-bg:  #24160A;
+  --status-in-progress:   #FBBF24;
+  --status-in-progress-bg:#291B07;
+  --status-resolved:      #4ADE80;
+  --status-resolved-bg:   #082414;
+  --status-closed:        #C9B8A8;
+  --status-closed-bg:     #1D1814;
+  --status-critical:      #FCA5A5;
+  --status-critical-bg:   #2D0F10;
+  --status-appealed:      #DDA8FF;
+  --status-appealed-bg:   #231233;
+
+  /* Shadows (subtle dark depth) */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.7);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.75);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.92);
+
+  /* Nav */
+  --nav-bg:       #050403;
+  --nav-border:   #261D16;
+  --nav-text:     #D4C2B0;
+  --nav-active:   #FF9442;
+
+  --input-bg:     #0B0908;
+  --input-border: #3A2B1F;
+  --error-bg:     #2D0F10;
+  --primary-foreground: #090604;
 }
 
 /* ===== Tailwind Theme Mapping ===== */
@@ -160,14 +235,14 @@ html.dark, .dark {
   --color-primary:              var(--primary);
   --color-primary-hover:        var(--primary-hover);
   --color-primary-light:        var(--navy-light);
-  --color-primary-foreground:   #FFFFFF;
+  --color-primary-foreground:   var(--primary-ink);
   --color-accent:               var(--saffron);
   --color-success:              var(--success);
   --color-success-bg:           var(--india-green-light);
   --color-warning:              var(--warning);
   --color-warning-bg:           var(--saffron-light);
   --color-error:                var(--error);
-  --color-error-bg:             #FEF2F2;
+  --color-error-bg:             var(--error-bg);
   --color-theme:                var(--text-primary);
   --color-theme-secondary:      var(--text-secondary);
   --color-theme-muted:          var(--text-muted);
@@ -197,6 +272,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+/* Optical compensation for light-on-dark typography */
+html.dark body {
+  letter-spacing: 0.01em;
 }
 
 /* ===== Tricolor Bar ===== */
@@ -211,20 +292,32 @@ body {
   width: 100%;
   flex-shrink: 0;
 }
+html.dark .tricolor-bar {
+  background: linear-gradient(
+    to right,
+    #FF7A1A 0%, #FF9442 45%, #FFC078 65%, #34D399 100%
+  );
+  opacity: 0.9;
+}
 
 /* ===== Announcement Ticker ===== */
 .ticker-wrap {
   background: var(--navy);
-  color: var(--text-inverse);
+  color: var(--primary-ink);
   font-size: 0.75rem;
   font-weight: 500;
   padding: 0.35rem 0;
   overflow: hidden;
   white-space: nowrap;
 }
+html.dark .ticker-wrap {
+  background: #120B06;
+  color: #F2C59B;
+  border-bottom: 1px solid var(--border);
+}
 .ticker-content {
   display: inline-block;
-  animation: ticker-scroll 30s linear infinite;
+  animation: ticker-scroll 34s linear infinite;
 }
 .ticker-content:hover { animation-play-state: paused; }
 @keyframes ticker-scroll {
@@ -232,13 +325,13 @@ body {
   to   { transform: translateX(-100%); }
 }
 
-/* ===== Gov Card (replaces glass-panel) ===== */
+/* ===== Gov Card ===== */
 .gov-card {
   background:    var(--bg-card);
   border:        1px solid var(--border);
   border-radius: 10px;
   box-shadow:    var(--shadow-sm);
-  transition:    box-shadow 0.2s ease, background 0.2s ease;
+  transition:    box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
 }
 .gov-card:hover {
   box-shadow: var(--shadow-md);
@@ -255,20 +348,21 @@ body {
   background:       var(--bg-card);
   border:           1px solid var(--border);
   border-radius:    10px;
-  border-left:      4px solid var(--navy);
+  border-top:       2px solid var(--navy);
   padding:          1.25rem 1.5rem;
   box-shadow:       var(--shadow-sm);
-  transition:       box-shadow 0.15s ease;
+  transition:       box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .metric-card:hover         { box-shadow: var(--shadow-md); }
-.metric-card.mc-saffron    { border-left-color: var(--saffron); }
-.metric-card.mc-green      { border-left-color: var(--india-green); }
-.metric-card.mc-navy       { border-left-color: var(--navy); }
-.metric-card.mc-critical   { border-left-color: var(--status-critical); }
-.metric-card.mc-purple     { border-left-color: #7C3AED; }
+.metric-card.mc-saffron    { border-top-color: var(--saffron); }
+.metric-card.mc-green      { border-top-color: var(--india-green); }
+.metric-card.mc-navy       { border-top-color: var(--navy); }
+.metric-card.mc-critical,
+.metric-card.mc-red        { border-top-color: var(--status-critical); }
+.metric-card.mc-purple     { border-top-color: var(--status-appealed); }
 
 .metric-number {
-  font-size:   2.25rem;
+  font-size:   2.15rem;
   font-weight: 800;
   color:       var(--text-primary);
   line-height: 1.1;
@@ -284,7 +378,7 @@ body {
   margin-top:     0.25rem;
 }
 
-/* ===== Section Panel (white bordered content area) ===== */
+/* ===== Section Panel ===== */
 .gov-section {
   background:    var(--bg-card);
   border:        1px solid var(--border);
@@ -300,7 +394,7 @@ body {
   justify-content: space-between;
 }
 .gov-section-title {
-  font-size:   0.7rem;
+  font-size:   0.72rem;
   font-weight: 700;
   color:       var(--navy);
   text-transform: uppercase;
@@ -310,7 +404,7 @@ body {
 /* ===== Nav Pills ===== */
 .nav-pill {
   padding:       0.375rem 0.875rem;
-  border-radius: 9999px;
+  border-radius: 8px;
   font-size:     0.875rem;
   font-weight:   500;
   color:         var(--nav-text);
@@ -318,7 +412,7 @@ body {
   white-space:   nowrap;
 }
 .nav-pill:hover          { background: var(--navy-light); color: var(--navy); }
-.nav-pill.active         { background: var(--navy); color: white; }
+.nav-pill.active         { background: var(--navy); color: var(--primary-ink); font-weight: 600; }
 .nav-pill.active-accent  {
   color: var(--navy);
   font-weight: 600;
@@ -330,7 +424,7 @@ body {
 /* ===== Buttons ===== */
 .btn-primary {
   background:    var(--primary);
-  color:         white;
+  color:         var(--primary-ink);
   border:        none;
   border-radius: 8px;
   padding:       0.625rem 1.375rem;
@@ -338,12 +432,15 @@ body {
   font-size:     0.9rem;
   cursor:        pointer;
   transition:    background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
-  box-shadow:    0 2px 4px rgba(0, 53, 128, 0.22);
+  box-shadow:    0 2px 6px rgba(0, 53, 128, 0.22);
   display:       inline-flex;
   align-items:   center;
   gap:           0.4rem;
 }
-.btn-primary:hover  { background: var(--primary-hover); box-shadow: 0 4px 10px rgba(0,53,128,0.28); }
+html.dark .btn-primary {
+  box-shadow: 0 2px 10px rgba(255, 140, 50, 0.22);
+}
+.btn-primary:hover  { background: var(--primary-hover); }
 .btn-primary:active { transform: scale(0.98); }
 
 .btn-outline {
@@ -364,7 +461,7 @@ body {
 
 .btn-saffron {
   background:    var(--saffron);
-  color:         white;
+  color:         #FFFFFF;
   border:        none;
   border-radius: 8px;
   padding:       0.625rem 1.375rem;
@@ -372,7 +469,10 @@ body {
   font-size:     0.9rem;
   cursor:        pointer;
   transition:    background 0.15s ease, box-shadow 0.15s ease;
-  box-shadow:    0 2px 4px rgba(255,153,51,0.3);
+  box-shadow:    0 2px 6px rgba(255, 153, 51, 0.3);
+}
+html.dark .btn-saffron {
+  color: #090604;
 }
 .btn-saffron:hover { background: var(--saffron-dark); }
 
@@ -387,7 +487,7 @@ body {
   cursor:        pointer;
   transition:    all 0.15s ease;
 }
-.btn-ghost:hover { background: var(--bg-section); border-color: var(--border-mid); }
+.btn-ghost:hover { background: var(--bg-section); border-color: var(--border-mid); color: var(--text-primary); }
 
 /* ===== Status Badges ===== */
 .badge {
@@ -427,7 +527,12 @@ body {
 .gov-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
 .gov-table thead tr {
   background: var(--navy);
-  color:      white;
+  color:      var(--primary-ink);
+}
+html.dark .gov-table thead tr {
+  background: #1A1109;
+  color:      #FF9E4F;
+  border-bottom: 1px solid var(--border-mid);
 }
 .gov-table thead th {
   padding:        0.75rem 1rem;
@@ -449,8 +554,8 @@ body {
 
 /* ===== Form Inputs ===== */
 .gov-input {
-  background:    var(--bg-card);
-  border:        1.5px solid var(--border-mid);
+  background:    var(--input-bg);
+  border:        1.5px solid var(--input-border);
   border-radius: 8px;
   padding:       0.625rem 0.875rem;
   font-size:     0.9rem;
@@ -461,11 +566,15 @@ body {
 }
 .gov-input:focus {
   border-color: var(--border-focus);
-  box-shadow:   0 0 0 3px rgba(0, 71, 171, 0.12);
+  box-shadow:   0 0 0 3px rgba(255, 148, 66, 0.18);
   outline:      none;
+}
+html:not(.dark) .gov-input:focus {
+  box-shadow:   0 0 0 3px rgba(0, 71, 171, 0.12);
 }
 .gov-input::placeholder { color: var(--text-muted); }
 .gov-input:disabled     { background: var(--bg-section); color: var(--text-muted); cursor: not-allowed; }
+.gov-input option       { background: var(--bg-card); color: var(--text-primary); }
 
 .gov-label {
   display:       block;
@@ -500,7 +609,7 @@ body {
   width:           2.25rem;
   height:          2.25rem;
   background:      var(--navy);
-  color:           white;
+  color:           var(--primary-ink);
   border-radius:   50%;
   display:         flex;
   align-items:     center;
@@ -511,7 +620,7 @@ body {
   position:        relative;
   z-index:         1;
 }
-.step-circle.done { background: var(--india-green); }
+.step-circle.done { background: var(--india-green); color: var(--primary-ink); }
 .step-line {
   flex:       1;
   height:     2px;
@@ -567,7 +676,7 @@ body {
 }
 .action-tile:hover .action-tile-icon {
   background: var(--navy);
-  color:      white;
+  color:      var(--primary-ink);
   transition: all 0.2s ease;
 }
 .action-tile-label { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); }
@@ -596,13 +705,13 @@ body {
   gap:           0.75rem;
   padding:       0.875rem 1rem;
   border-radius: 8px;
-  border-left:   4px solid;
+  border:        1px solid var(--border);
   font-size:     0.875rem;
 }
-.gov-alert.info     { background: var(--navy-xlight);  border-color: var(--navy);          color: var(--navy); }
-.gov-alert.success  { background: var(--india-green-light); border-color: var(--india-green); color: var(--text-green); }
-.gov-alert.warning  { background: var(--saffron-light); border-color: var(--saffron);       color: var(--text-saffron); }
-.gov-alert.error    { background: #FEF2F2;              border-color: var(--error);          color: var(--error); }
+.gov-alert.info     { background: var(--navy-xlight);       border-color: var(--border-mid);    color: var(--text-navy); }
+.gov-alert.success  { background: var(--india-green-light); border-color: var(--india-green);   color: var(--text-green); }
+.gov-alert.warning  { background: var(--saffron-light);     border-color: var(--saffron);       color: var(--text-saffron); }
+.gov-alert.error    { background: var(--error-bg);          border-color: var(--error);         color: var(--error); }
 
 /* ===== Breadcrumb ===== */
 .breadcrumb {
@@ -638,7 +747,7 @@ body {
   height:          0.875rem;
   border-radius:   50%;
   background:      var(--navy);
-  border:          2px solid white;
+  border:          2px solid var(--bg-card);
   box-shadow:      0 0 0 2px var(--border);
 }
 .timeline-dot.done   { background: var(--india-green); }
@@ -652,11 +761,8 @@ body {
 }
 
 /* ================================================================
-   LEGACY COMPATIBILITY — keeps old pages working during migration.
-   These are thin wrappers around the new system.
+   LEGACY COMPATIBILITY
    ================================================================ */
-
-/* Old glass-panel → now gov-card style */
 .glass-panel {
   background:    var(--bg-card);
   border:        1px solid var(--border);
@@ -666,14 +772,12 @@ body {
 }
 .glass-panel:hover { box-shadow: var(--shadow-md); }
 
-/* Old glass-navbar → clean white header */
 .glass-navbar {
   background:    var(--bg-header);
   border-bottom: 1px solid var(--nav-border);
   box-shadow:    var(--shadow-xs);
 }
 
-/* Old card-theme */
 .card-theme {
   background:    var(--bg-card);
   border:        1px solid var(--border);
@@ -689,20 +793,17 @@ body {
   box-shadow:    var(--shadow-md);
 }
 
-/* Old background utilities */
 .bg-theme           { background-color: var(--bg-page); }
 .bg-theme-secondary { background-color: var(--bg-card); }
 .bg-theme-tertiary  { background-color: var(--bg-section); }
 
-/* Old text utilities */
 .text-theme           { color: var(--text-primary); }
 .text-theme-secondary { color: var(--text-secondary); }
 .text-theme-muted     { color: var(--text-muted); }
 
-/* Old input-theme */
 .input-theme {
-  background:    var(--bg-card);
-  border:        1.5px solid var(--border-mid);
+  background:    var(--input-bg);
+  border:        1.5px solid var(--input-border);
   border-radius: 8px;
   padding:       0.625rem 0.875rem;
   font-size:     0.9rem;
@@ -712,12 +813,11 @@ body {
 }
 .input-theme:focus {
   border-color: var(--border-focus);
-  box-shadow:   0 0 0 3px rgba(0,71,171,0.12);
+  box-shadow:   0 0 0 3px rgba(255, 148, 66, 0.18);
   outline:      none;
 }
 .input-theme::placeholder { color: var(--text-muted); }
 
-/* Border utility */
 @utility border-theme {
   border-color: var(--border);
 }
@@ -741,7 +841,7 @@ body {
 /* ===== Official Gov Button ===== */
 .btn-gov-primary {
   background:    var(--navy);
-  color:         #FFFFFF;
+  color:         var(--primary-ink);
   border:        1px solid var(--navy);
   border-radius: 6px;
   padding:       0.6rem 1.25rem;
@@ -757,7 +857,7 @@ body {
 }
 .btn-gov-primary:hover {
   background:    var(--navy-mid);
-  box-shadow:    0 3px 8px rgba(0, 34, 85, 0.25);
+  border-color:  var(--navy-mid);
 }
 .btn-gov-primary:active {
   transform:     scale(0.99);

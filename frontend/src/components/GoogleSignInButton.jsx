@@ -1,12 +1,17 @@
 'use client';
 
+import { useLanguage } from '@/lib/i18n';
+
 export default function GoogleSignInButton({
   onClick,
   disabled = false,
   loading = false,
-  label = 'Sign in with Google',
+  label,
   compact = false,
 }) {
+  const { t } = useLanguage();
+  const displayLabel = label || t('sign_in_with_google');
+
   return (
     <button
       type="button"
@@ -30,7 +35,7 @@ export default function GoogleSignInButton({
           <path fill="none" d="M0 0h48v48H0z" />
         </svg>
       </span>
-      <span>{loading ? 'Connecting…' : label}</span>
+      <span>{loading ? t('connecting') : displayLabel}</span>
     </button>
   );
 }

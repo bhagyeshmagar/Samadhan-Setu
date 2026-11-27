@@ -3,13 +3,19 @@
 import Link from 'next/link';
 import { ArrowRight, RefreshCw, AlertTriangle, RotateCcw } from 'lucide-react';
 import { getRoleDashboardMeta } from '@/lib/dashboardSummary';
+import { useLanguage } from '@/lib/i18n';
 
-/**
- * Reusable Dashboard Summary section built with the portal's `.metric-card`
- * components. Displays key statistics ('Active Complaints', 'Pending Review',
- * and 'Total Resolved') for the logged-in user, with optional interactive
- * filtering (e.g., on /citizen/track) and full loading/error states.
- */
+const ROLE_SCOPE_KEYS = {
+    citizen: 'my_grievances_scope',
+    nodal_officer: 'nodal_scope',
+    officer: 'nodal_scope',
+    inspection_officer: 'inspector_scope',
+    team_lead: 'team_scope',
+    supervisor: 'supervisor_scope',
+    admin: 'admin_scope',
+    super_admin: 'admin_scope',
+};
+
 export default function DashboardSummarySection({
     user,
     summary,
@@ -20,9 +26,10 @@ export default function DashboardSummarySection({
     activeFilter = 'all',
     onSelectFilter,
     showDashboardLink = false,
-    heading = 'Dashboard Summary',
+    heading,
     subtitle,
 }) {
+    const { t } = useLanguage();
     const roleMeta = getRoleDashboardMeta(user?.role);
     const activeCount = summary?.activeComplaints ?? 0;
     const pendingCount = summary?.pendingReview ?? 0;
@@ -31,37 +38,38 @@ export default function DashboardSummarySection({
     const resolutionRate = summary?.resolutionRate ?? 0;
 
     const isInteractive = typeof onSelectFilter === 'function';
+    const scopeText = t(ROLE_SCOPE_KEYS[user?.role] || 'my_grievances_scope');
 
     const cards = [
         {
             key: 'active',
-            label: 'Active Complaints',
+            label: t('active_complaints'),
             value: activeCount,
             colorClass: 'mc-navy',
             valueColor: 'var(--navy)',
             detail:
                 totalCount > 0
-                    ? `${activeCount} of ${totalCount} currently open`
-                    : 'No active grievances right now',
+                    ? t('active_open_detail', { active: activeCount, total: totalCount })
+                    : t('no_active_grievances'),
         },
         {
             key: 'pending_review',
-            label: 'Pending Review',
+            label: t('pending_review'),
             value: pendingCount,
             colorClass: 'mc-saffron',
             valueColor: 'var(--saffron-dark)',
-            detail: roleMeta.pendingSubtitle,
+            detail: scopeText,
         },
         {
             key: 'resolved',
-            label: 'Total Resolved',
+            label: t('total_resolved'),
             value: resolvedCount,
             colorClass: 'mc-green',
             valueColor: 'var(--india-green)',
             detail:
                 totalCount > 0
-                    ? `${resolutionRate}% resolution rate`
-                    : 'Completed & verified grievances',
+                    ? t('resolution_rate_detail', { rate: resolutionRate })
+                    : t('completed_verified_detail'),
         },
     ];
 
@@ -82,16 +90,16 @@ export default function DashboardSummarySection({
                     <h2
                         id="dashboard-summary-heading"
                         className="text-lg font-bold tracking-tight"
-                        style={{ color: 'var(--text-primary)' }}
+                        style={{ color: 'var(--navy)' }}
                     >
-                        {heading}
+                        {heading || t('dashboard_summary')}
                     </h2>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
                         {subtitle || (
                             <>
-                                Signed in as <strong style={{ color: 'var(--text-primary)' }}>{user?.name || 'User'}</strong>
+                                {t('signed_in_as')} <strong style={{ color: 'var(--text-primary)' }}>{user?.name || 'User'}</strong>
                                 <span aria-hidden="true"> · </span>
-                                <span>{roleMeta.scopeLabel}</span>
+                                <span>{scopeText}</span>
                             </>
                         )}
                     </p>
@@ -110,7 +118,7 @@ export default function DashboardSummarySection({
                             }}
                         >
                             <RotateCcw size={12} />
-                            <span>Show all ({totalCount})</span>
+                            <span>{t('show_all_count', { count: totalCount })}</span>
                         </button>
                     )}
 
@@ -118,7 +126,7 @@ export default function DashboardSummarySection({
                         <button
                             type="button"
                             onClick={onRetry}
-                            aria-label="Refresh dashboard summary"
+                            aria-label={t('refresh')}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                             style={{
                                 background: 'var(--bg-card)',
@@ -127,7 +135,7 @@ export default function DashboardSummarySection({
                             }}
                         >
                             <RefreshCw size={12} />
-                            <span>Refresh</span>
+                            <span>{t('refresh')}</span>
                         </button>
                     )}
 
@@ -136,7 +144,7 @@ export default function DashboardSummarySection({
                             href={roleMeta.href}
                             className="btn-primary text-xs px-4 py-2 whitespace-nowrap shrink-0"
                         >
-                            <span>{roleMeta.ctaLabel}</span>
+                            <span>{t('open_dashboard')}</span>
                             <ArrowRight size={14} />
                         </Link>
                     )}
@@ -156,20 +164,20 @@ export default function DashboardSummarySection({
                             onClick={onRetry}
                             className="text-xs font-semibold underline whitespace-nowrap shrink-0 cursor-pointer"
                         >
-                            Try again
+                            {t('try_again')}
                         </button>
                     )}
                 </div>
             )}
 
-            {/* Loading Skeletons matching `.metric-card` geometry */}
+            {/* Loading Skeletons */}
             {loading ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-busy="true" aria-label="Loading dashboard statistics">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-busy="true" aria-label={t('loading')}>
                     {['mc-navy', 'mc-saffron', 'mc-green'].map((tone) => (
                         <div key={tone} className={`metric-card ${tone} animate-pulse`}>
-                            <div className="h-9 w-16 rounded bg-slate-200 dark:bg-slate-700" />
-                            <div className="h-3 w-28 rounded bg-slate-200 dark:bg-slate-700 mt-2.5" />
-                            <div className="h-3 w-40 rounded bg-slate-100 dark:bg-slate-800 mt-2" />
+                            <div className="h-9 w-16 rounded" style={{ background: 'var(--bg-section)' }} />
+                            <div className="h-3 w-28 rounded mt-2.5" style={{ background: 'var(--bg-section)' }} />
+                            <div className="h-3 w-40 rounded mt-2" style={{ background: 'var(--bg-section)' }} />
                         </div>
                     ))}
                 </div>
@@ -193,7 +201,7 @@ export default function DashboardSummarySection({
                                                 color: isSelected ? 'var(--navy)' : 'var(--text-muted)',
                                             }}
                                         >
-                                            {isSelected ? 'Filtered' : 'Filter'}
+                                            {isSelected ? t('filtered') : t('filter')}
                                         </span>
                                     )}
                                 </div>

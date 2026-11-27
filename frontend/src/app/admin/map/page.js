@@ -3,26 +3,33 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { analyticsAPI } from '@/lib/api';
 import dynamic from 'next/dynamic';
-import { 
-    ArrowLeft, Loader2, MapPin, RefreshCw, Building2, 
-    ChevronRight, Layers, Filter 
+import {
+    Loader2, MapPin, RefreshCw, Building2,
+    ChevronRight, Layers,
 } from 'lucide-react';
 
 // Dynamic import to avoid SSR issues with Leaflet
 const IssueMap = dynamic(() => import('@/components/IssueMap'), {
     ssr: false,
     loading: () => (
-        <div className="w-full h-[550px] bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center flex-col gap-2">
-            <Loader2 className="animate-spin text-[var(--navy)]" size={32} />
-            <span className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Loading Spatial GIS Coordinates…</span>
+        <div
+            className="w-full h-[550px] border rounded-lg flex items-center justify-center flex-col gap-2"
+            style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}
+        >
+            <Loader2 className="animate-spin" size={32} style={{ color: 'var(--navy)' }} />
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                Loading Spatial GIS Coordinates…
+            </span>
         </div>
-    )
+    ),
 });
 
 export default function AdminMapPage() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tCategory } = useLanguage();
     const router = useRouter();
 
     const [mapData, setMapData] = useState({ complaints: [], total: 0, departments: [] });
@@ -53,16 +60,22 @@ export default function AdminMapPage() {
 
     useEffect(() => {
         if (user) {
-            fetchMapData();
+            let cancelled = false;
+            Promise.resolve().then(() => {
+                if (!cancelled) fetchMapData();
+            });
+            return () => {
+                cancelled = true;
+            };
         }
     }, [user, fetchMapData]);
 
     if (authLoading) {
         return (
             <div className="flex justify-center items-center min-h-[60vh] flex-col gap-3">
-                <Loader2 className="animate-spin text-[var(--navy)]" size={36} />
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Authorising GIS Administrative Access…
+                <Loader2 className="animate-spin" size={36} style={{ color: 'var(--navy)' }} />
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    {t('authorising_gis')}
                 </p>
             </div>
         );
@@ -70,52 +83,72 @@ export default function AdminMapPage() {
 
     return (
         <div className="max-w-7xl mx-auto px-4 py-6">
-            {/* ── Breadcrumb & Header ── */}
+            {/* Breadcrumb & Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                     <div className="breadcrumb mb-2">
-                        <span>Home</span>
+                        <span>{t('home')}</span>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span>Admin Oversight</span>
+                        <span>{t('admin_oversight')}</span>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span className="breadcrumb-current">District GIS Map</span>
+                        <span className="breadcrumb-current">{t('district_gis_map')}</span>
                     </div>
                     <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                        District Geospatial Grievance Map
+                        {t('district_map_title')}
                     </h1>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        जिला जीआईएस मानचित्र — Geospatial visualization of civic complaints across wards and municipal zones
+                        {t('district_map_sub')}
                     </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                     {/* Department Filter */}
-                    <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1.5 rounded text-xs shadow-sm">
-                        <Building2 size={14} className="text-gray-400" />
-                        <span className="font-semibold text-gray-600">Department:</span>
+                    <div
+                        className="flex items-center gap-2 border px-3 py-1.5 rounded text-xs"
+                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)', color: 'var(--text-secondary)' }}
+                    >
+                        <Building2 size={14} style={{ color: 'var(--text-muted)' }} />
+                        <span className="font-semibold">{t('department')}:</span>
                         <select
                             value={selectedDepartment}
                             onChange={(e) => setSelectedDepartment(e.target.value)}
-                            className="bg-transparent font-medium text-gray-800 focus:outline-none cursor-pointer"
+                            className="bg-transparent font-medium focus:outline-none cursor-pointer"
+                            style={{ color: 'var(--text-primary)' }}
                         >
-                            <option value="">All Departments</option>
+                            <option value="" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
+                                {t('all_departments')}
+                            </option>
                             {mapData.departments?.map(dept => (
-                                <option key={dept.id} value={dept.id}>{dept.name}</option>
+                                <option
+                                    key={dept.id}
+                                    value={dept.id}
+                                    style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}
+                                >
+                                    {dept.name}
+                                </option>
                             ))}
                         </select>
                     </div>
 
                     {/* Color Toggle */}
-                    <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1.5 rounded text-xs shadow-sm">
-                        <Layers size={14} className="text-gray-400" />
-                        <span className="font-semibold text-gray-600">Color by:</span>
+                    <div
+                        className="flex items-center gap-2 border px-3 py-1.5 rounded text-xs"
+                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)', color: 'var(--text-secondary)' }}
+                    >
+                        <Layers size={14} style={{ color: 'var(--text-muted)' }} />
+                        <span className="font-semibold">{t('color_by')}</span>
                         <select
                             value={colorBy}
                             onChange={(e) => setColorBy(e.target.value)}
-                            className="bg-transparent font-medium text-gray-800 focus:outline-none cursor-pointer"
+                            className="bg-transparent font-medium focus:outline-none cursor-pointer"
+                            style={{ color: 'var(--text-primary)' }}
                         >
-                            <option value="category">Category</option>
-                            <option value="priority">Priority</option>
+                            <option value="category" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
+                                {t('category')}
+                            </option>
+                            <option value="priority" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
+                                {t('priority')}
+                            </option>
                         </select>
                     </div>
 
@@ -125,7 +158,7 @@ export default function AdminMapPage() {
                         className="btn-ghost flex items-center gap-1.5 text-xs font-semibold"
                     >
                         <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-                        <span>Refresh</span>
+                        <span>{t('refresh')}</span>
                     </button>
                 </div>
             </div>
@@ -134,7 +167,7 @@ export default function AdminMapPage() {
             {error && (
                 <div className="gov-alert error mb-4">
                     <span>{error}</span>
-                    <button onClick={fetchMapData} className="ml-4 underline text-xs font-bold">Retry</button>
+                    <button onClick={fetchMapData} className="ml-4 underline text-xs font-bold">{t('retry')}</button>
                 </div>
             )}
 
@@ -142,24 +175,31 @@ export default function AdminMapPage() {
             <div className="gov-section mb-6">
                 <div className="gov-section-header">
                     <span className="gov-section-title flex items-center gap-2">
-                        <MapPin size={14} /> Ward Spatial Clusters (
-                        {mapData.complaints?.length || 0} Geocoded Grievances)
+                        <MapPin size={14} /> {t('ward_spatial_clusters')} ({mapData.complaints?.length || 0} {t('geocoded_grievances')})
                     </span>
-                    <span className="text-[11px] text-gray-500">
-                        {mapData.department_filter ? `Filtered: ${mapData.department_filter}` : 'Comprehensive City View'}
+                    <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                        {mapData.department_filter ? `${t('filtered')}: ${mapData.department_filter}` : t('comprehensive_city_view')}
                     </span>
                 </div>
-                <div className="p-2 bg-gray-50">
-                    <div className="h-[580px] rounded border border-gray-200 overflow-hidden shadow-inner">
+                <div className="p-2" style={{ background: 'var(--bg-section)' }}>
+                    <div
+                        className="h-[580px] rounded border overflow-hidden shadow-inner"
+                        style={{ borderColor: 'var(--border)' }}
+                    >
                         {!loading ? (
                             <IssueMap
                                 complaints={mapData.complaints}
                                 colorBy={colorBy}
                             />
                         ) : (
-                            <div className="w-full h-full bg-gray-50 flex items-center justify-center flex-col gap-2">
-                                <Loader2 className="animate-spin text-[var(--navy)]" size={32} />
-                                <span className="text-xs text-gray-500 font-semibold">Updating Map Layers…</span>
+                            <div
+                                className="w-full h-full flex items-center justify-center flex-col gap-2"
+                                style={{ background: 'var(--bg-section)' }}
+                            >
+                                <Loader2 className="animate-spin" size={32} style={{ color: 'var(--navy)' }} />
+                                <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+                                    {t('updating_map_layers')}
+                                </span>
                             </div>
                         )}
                     </div>
@@ -168,17 +208,18 @@ export default function AdminMapPage() {
 
             {/* Summary by Category */}
             <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-600 mb-3">
-                    Geocoded Issue Count by Civic Domain
+                <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'var(--text-secondary)' }}>
+                    {t('geocoded_by_domain')}
                 </h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                     {['Roads & Transport', 'Water Supply', 'Electricity', 'Sanitation & Waste', 'Health & Safety', 'General'].map(cat => {
                         const count = mapData.complaints?.filter(c => c.category === cat).length || 0;
+                        const label = tCategory(cat);
                         return (
                             <div key={cat} className="metric-card mc-navy p-3 text-center">
-                                <div className="text-xl font-bold text-gray-900">{count}</div>
-                                <div className="text-[11px] font-semibold text-gray-600 truncate mt-0.5" title={cat}>
-                                    {cat}
+                                <div className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{count}</div>
+                                <div className="text-[11px] font-semibold truncate mt-0.5" style={{ color: 'var(--text-secondary)' }} title={label}>
+                                    {label}
                                 </div>
                             </div>
                         );

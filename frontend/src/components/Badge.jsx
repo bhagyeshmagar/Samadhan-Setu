@@ -1,70 +1,52 @@
 'use client';
 
+import { useLanguage } from '@/lib/i18n';
+
 export default function Badge({ status, size = 'default' }) {
-    const STATUS_LABEL_MAP = {
-        submitted: 'New Intake',
-        inspection_assigned: 'Inspection Assigned',
-        inspection_submitted: 'Inspection Review',
-        inspection_rework: 'Inspection Rework',
-        inspection_verified: 'Inspection Verified',
-        team_assigned: 'Team Assigned',
-        work_in_progress: 'Work In Progress',
-        resolution_submitted: 'Resolution Submitted',
-        verification_assigned: 'Site Verification',
-        verification_submitted: 'Final Approval',
-        redressal_rework: 'Rework Required',
-    };
+    const { tStatus } = useLanguage();
 
-    const normalizeStatus = (s) => {
-        if (!s) return 'Pending';
-        const rawKey = String(s).toLowerCase().trim();
-        if (STATUS_LABEL_MAP[rawKey]) return STATUS_LABEL_MAP[rawKey];
-        const statusStr = rawKey.replace(/_/g, ' ');
-        return statusStr.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    };
+    const rawKey = status ? String(status).toLowerCase().trim().replace(/\s+/g, '_') : 'pending';
+    const displayStatus = tStatus(rawKey);
 
-    const displayStatus = normalizeStatus(status);
-
-    const getBadgeVariant = (s) => {
-        switch (s) {
-            case 'Resolved':
-            case 'Closed':
-            case 'Completed':
-            case 'Inspection Verified':
+    const getBadgeVariant = (key) => {
+        switch (key) {
+            case 'resolved':
+            case 'closed':
+            case 'completed':
+            case 'inspection_verified':
                 return 'badge-resolved';
-            case 'In Progress':
-            case 'Work In Progress':
-            case 'Assigned':
-            case 'Inspection Assigned':
-            case 'Team Assigned':
-            case 'Site Verification':
-            case 'Resolution Submitted':
-            case 'Verified':
+            case 'in_progress':
+            case 'work_in_progress':
+            case 'assigned':
+            case 'inspection_assigned':
+            case 'team_assigned':
+            case 'verification_assigned':
+            case 'resolution_submitted':
+            case 'verified':
                 return 'badge-progress';
-            case 'Pending':
-            case 'Submitted':
-            case 'New Intake':
-            case 'Inspection Review':
-            case 'Final Approval':
-            case 'Pending Info':
-            case 'Reopened':
+            case 'pending':
+            case 'submitted':
+            case 'inspection_submitted':
+            case 'verification_submitted':
+            case 'pending_info':
+            case 'reopened':
                 return 'badge-pending';
-            case 'Inspection Rework':
-            case 'Rework Required':
-            case 'Rejected':
-            case 'Critical':
-            case 'High':
-            case 'Appealed':
-            case 'Appealed L1':
-            case 'Appealed L2':
-            case 'Escalated':
+            case 'inspection_rework':
+            case 'redressal_rework':
+            case 'rejected':
+            case 'critical':
+            case 'high':
+            case 'appealed':
+            case 'appealed_l1':
+            case 'appealed_l2':
+            case 'escalated':
                 return 'badge-critical';
             default:
                 return 'badge-normal';
         }
     };
 
-    const variantClass = getBadgeVariant(displayStatus);
+    const variantClass = getBadgeVariant(rawKey);
 
     const sizeClasses = {
         small: 'text-[9px] py-0.5 px-1.5',

@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { adminAPI } from '@/lib/api';
 import {
     Building2, Plus, Edit2, Trash2, X, Check, AlertTriangle,
     Loader2, ChevronRight, RefreshCw, Phone, Mail, Code2,
-    Users, FileText, ShieldOff,
+    Users, ShieldOff,
 } from 'lucide-react';
 
 /* ── Modal wrapper ── */
@@ -118,7 +119,7 @@ function CreateDeptModal({ onClose, onCreated }) {
                     <button type="button" onClick={onClose} className="btn-ghost text-sm px-4 py-2">Cancel</button>
                     <button type="submit" disabled={loading}
                         className="flex items-center gap-2 text-sm px-5 py-2 rounded-lg font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white', opacity: loading ? 0.7 : 1 }}>
+                        style={{ background: 'var(--navy)', color: 'var(--primary-ink)', opacity: loading ? 0.7 : 1 }}>
                         {loading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                         {loading ? 'Creating…' : 'Create Department'}
                     </button>
@@ -185,7 +186,7 @@ function EditDeptModal({ dept, onClose, onUpdated }) {
                     <button type="button" onClick={onClose} className="btn-ghost text-sm px-4 py-2">Cancel</button>
                     <button type="submit" disabled={loading}
                         className="flex items-center gap-2 text-sm px-5 py-2 rounded-lg font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white', opacity: loading ? 0.7 : 1 }}>
+                        style={{ background: 'var(--navy)', color: 'var(--primary-ink)', opacity: loading ? 0.7 : 1 }}>
                         {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                         {loading ? 'Saving…' : 'Save Changes'}
                     </button>
@@ -345,7 +346,7 @@ function TeamModal({ team, departments, teamLeads, onClose, onSaved }) {
                     <button type="button" onClick={onClose} className="btn-ghost text-sm px-4 py-2">Cancel</button>
                     <button type="submit" disabled={loading}
                         className="flex items-center gap-2 text-sm px-5 py-2 rounded-lg font-semibold"
-                        style={{ background: 'var(--navy)', color: 'white', opacity: loading ? 0.7 : 1 }}>
+                        style={{ background: 'var(--navy)', color: 'var(--primary-ink)', opacity: loading ? 0.7 : 1 }}>
                         {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                         {loading ? 'Saving…' : isEdit ? 'Save Team' : 'Create Field Team'}
                     </button>
@@ -356,7 +357,7 @@ function TeamModal({ team, departments, teamLeads, onClose, onSaved }) {
 }
 
 /* ── Department Card ── */
-function DeptCard({ dept, onEdit, onDelete, onReactivate }) {
+function DeptCard({ dept, onEdit, onDelete, onReactivate, t, locale }) {
     return (
         <div className="gov-card p-5 flex flex-col gap-4 transition-shadow hover:shadow-lg"
             style={{ borderTop: `3px solid var(--navy)` }}>
@@ -420,7 +421,7 @@ function DeptCard({ dept, onEdit, onDelete, onReactivate }) {
                     </div>
                 )}
                 {!dept.contact_email && !dept.contact_phone && (
-                    <p className="text-xs" style={{ color: 'var(--border-mid)' }}>No contact info</p>
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('no_contact_info')}</p>
                 )}
             </div>
 
@@ -429,15 +430,15 @@ function DeptCard({ dept, onEdit, onDelete, onReactivate }) {
                 style={{ borderTop: '1px solid var(--border)' }}>
                 {dept.is_active !== false ? (
                     <span className="badge badge-resolved">
-                        <span className="badge-dot" /> Active
+                        <span className="badge-dot" /> {t('active')}
                     </span>
                 ) : (
                     <span className="badge badge-critical">
-                        <span className="badge-dot" /> Inactive
+                        <span className="badge-dot" /> {t('inactive')}
                     </span>
                 )}
                 <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                    {new Date(dept.created_at).toLocaleDateString('en-IN')}
+                    {new Date(dept.created_at).toLocaleDateString(locale)}
                 </span>
             </div>
         </div>
@@ -447,6 +448,7 @@ function DeptCard({ dept, onEdit, onDelete, onReactivate }) {
 /* ── Main page ── */
 export default function DepartmentsManagementPage() {
     const { user, loading: authLoading } = useAuth();
+    const { t, locale } = useLanguage();
     const router = useRouter();
 
     const [departments, setDepartments] = useState([]);
@@ -528,7 +530,7 @@ export default function DepartmentsManagementPage() {
             <div className="flex justify-center items-center h-[60vh]">
                 <div className="flex flex-col items-center gap-3">
                     <Loader2 className="animate-spin" size={32} style={{ color: 'var(--navy)' }} />
-                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading departments & teams…</p>
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('loading_depts_teams')}</p>
                 </div>
             </div>
         );
@@ -574,34 +576,34 @@ export default function DepartmentsManagementPage() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
                     <div className="breadcrumb mb-2">
-                        <span>Admin</span>
+                        <span>{t('admin_oversight')}</span>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span className="breadcrumb-current">Departments & Field Teams</span>
+                        <span className="breadcrumb-current">{t('depts_and_teams')}</span>
                     </div>
                     <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                        Departments & Field Teams
+                        {t('departments_mgmt_title')}
                     </h1>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        Manage municipal departments and their isolated field redressal squads — विभाग व दल प्रबंधन
+                        {t('departments_mgmt_sub')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={fetchData} className="btn-ghost flex items-center gap-1.5 text-xs">
-                        <RefreshCw size={13} /> Refresh
+                        <RefreshCw size={13} /> {t('refresh')}
                     </button>
                     {activeTab === 'departments' ? (
                         <button
                             onClick={() => setShowCreate(true)}
                             className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
-                            style={{ background: 'var(--navy)', color: 'white' }}>
-                            <Plus size={15} /> New Department
+                            style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}>
+                            <Plus size={15} /> {t('new_department')}
                         </button>
                     ) : (
                         <button
                             onClick={() => setTeamModalState({ team: null })}
                             className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
-                            style={{ background: 'var(--navy)', color: 'white' }}>
-                            <Plus size={15} /> New Field Team
+                            style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}>
+                            <Plus size={15} /> {t('new_field_team')}
                         </button>
                     )}
                 </div>
@@ -621,20 +623,26 @@ export default function DepartmentsManagementPage() {
                 <button
                     type="button"
                     onClick={() => setActiveTab('departments')}
-                    className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                        activeTab === 'departments' ? 'bg-[#003580] text-white' : 'text-(--text-secondary) hover:bg-(--bg-section)'
-                    }`}
+                    className="px-4 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                    style={
+                        activeTab === 'departments'
+                            ? { background: 'var(--navy)', color: 'var(--primary-ink)' }
+                            : { color: 'var(--text-secondary)' }
+                    }
                 >
-                    Departments ({departments.length})
+                    {t('departments')} ({departments.length})
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab('teams')}
-                    className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                        activeTab === 'teams' ? 'bg-[#003580] text-white' : 'text-(--text-secondary) hover:bg-(--bg-section)'
-                    }`}
+                    className="px-4 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                    style={
+                        activeTab === 'teams'
+                            ? { background: 'var(--navy)', color: 'var(--primary-ink)' }
+                            : { color: 'var(--text-secondary)' }
+                    }
                 >
-                    Field Redressal Teams ({teams.length})
+                    {t('field_redressal_teams')} ({teams.length})
                 </button>
             </div>
 
@@ -643,9 +651,9 @@ export default function DepartmentsManagementPage() {
                     {/* Summary bar */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
                         {[
-                            { label: 'Total Departments', val: departments.length, color: 'var(--navy)', icon: <Building2 size={18}/> },
-                            { label: 'Active Field Teams', val: teams.filter(t => t.is_active !== false).length, color: 'var(--india-green)', icon: <Users size={18}/> },
-                            { label: 'With Contact', val: departments.filter(d => d.contact_email || d.contact_phone).length, color: 'var(--saffron-dark)', icon: <Mail size={18}/> },
+                            { label: t('total_departments'), val: departments.length, color: 'var(--navy)', icon: <Building2 size={18}/> },
+                            { label: t('active_field_teams'), val: teams.filter(tm => tm.is_active !== false).length, color: 'var(--india-green)', icon: <Users size={18}/> },
+                            { label: t('with_contact'), val: departments.filter(d => d.contact_email || d.contact_phone).length, color: 'var(--saffron-dark)', icon: <Mail size={18}/> },
                         ].map(s => (
                             <div key={s.label} className="gov-card p-4 flex items-center gap-4">
                                 <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -665,11 +673,11 @@ export default function DepartmentsManagementPage() {
                     {departments.length === 0 ? (
                         <div className="flex flex-col items-center py-20 gap-4">
                             <Building2 size={48} style={{ color: 'var(--border-mid)' }} />
-                            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No departments created yet</p>
+                            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('no_departments_yet')}</p>
                             <button onClick={() => setShowCreate(true)}
                                 className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl font-semibold"
-                                style={{ background: 'var(--navy)', color: 'white' }}>
-                                <Plus size={14} /> Create First Department
+                                style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}>
+                                <Plus size={14} /> {t('create_first_department')}
                             </button>
                         </div>
                     ) : (
@@ -681,6 +689,8 @@ export default function DepartmentsManagementPage() {
                                     onEdit={setEditDept}
                                     onDelete={setDeleteDept}
                                     onReactivate={handleReactivate}
+                                    t={t}
+                                    locale={locale}
                                 />
                             ))}
                         </div>
@@ -718,20 +728,20 @@ export default function DepartmentsManagementPage() {
                             </div>
 
                             <div className="text-xs space-y-1" style={{ color: 'var(--text-secondary)' }}>
-                                <div>Team Lead: <strong style={{ color: 'var(--text-primary)' }}>{team.team_lead_name || 'Unassigned'}</strong></div>
-                                <div>Specialization: {team.specialization || 'General Maintenance'}</div>
-                                <div>Wards: {(team.ward_coverage || []).join(', ') || 'All Department Wards'}</div>
+                                <div>{t('team_lead_label')}: <strong style={{ color: 'var(--text-primary)' }}>{team.team_lead_name || t('unassigned')}</strong></div>
+                                <div>{t('specialization_label')}: {team.specialization || t('general_maintenance')}</div>
+                                <div>{t('wards_label')}: {(team.ward_coverage || []).join(', ') || t('all_dept_wards')}</div>
                             </div>
 
                             <div className="flex items-center justify-between pt-2.5 mt-auto text-xs border-t"
                                 style={{ borderColor: 'var(--border)' }}>
                                 <span className="font-mono tabular-nums" style={{ color: 'var(--text-primary)' }}>
-                                    Load: <strong>{team.active_work_orders ?? 0}</strong>/{team.daily_capacity} · {team.member_count} staff
+                                    {t('load_label')}: <strong>{team.active_work_orders ?? 0}</strong>/{team.daily_capacity} · {team.member_count} {t('staff_label')}
                                 </span>
                                 {team.is_active !== false ? (
-                                    <span className="badge badge-resolved"><span className="badge-dot" /> Active</span>
+                                    <span className="badge badge-resolved"><span className="badge-dot" /> {t('active')}</span>
                                 ) : (
-                                    <span className="badge badge-critical"><span className="badge-dot" /> Inactive</span>
+                                    <span className="badge badge-critical"><span className="badge-dot" /> {t('inactive')}</span>
                                 )}
                             </div>
                         </div>

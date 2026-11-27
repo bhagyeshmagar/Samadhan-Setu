@@ -359,11 +359,12 @@ export default function ProofComparisonDrawer({
                                     <button
                                         type="button"
                                         onClick={() => setActionMode('rework')}
-                                        className={`p-3 rounded-md border text-left transition-colors ${
+                                        className="p-3 rounded-md border text-left transition-colors"
+                                        style={
                                             actionMode === 'rework'
-                                                ? 'border-red-600 bg-red-50 text-red-700'
-                                                : 'border-(--border) bg-(--bg-card) text-(--text-secondary)'
-                                        }`}
+                                                ? { borderColor: 'var(--status-critical)', background: 'var(--status-critical-bg)', color: 'var(--status-critical)' }
+                                                : { borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }
+                                        }
                                     >
                                         <div className="flex items-center gap-1.5 text-xs font-bold">
                                             <RotateCcw size={14} /> Return for Rework
@@ -373,11 +374,12 @@ export default function ProofComparisonDrawer({
                                     <button
                                         type="button"
                                         onClick={() => setActionMode('reassign')}
-                                        className={`p-3 rounded-md border text-left transition-colors ${
+                                        className="p-3 rounded-md border text-left transition-colors"
+                                        style={
                                             actionMode === 'reassign'
-                                                ? 'border-[#003580] bg-[#EEF3FB] text-[#003580]'
-                                                : 'border-(--border) bg-(--bg-card) text-(--text-secondary)'
-                                        }`}
+                                                ? { borderColor: 'var(--navy)', background: 'var(--navy-light)', color: 'var(--navy)' }
+                                                : { borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }
+                                        }
                                     >
                                         <div className="flex items-center gap-1.5 text-xs font-bold">
                                             <UserCheck size={14} /> Reassign Inspector
@@ -390,11 +392,12 @@ export default function ProofComparisonDrawer({
                                     <button
                                         type="button"
                                         onClick={() => setActionMode('approve')}
-                                        className={`p-3 rounded-md border text-left transition-colors ${
+                                        className="p-3 rounded-md border text-left transition-colors"
+                                        style={
                                             actionMode === 'approve'
-                                                ? 'border-[#138808] bg-[#E8F5E9] text-[#0A6B05]'
-                                                : 'border-(--border) bg-(--bg-card) text-(--text-secondary)'
-                                        }`}
+                                                ? { borderColor: 'var(--india-green)', background: 'var(--status-resolved-bg)', color: 'var(--status-resolved)' }
+                                                : { borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }
+                                        }
                                     >
                                         <div className="flex items-center gap-1.5 text-xs font-bold">
                                             <CheckCircle2 size={14} /> Approve & Notify
@@ -404,11 +407,12 @@ export default function ProofComparisonDrawer({
                                     <button
                                         type="button"
                                         onClick={() => setActionMode('rework_team')}
-                                        className={`p-3 rounded-md border text-left transition-colors ${
+                                        className="p-3 rounded-md border text-left transition-colors"
+                                        style={
                                             actionMode === 'rework_team'
-                                                ? 'border-red-600 bg-red-50 text-red-700'
-                                                : 'border-(--border) bg-(--bg-card) text-(--text-secondary)'
-                                        }`}
+                                                ? { borderColor: 'var(--status-critical)', background: 'var(--status-critical-bg)', color: 'var(--status-critical)' }
+                                                : { borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }
+                                        }
                                     >
                                         <div className="flex items-center gap-1.5 text-xs font-bold">
                                             <RotateCcw size={14} /> Rework by Team
@@ -418,11 +422,12 @@ export default function ProofComparisonDrawer({
                                     <button
                                         type="button"
                                         onClick={() => setActionMode('reassign_team')}
-                                        className={`p-3 rounded-md border text-left transition-colors ${
+                                        className="p-3 rounded-md border text-left transition-colors"
+                                        style={
                                             actionMode === 'reassign_team'
-                                                ? 'border-[#003580] bg-[#EEF3FB] text-[#003580]'
-                                                : 'border-(--border) bg-(--bg-card) text-(--text-secondary)'
-                                        }`}
+                                                ? { borderColor: 'var(--navy)', background: 'var(--navy-light)', color: 'var(--navy)' }
+                                                : { borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }
+                                        }
                                     >
                                         <div className="flex items-center gap-1.5 text-xs font-bold">
                                             <UserCheck size={14} /> Reassign Team
@@ -432,11 +437,12 @@ export default function ProofComparisonDrawer({
                                     <button
                                         type="button"
                                         onClick={() => setActionMode('reverify')}
-                                        className={`p-3 rounded-md border text-left transition-colors ${
+                                        className="p-3 rounded-md border text-left transition-colors"
+                                        style={
                                             actionMode === 'reverify'
-                                                ? 'border-amber-600 bg-amber-50 text-amber-800'
-                                                : 'border-(--border) bg-(--bg-card) text-(--text-secondary)'
-                                        }`}
+                                                ? { borderColor: 'var(--status-progress)', background: 'var(--status-progress-bg)', color: 'var(--status-progress)' }
+                                                : { borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }
+                                        }
                                     >
                                         <div className="flex items-center gap-1.5 text-xs font-bold">
                                             <MapPin size={14} /> Re-verify Site
@@ -519,14 +525,18 @@ export default function ProofComparisonDrawer({
                                 <button
                                     type="submit"
                                     disabled={submitting}
-                                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md text-white whitespace-nowrap disabled:opacity-60"
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md whitespace-nowrap disabled:opacity-60"
                                     style={{
                                         background:
                                             actionMode === 'approve'
-                                                ? '#138808'
+                                                ? 'var(--india-green)'
                                                 : actionMode === 'rework' || actionMode === 'rework_team'
-                                                ? '#DC2626'
-                                                : '#003580',
+                                                ? 'var(--status-critical)'
+                                                : 'var(--navy)',
+                                        color:
+                                            actionMode === 'approve' || actionMode === 'rework' || actionMode === 'rework_team'
+                                                ? '#FFFFFF'
+                                                : 'var(--primary-ink)',
                                     }}
                                 >
                                     {submitting && <Loader2 size={13} className="animate-spin" />}

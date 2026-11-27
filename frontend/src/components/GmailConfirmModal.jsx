@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { X, Mail, Send, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useGmailAuth } from '@/lib/gmailAuth';
+import { useLanguage } from '@/lib/i18n';
 import GoogleSignInButton from './GoogleSignInButton';
 
 function GmailConfirmDialogBody({
@@ -16,6 +17,7 @@ function GmailConfirmDialogBody({
   allowEditRecipient,
 }) {
   const { googleUser, isConnected, isConnecting, authError, connectGmail, getAccessToken } = useGmailAuth();
+  const { t } = useLanguage();
   const [editableEmail, setEditableEmail] = useState(recipientEmail || googleUser?.email || '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -27,7 +29,7 @@ function GmailConfirmDialogBody({
     setError('');
     const token = getAccessToken();
     if (!token) {
-      setError('Please connect your Google account with Sign in with Google before confirming.');
+      setError(t('google_not_connected_hint'));
       return;
     }
     const targetEmail = (editableEmail || googleUser?.email || '').trim();
@@ -53,16 +55,15 @@ function GmailConfirmDialogBody({
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-      style={{ background: 'rgba(11, 19, 43, 0.65)' }}
+      style={{ background: 'rgba(0, 0, 0, 0.78)' }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="gmail-confirm-title"
     >
       <div
         className="w-full max-w-lg rounded-xl border shadow-xl overflow-hidden"
-        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)' }}
       >
-        {/* Header */}
         <div
           className="flex items-center justify-between px-5 py-4 border-b"
           style={{ borderColor: 'var(--border)', background: 'var(--bg-section)' }}
@@ -75,10 +76,10 @@ function GmailConfirmDialogBody({
               style={{ color: 'var(--text-primary)' }}
             >
               {isBulk
-                ? `Send ${itemCount} Queued Alerts via Gmail?`
+                ? t('gmail_modal_bulk_title', { count: itemCount })
                 : mode === 'test'
-                  ? 'Confirm Test Gmail Delivery'
-                  : 'Confirm Gmail Notification'}
+                  ? t('gmail_modal_test_title')
+                  : t('gmail_modal_single_title')}
             </h2>
           </div>
           <button
@@ -87,28 +88,26 @@ function GmailConfirmDialogBody({
             disabled={sending}
             className="p-1.5 rounded-lg transition-colors cursor-pointer"
             style={{ color: 'var(--text-secondary)' }}
-            aria-label="Close confirmation dialog"
+            aria-label={t('close')}
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-5 space-y-4">
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
             {isBulk
-              ? `You are about to send ${itemCount} grievance notification emails from your connected Gmail account. Review the recipients below before confirming.`
-              : 'Review the email details below. This message will be sent directly from your connected Gmail account.'}
+              ? t('gmail_modal_bulk_desc', { count: itemCount })
+              : t('gmail_modal_single_desc')}
           </p>
 
-          {/* Connected Google Account Status */}
           <div
             className="p-3.5 rounded-lg border flex flex-wrap items-center justify-between gap-3"
             style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}
           >
             <div className="min-w-0">
               <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-                Sending Account
+                {t('sending_account')}
               </div>
               {isConnected ? (
                 <div className="flex items-center gap-1.5 mt-0.5 text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
@@ -117,7 +116,7 @@ function GmailConfirmDialogBody({
                 </div>
               ) : (
                 <div className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                  Not connected in this session
+                  {t('not_connected_session')}
                 </div>
               )}
             </div>
@@ -131,16 +130,14 @@ function GmailConfirmDialogBody({
                 }}
                 loading={isConnecting}
                 compact
-                label="Sign in with Google"
               />
             )}
           </div>
 
-          {/* Recipient & Content Preview */}
           {isBulk ? (
             <div className="space-y-2">
               <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-                Affected Notifications ({itemCount})
+                {t('affected_notifications', { count: itemCount })}
               </div>
               <div
                 className="max-h-48 overflow-y-auto rounded-lg border divide-y"
@@ -152,7 +149,7 @@ function GmailConfirmDialogBody({
                       {item.subject}
                     </div>
                     <div className="mt-0.5 flex items-center gap-2 truncate" style={{ color: 'var(--text-secondary)' }}>
-                      <span>To: {item.recipient}</span>
+                      <span>{item.recipient}</span>
                       {item.complaint_number && (
                         <>
                           <span aria-hidden="true">·</span>
@@ -168,7 +165,7 @@ function GmailConfirmDialogBody({
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                  Recipient Email
+                  {t('recipient_email')}
                 </label>
                 {allowEditRecipient ? (
                   <input
@@ -187,7 +184,7 @@ function GmailConfirmDialogBody({
 
               <div>
                 <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                  Subject
+                  {t('subject')}
                 </div>
                 <div
                   className="px-3 py-2 rounded-lg border text-sm font-medium"
@@ -199,7 +196,7 @@ function GmailConfirmDialogBody({
 
               <div>
                 <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-                  Message Preview
+                  {t('message_preview')}
                 </div>
                 <div
                   className="px-3 py-2.5 rounded-lg border text-xs leading-relaxed whitespace-pre-wrap max-h-36 overflow-y-auto"
@@ -226,7 +223,6 @@ function GmailConfirmDialogBody({
           )}
         </div>
 
-        {/* Footer */}
         <div
           className="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t"
           style={{ borderColor: 'var(--border)', background: 'var(--bg-section)' }}
@@ -237,7 +233,7 @@ function GmailConfirmDialogBody({
             disabled={sending}
             className="btn-ghost text-sm whitespace-nowrap shrink-0"
           >
-            Cancel
+            {t('cancel')}
           </button>
           <button
             type="button"
@@ -248,10 +244,10 @@ function GmailConfirmDialogBody({
             <Send size={14} />
             <span>
               {sending
-                ? 'Sending…'
+                ? t('sending')
                 : isBulk
-                  ? `Confirm & Send (${itemCount})`
-                  : 'Confirm & Send via Gmail'}
+                  ? t('confirm_send_bulk', { count: itemCount })
+                  : t('confirm_send_gmail')}
             </span>
           </button>
         </div>
@@ -260,10 +256,6 @@ function GmailConfirmDialogBody({
   );
 }
 
-/**
- * Mandatory explicit confirmation modal before dispatching any email
- * through the user's connected Gmail account.
- */
 export default function GmailConfirmModal({
   isOpen,
   onClose,

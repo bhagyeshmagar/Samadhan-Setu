@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { useRouter, usePathname } from 'next/navigation';
 import { Menu, X, User, LogOut, ChevronDown, Bell, Mail, MessageCircle, Settings, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { useState, useSyncExternalStore, useEffect, useRef } from 'react';
@@ -13,7 +14,7 @@ import LanguageToggle from './LanguageToggle';
 
 const emptySubscribe = () => () => {};
 
-/* ── Civic Bridge Emblem SVG ── */
+/* ── Theme-Aware Civic Bridge Emblem SVG ── */
 function CivicBridgeEmblem({ size = 36 }) {
     return (
         <svg
@@ -24,74 +25,80 @@ function CivicBridgeEmblem({ size = 36 }) {
             xmlns="http://www.w3.org/2000/svg"
             aria-label="Civic bridge emblem"
         >
-            <rect width="36" height="36" rx="8" fill="#003580" />
+            <rect
+                x="0.75"
+                y="0.75"
+                width="34.5"
+                height="34.5"
+                rx="7.5"
+                style={{ fill: 'var(--emblem-bg)', stroke: 'var(--emblem-border)' }}
+                strokeWidth="1.5"
+            />
             <path
                 d="M6 25C10 16 26 16 30 25"
-                stroke="#FF9933"
+                style={{ stroke: 'var(--emblem-arch)' }}
                 strokeWidth="2.5"
                 strokeLinecap="round"
             />
             <path
                 d="M5 24H31"
-                stroke="white"
+                style={{ stroke: 'var(--emblem-stroke)' }}
                 strokeWidth="2"
                 strokeLinecap="round"
             />
-            <path d="M12 24V28" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-            <path d="M18 24V28" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-            <path d="M24 24V28" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-            <circle cx="18" cy="11" r="3" fill="#138808" />
+            <path d="M12 24V28" style={{ stroke: 'var(--emblem-stroke)' }} strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M18 24V28" style={{ stroke: 'var(--emblem-stroke)' }} strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M24 24V28" style={{ stroke: 'var(--emblem-stroke)' }} strokeWidth="1.5" strokeLinecap="round" />
+            <circle cx="18" cy="11" r="3" style={{ fill: 'var(--emblem-dot)' }} />
         </svg>
     );
 }
 
-/* ── Nav link definitions ── */
+/* ── Nav link definitions (translation keys) ── */
 const NAV_LINKS = {
-    public:  [{ href: '/', label: 'Home', labelHi: 'होम' }],
+    public: [{ href: '/', key: 'home' }],
     citizen: [
-        { href: '/citizen/lodge',     label: 'Lodge Grievance', labelHi: 'शिकायत दर्ज करें' },
-        { href: '/citizen/track',     label: 'Track Status',    labelHi: 'स्थिति ट्रैक करें' },
-        { href: '/citizen/community', label: 'Community',       labelHi: 'समुदाय' },
+        { href: '/citizen/lodge', key: 'lodge_grievance' },
+        { href: '/citizen/track', key: 'track_status' },
+        { href: '/citizen/community', key: 'community' },
     ],
     nodal_officer: [
-        { href: '/nodal-dashboard', label: 'Nodal Command', labelHi: 'नोडल डेस्क' },
-        { href: '/department/map', label: 'Ward Map', labelHi: 'मानचित्र' },
+        { href: '/nodal-dashboard', key: 'nodal_command' },
+        { href: '/department/map', key: 'ward_map' },
     ],
     inspection_officer: [
-        { href: '/inspection-dashboard', label: 'My Inspections', labelHi: 'निरीक्षण' },
+        { href: '/inspection-dashboard', key: 'my_inspections' },
     ],
     team_lead: [
-        { href: '/team-dashboard', label: 'Team Work Orders', labelHi: 'कार्य आदेश' },
+        { href: '/team-dashboard', key: 'team_work_orders' },
     ],
     officer: [
-        { href: '/nodal-dashboard', label: 'Nodal Command', labelHi: 'डैशबोर्ड' },
-        { href: '/department/map', label: 'Ward Map', labelHi: 'मानचित्र' },
+        { href: '/nodal-dashboard', key: 'nodal_command' },
+        { href: '/department/map', key: 'ward_map' },
     ],
     supervisor: [
-        { href: '/supervisor', label: 'Appellate Desk', labelHi: 'अपील' },
-        { href: '/department/map', label: 'Ward Map', labelHi: 'विश्लेषण' },
+        { href: '/supervisor', key: 'appellate_desk' },
+        { href: '/department/map', key: 'ward_map' },
     ],
     admin: [
-        { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
-        { href: '/admin/analytics',    label: 'Analytics',    labelHi: 'विश्लेषण' },
-        { href: '/admin/officers',     label: 'Officers',     labelHi: 'अधिकारी' },
-        { href: '/admin/departments',  label: 'Departments',  labelHi: 'विभाग' },
-        { href: '/admin/map',          label: 'Districts',    labelHi: 'जिले' },
+        { href: '/admin', key: 'oversight' },
+        { href: '/admin/analytics', key: 'analytics' },
+        { href: '/admin/officers', key: 'officers' },
+        { href: '/admin/departments', key: 'departments' },
+        { href: '/admin/map', key: 'districts' },
     ],
     super_admin: [
-        { href: '/admin',              label: 'Oversight',    labelHi: 'निगरानी' },
-        { href: '/admin/analytics',    label: 'Analytics',    labelHi: 'विश्लेषण' },
-        { href: '/admin/officers',     label: 'Officers',     labelHi: 'अधिकारी' },
-        { href: '/admin/departments',  label: 'Departments',  labelHi: 'विभाग' },
-        { href: '/admin/map',          label: 'Districts',    labelHi: 'जिले' },
+        { href: '/admin', key: 'oversight' },
+        { href: '/admin/analytics', key: 'analytics' },
+        { href: '/admin/officers', key: 'officers' },
+        { href: '/admin/departments', key: 'departments' },
+        { href: '/admin/map', key: 'districts' },
     ],
 };
 
-/* ── Skeleton header shown before hydration ── */
 function HeaderShell({ children }) {
     return (
         <header style={{ background: 'var(--bg-header)' }}>
-            {/* Tricolor stripe */}
             <div className="tricolor-bar" role="presentation" />
             {children}
         </header>
@@ -100,6 +107,7 @@ function HeaderShell({ children }) {
 
 export default function Navbar() {
     const { user, logout } = useAuth();
+    const { t, tRole, locale } = useLanguage();
     const router = useRouter();
     const pathname = usePathname();
     const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
@@ -118,7 +126,6 @@ export default function Navbar() {
     const [gmailModalNotif, setGmailModalNotif] = useState(null);
     const notifRef = useRef(null);
 
-    // Poll unread count every 30 s when user is logged in
     useEffect(() => {
         let active = true;
         const checkCount = async () => {
@@ -136,7 +143,6 @@ export default function Navbar() {
         };
     }, [user, pathname]);
 
-    // Load notification items when dropdown opens
     useEffect(() => {
         if (!notifOpen || !user) return;
         let active = true;
@@ -153,7 +159,6 @@ export default function Navbar() {
         return () => { active = false; };
     }, [notifOpen, user]);
 
-    // Close notification dropdown on outside click
     useEffect(() => {
         const handler = (e) => {
             if (notifRef.current && !notifRef.current.contains(e.target)) {
@@ -216,11 +221,11 @@ export default function Navbar() {
                 )
             );
             if (res.status === 'sent') {
-                setNotifFeedback({ type: 'success', text: 'WhatsApp message sent via Meta Cloud API.' });
+                setNotifFeedback({ type: 'success', text: t('whatsapp_sent') });
             } else if (res.fallback_url) {
                 setNotifFeedback({
                     type: 'info',
-                    text: 'WhatsApp message link ready — click Open WhatsApp to send.',
+                    text: t('whatsapp_ready'),
                     url: res.fallback_url,
                 });
             } else if (res.error) {
@@ -233,7 +238,6 @@ export default function Navbar() {
         }
     };
 
-    // Close menus on route change without triggering cascading renders in effect
     if (pathname !== prevPathname) {
         setPrevPathname(pathname);
         setMobileOpen(false);
@@ -253,23 +257,23 @@ export default function Navbar() {
         return pathname.startsWith(href);
     };
 
-    const roleBadgeStyle = {
-        citizen:            { bg: '#EEF3FB', color: '#003580', label: 'Citizen' },
-        nodal_officer:      { bg: '#FFF7ED', color: '#C2410C', label: 'Nodal Officer' },
-        inspection_officer: { bg: '#E0F2FE', color: '#0369A1', label: 'Inspector' },
-        team_lead:          { bg: '#ECFDF5', color: '#047857', label: 'Team Lead' },
-        officer:            { bg: '#FFF7ED', color: '#C2410C', label: 'Officer' },
-        supervisor:         { bg: '#FEF3C7', color: '#B45309', label: 'Supervisor' },
-        admin:              { bg: '#F5F3FF', color: '#6D28D9', label: 'Admin' },
-        super_admin:        { bg: '#F5F3FF', color: '#6D28D9', label: 'Super Admin' },
+    const roleBadgeVars = {
+        citizen: { bg: 'var(--navy-light)', color: 'var(--text-navy)' },
+        nodal_officer: { bg: 'var(--saffron-light)', color: 'var(--text-saffron)' },
+        inspection_officer: { bg: 'var(--navy-light)', color: 'var(--text-navy)' },
+        team_lead: { bg: 'var(--india-green-light)', color: 'var(--text-green)' },
+        officer: { bg: 'var(--saffron-light)', color: 'var(--text-saffron)' },
+        supervisor: { bg: 'var(--status-in-progress-bg)', color: 'var(--status-in-progress)' },
+        admin: { bg: 'var(--status-appealed-bg)', color: 'var(--status-appealed)' },
+        super_admin: { bg: 'var(--status-appealed-bg)', color: 'var(--status-appealed)' },
     };
-    const roleBadge = user ? (roleBadgeStyle[user.role] || roleBadgeStyle.citizen) : null;
+    const roleTone = user ? (roleBadgeVars[user.role] || roleBadgeVars.citizen) : null;
 
     if (!mounted) {
         return (
             <HeaderShell>
                 <div className="max-w-350 mx-auto px-4 md:px-8 flex items-center justify-between h-14">
-                    <BrandLogo />
+                    <BrandLogo t={t} />
                 </div>
             </HeaderShell>
         );
@@ -277,50 +281,54 @@ export default function Navbar() {
 
     return (
         <HeaderShell>
-            {/* ── Row 1: Brand + User ── */}
             <div className="max-w-350 mx-auto px-4 md:px-8">
                 <div className="flex items-center justify-between h-14 gap-4">
 
                     {/* Brand */}
                     <Link href="/" className="shrink-0">
-                        <BrandLogo />
+                        <BrandLogo t={t} />
                     </Link>
 
-                    {/* Desktop: Nav pills (center/right) */}
+                    {/* Desktop: Nav links */}
                     <nav
-                        className="hidden md:flex items-center gap-0.5 flex-1 ml-6"
+                        className="hidden md:flex items-center gap-1 flex-1 ml-6 overflow-x-auto"
                         aria-label="Main navigation"
                     >
                         {allLinks.map(link => (
                             <Link
                                 key={link.href}
                                 href={link.href}
-                                className={`nav-pill ${isActive(link.href) ? 'active' : ''}`}
+                                className={`nav-pill shrink-0 ${isActive(link.href) ? 'active' : ''}`}
                             >
-                                {link.label}
+                                {t(link.key)}
                             </Link>
                         ))}
                     </nav>
 
                     {/* Desktop: User actions */}
-                    <div className="hidden md:flex items-center gap-3 shrink-0">
+                    <div className="hidden md:flex items-center gap-2.5 shrink-0">
                         <LanguageToggle />
                         <ThemeToggle />
                         {user && (
-                            /* ── Notification Bell ── */
                             <div className="relative" ref={notifRef}>
                                 <button
+                                    type="button"
                                     onClick={() => {
                                         if (!notifOpen) setNotifLoading(true);
                                         setNotifOpen(!notifOpen);
                                     }}
-                                    className="relative p-1.5 rounded-lg text-(--text-secondary) hover:bg-(--navy-xlight) transition-colors"
-                                    aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ''}`}
+                                    className="relative p-2 rounded-lg border transition-colors cursor-pointer"
+                                    style={{
+                                        background: 'var(--bg-card)',
+                                        borderColor: 'var(--border-mid)',
+                                        color: 'var(--text-secondary)',
+                                    }}
+                                    aria-label={`${t('notifications')}${unreadCount ? ` (${unreadCount})` : ''}`}
                                 >
-                                    <Bell size={18} />
+                                    <Bell size={16} />
                                     {unreadCount > 0 && (
                                         <span
-                                            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full text-[9px] font-bold text-white px-1"
+                                            className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full text-[9px] font-bold text-white px-1 tabular-nums"
                                             style={{ background: '#DC2626' }}
                                         >
                                             {unreadCount > 99 ? '99+' : unreadCount}
@@ -331,7 +339,7 @@ export default function Navbar() {
                                 {notifOpen && (
                                     <div
                                         className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] max-h-[480px] flex flex-col rounded-xl shadow-xl border overflow-hidden z-50"
-                                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+                                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)' }}
                                     >
                                         {/* Header */}
                                         <div
@@ -339,7 +347,7 @@ export default function Navbar() {
                                             style={{ borderColor: 'var(--border)', background: 'var(--bg-section)' }}
                                         >
                                             <div className="flex items-center justify-between text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                                                <span>Notifications</span>
+                                                <span>{t('notifications')}</span>
                                                 {unreadCount > 0 && (
                                                     <button
                                                         type="button"
@@ -347,14 +355,14 @@ export default function Navbar() {
                                                         className="text-xs font-medium hover:underline cursor-pointer"
                                                         style={{ color: 'var(--text-navy)' }}
                                                     >
-                                                        Mark all read
+                                                        {t('mark_all_read')}
                                                     </button>
                                                 )}
                                             </div>
                                             <div className="mt-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                                                <span>{gmailConnected ? `Gmail: ${googleUser?.email}` : 'Gmail: Not connected'}</span>
+                                                <span>{gmailConnected ? `Gmail: ${googleUser?.email}` : t('gmail_not_connected')}</span>
                                                 <span aria-hidden="true">·</span>
-                                                <span>WhatsApp: Ready</span>
+                                                <span>{t('whatsapp_ready')}</span>
                                             </div>
                                         </div>
 
@@ -383,7 +391,7 @@ export default function Navbar() {
                                                         rel="noopener noreferrer"
                                                         className="inline-flex items-center gap-1 font-semibold underline shrink-0"
                                                     >
-                                                        <span>Open WhatsApp</span>
+                                                        <span>{t('open_whatsapp')}</span>
                                                         <ExternalLink size={11} />
                                                     </a>
                                                 )}
@@ -393,9 +401,9 @@ export default function Navbar() {
                                         {/* Body */}
                                         <div className="overflow-y-auto flex-1 divide-y" style={{ borderColor: 'var(--border)' }}>
                                             {notifLoading ? (
-                                                <p className="text-xs p-4 text-center" style={{ color: 'var(--text-muted)' }}>Loading notifications…</p>
+                                                <p className="text-xs p-4 text-center" style={{ color: 'var(--text-muted)' }}>{t('loading_notifications')}</p>
                                             ) : notifications.length === 0 ? (
-                                                <p className="text-xs p-4 text-center" style={{ color: 'var(--text-muted)' }}>No notifications yet.</p>
+                                                <p className="text-xs p-4 text-center" style={{ color: 'var(--text-muted)' }}>{t('no_notifications')}</p>
                                             ) : (
                                                 notifications.map(n => (
                                                     <div
@@ -424,13 +432,13 @@ export default function Navbar() {
 
                                                         <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
                                                             <div className="text-[10px] tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                                                                {new Date(n.created_at).toLocaleString()}
+                                                                {new Date(n.created_at).toLocaleString(locale)}
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 {n.gmail_status === 'sent' ? (
                                                                     <span className="inline-flex items-center gap-1 text-[10px] font-medium" style={{ color: 'var(--text-green)' }}>
                                                                         <CheckCircle2 size={11} />
-                                                                        Gmail sent
+                                                                        {t('gmail_sent')}
                                                                     </span>
                                                                 ) : (
                                                                     <button
@@ -447,14 +455,14 @@ export default function Navbar() {
                                                                         }}
                                                                     >
                                                                         <Mail size={11} />
-                                                                        Send Gmail
+                                                                        {t('send_gmail')}
                                                                     </button>
                                                                 )}
 
                                                                 {n.whatsapp_status === 'sent' ? (
                                                                     <span className="inline-flex items-center gap-1 text-[10px] font-medium" style={{ color: 'var(--text-green)' }}>
                                                                         <CheckCircle2 size={11} />
-                                                                        WhatsApp sent
+                                                                        {t('whatsapp_sent')}
                                                                     </span>
                                                                 ) : n.whatsapp_fallback_url && n.whatsapp_status === 'fallback_ready' ? (
                                                                     <a
@@ -485,7 +493,7 @@ export default function Navbar() {
                                                                         }}
                                                                     >
                                                                         <MessageCircle size={11} />
-                                                                        {sendingWaId === n.id ? 'Sending…' : 'WhatsApp'}
+                                                                        {sendingWaId === n.id ? t('sending') : 'WhatsApp'}
                                                                     </button>
                                                                 )}
                                                             </div>
@@ -507,7 +515,7 @@ export default function Navbar() {
                                                 style={{ color: 'var(--text-navy)' }}
                                             >
                                                 <Settings size={13} />
-                                                <span>Preferences &amp; Delivery Logs</span>
+                                                <span>{t('preferences_delivery_logs')}</span>
                                             </Link>
                                             <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
                                                 Gmail · WhatsApp
@@ -520,21 +528,21 @@ export default function Navbar() {
                         {user ? (
                             <div className="relative">
                                 <button
+                                    type="button"
                                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-(--navy-xlight) transition-colors"
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-(--navy-xlight) transition-colors cursor-pointer"
                                     aria-expanded={userMenuOpen}
                                     aria-haspopup="true"
                                 >
-                                    {/* Role badge */}
-                                    {roleBadge && (
+                                    {roleTone && (
                                         <span
-                                            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                                            style={{ background: roleBadge.bg, color: roleBadge.color }}
+                                            className="text-[10px] font-bold px-2 py-0.5 rounded-md whitespace-nowrap"
+                                            style={{ background: roleTone.bg, color: roleTone.color }}
                                         >
-                                            {roleBadge.label}
+                                            {tRole(user.role)}
                                         </span>
                                     )}
-                                    <span className="flex items-center gap-1.5 text-sm font-semibold text-(--text-primary)">
+                                    <span className="flex items-center gap-1.5 text-sm font-semibold text-(--text-primary) whitespace-nowrap">
                                         <User size={14} className="text-(--text-muted)" />
                                         {user.name?.split(' ')[0]}
                                     </span>
@@ -544,11 +552,10 @@ export default function Navbar() {
                                     />
                                 </button>
 
-                                {/* Dropdown */}
                                 {userMenuOpen && (
                                     <div
-                                        className="absolute right-0 top-full mt-1.5 w-52 rounded-xl shadow-lg border overflow-hidden z-50"
-                                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+                                        className="absolute right-0 top-full mt-1.5 w-56 rounded-xl shadow-lg border overflow-hidden z-50"
+                                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)' }}
                                     >
                                         <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
                                             <p className="text-xs font-semibold text-(--text-primary) truncate">{user.name}</p>
@@ -561,14 +568,16 @@ export default function Navbar() {
                                             style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                                         >
                                             <Settings size={14} style={{ color: 'var(--text-secondary)' }} />
-                                            <span>Notification Settings</span>
+                                            <span>{t('notification_settings')}</span>
                                         </Link>
                                         <button
+                                            type="button"
                                             onClick={handleLogout}
-                                            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                                            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm transition-colors cursor-pointer hover:bg-(--status-critical-bg)"
+                                            style={{ color: 'var(--error)' }}
                                         >
                                             <LogOut size={14} />
-                                            Sign out
+                                            {t('logout')}
                                         </button>
                                     </div>
                                 )}
@@ -576,26 +585,26 @@ export default function Navbar() {
                         ) : (
                             <Link
                                 href="/login"
-                                className="btn-primary text-sm px-5 py-2"
+                                className="btn-primary text-sm px-5 py-2 whitespace-nowrap shrink-0"
                             >
-                                Sign In
+                                {t('login')}
                             </Link>
                         )}
                     </div>
 
-                    {/* Mobile: Notification Bell & Hamburger (M-21 fix) */}
+                    {/* Mobile: Notification Bell & Hamburger */}
                     <div className="flex md:hidden items-center gap-1.5">
                         {user && (
                             <Link
                                 href="/notifications"
                                 onClick={() => setMobileOpen(false)}
                                 className="relative p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
-                                aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ''}`}
+                                aria-label={`${t('notifications')}${unreadCount ? ` (${unreadCount})` : ''}`}
                             >
                                 <Bell size={18} />
                                 {unreadCount > 0 && (
                                     <span
-                                        className="absolute top-1 right-1 min-w-[14px] h-3.5 flex items-center justify-center rounded-full text-[8px] font-bold text-white px-0.5"
+                                        className="absolute top-1 right-1 min-w-[14px] h-3.5 flex items-center justify-center rounded-full text-[8px] font-bold text-white px-0.5 tabular-nums"
                                         style={{ background: '#DC2626' }}
                                     >
                                         {unreadCount > 99 ? '99+' : unreadCount}
@@ -604,12 +613,13 @@ export default function Navbar() {
                             </Link>
                         )}
                         <button
+                            type="button"
                             className="p-2 rounded-lg text-(--text-secondary) hover:bg-(--bg-section) transition-colors"
                             onClick={() => {
                                 setMobileOpen(!mobileOpen);
                                 setNotifOpen(false);
                             }}
-                            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                            aria-label={mobileOpen ? t('close') : 'Menu'}
                             aria-expanded={mobileOpen}
                         >
                             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
@@ -618,7 +628,6 @@ export default function Navbar() {
                 </div>
             </div>
 
-            {/* ── Nav underline (desktop only) ── */}
             {allLinks.length > 1 && (
                 <div
                     className="hidden md:block border-t"
@@ -626,43 +635,39 @@ export default function Navbar() {
                 />
             )}
 
-            {/* ── Mobile Drawer ── */}
+            {/* Mobile Drawer */}
             {mobileOpen && (
                 <div
                     className="md:hidden border-t"
                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                 >
                     <nav className="max-w-350 mx-auto px-4 py-3 flex flex-col gap-0.5" aria-label="Mobile navigation">
-                        {allLinks.map(link => (
-                            <Link
-                                key={link.href}
-                                href={link.href}
-                                className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                                    isActive(link.href)
-                                        ? 'bg-(--navy) text-white'
-                                        : 'text-(--text-secondary) hover:bg-(--navy-xlight) hover:text-(--navy)'
-                                }`}
-                                onClick={() => setMobileOpen(false)}
-                            >
-                                <span>{link.label}</span>
-                                {link.labelHi && (
-                                    <span
-                                        className="text-[11px] opacity-70"
-                                        style={{ fontFamily: "'Noto Sans Devanagari', sans-serif" }}
-                                    >
-                                        {link.labelHi}
-                                    </span>
-                                )}
-                            </Link>
-                        ))}
+                        {allLinks.map(link => {
+                            const active = isActive(link.href);
+                            return (
+                                <Link
+                                    key={link.href}
+                                    href={link.href}
+                                    className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                                    style={
+                                        active
+                                            ? { background: 'var(--navy)', color: 'var(--primary-ink)' }
+                                            : { color: 'var(--text-secondary)' }
+                                    }
+                                    onClick={() => setMobileOpen(false)}
+                                >
+                                    <span>{t(link.key)}</span>
+                                </Link>
+                            );
+                        })}
 
                         <div className="my-2 border-t" style={{ borderColor: 'var(--border)' }} />
                         <div className="px-3 py-1.5 flex items-center justify-between">
-                            <span className="text-xs font-medium text-(--text-muted)">Language / भाषा</span>
+                            <span className="text-xs font-medium text-(--text-muted)">{t('language_label')}</span>
                             <LanguageToggle />
                         </div>
                         <div className="px-3 py-1 flex items-center justify-between">
-                            <span className="text-xs font-medium text-(--text-muted)">Display Theme</span>
+                            <span className="text-xs font-medium text-(--text-muted)">{t('display_theme')}</span>
                             <ThemeToggle />
                         </div>
 
@@ -675,34 +680,35 @@ export default function Navbar() {
                                     style={{ color: 'var(--text-primary)' }}
                                 >
                                     <Settings size={14} style={{ color: 'var(--text-secondary)' }} />
-                                    <span>Notification Settings (Gmail &amp; WhatsApp)</span>
+                                    <span>{t('notification_settings_full')}</span>
                                 </Link>
                                 <div className="px-3 py-2">
                                     <p className="text-xs font-semibold text-(--text-primary)">{user.name}</p>
                                     <p className="text-[10px] text-(--text-muted)">{user.email}</p>
                                 </div>
                                 <button
+                                    type="button"
                                     onClick={() => { handleLogout(); setMobileOpen(false); }}
-                                    className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                                    className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-(--status-critical-bg)"
+                                    style={{ color: 'var(--error)' }}
                                 >
                                     <LogOut size={14} />
-                                    Sign out
+                                    {t('logout')}
                                 </button>
                             </>
                         ) : (
                             <Link
                                 href="/login"
-                                className="btn-primary text-sm text-center mx-1"
+                                className="btn-primary text-sm text-center justify-center mx-1 mt-1"
                                 onClick={() => setMobileOpen(false)}
                             >
-                                Sign In
+                                {t('login')}
                             </Link>
                         )}
                     </nav>
                 </div>
             )}
 
-            {/* Explicit confirmation modal for Gmail dispatch triggered from the bell dropdown */}
             <GmailConfirmModal
                 isOpen={Boolean(gmailModalNotif)}
                 onClose={() => setGmailModalNotif(null)}
@@ -717,8 +723,8 @@ export default function Navbar() {
     );
 }
 
-/* ── Brand Logo Component ── */
-function BrandLogo() {
+/* ── Theme-Aware & Translated Brand Logo Component ── */
+function BrandLogo({ t }) {
     return (
         <div className="flex items-center gap-2.5 cursor-pointer group">
             <div className="shrink-0 transition-transform group-hover:scale-105 duration-200">
@@ -726,37 +732,33 @@ function BrandLogo() {
             </div>
             <div className="flex flex-col leading-none">
                 <span
-                    className="text-base font-bold tracking-tight"
-                    style={{ color: 'var(--navy)' }}
+                    className="text-base font-bold tracking-tight whitespace-nowrap"
+                    style={{ color: 'var(--brand-title)' }}
                 >
-                    Samadhan Setu
+                    {t('app_name')}
                 </span>
                 <span
-                    className="text-[11px] font-medium mt-0.5"
-                    style={{
-                        color: 'var(--text-muted)',
-                        fontFamily: "'Noto Sans Devanagari', sans-serif",
-                    }}
+                    className="text-[10px] font-medium mt-0.5 whitespace-nowrap"
+                    style={{ color: 'var(--brand-sub)' }}
                 >
-                    समाधान सेतु
+                    {t('tagline')}
                 </span>
             </div>
-            {/* Vertical divider + subtitle */}
             <div
-                className="hidden sm:flex flex-col justify-center pl-2.5 ml-0.5 border-l h-8"
+                className="hidden lg:flex flex-col justify-center pl-2.5 ml-0.5 border-l h-8"
                 style={{ borderColor: 'var(--border-mid)' }}
             >
                 <span
-                    className="text-[10px] font-semibold uppercase tracking-wider leading-tight"
-                    style={{ color: 'var(--saffron-dark)' }}
+                    className="text-[10px] font-semibold tracking-wider leading-tight whitespace-nowrap"
+                    style={{ color: 'var(--brand-kicker)' }}
                 >
-                    AI Grievance
+                    {t('brand_kicker_top')}
                 </span>
                 <span
-                    className="text-[10px] font-semibold uppercase tracking-wider leading-tight"
-                    style={{ color: 'var(--text-muted)' }}
+                    className="text-[10px] font-semibold tracking-wider leading-tight whitespace-nowrap"
+                    style={{ color: 'var(--brand-sub)' }}
                 >
-                    Redressal Portal
+                    {t('brand_kicker_bottom')}
                 </span>
             </div>
         </div>

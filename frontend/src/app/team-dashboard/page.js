@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { workflowAPI, getImageUrl } from '@/lib/api';
 import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
@@ -29,6 +30,7 @@ import {
 
 function TeamLeadDashboard() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tPriority } = useLanguage();
 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -156,11 +158,12 @@ function TeamLeadDashboard() {
                 <div
                     role="status"
                     data-testid="team-toast"
-                    className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg border shadow-lg text-xs font-semibold flex items-center gap-2 ${
-                        toast.tone === 'error'
-                            ? 'bg-red-50 border-red-200 text-red-700'
-                            : 'bg-[#E8F5E9] border-[#138808]/30 text-[#0A6B05]'
-                    }`}
+                    className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg border shadow-lg text-xs font-semibold flex items-center gap-2"
+                    style={{
+                        background: toast.tone === 'error' ? 'var(--status-critical-bg)' : 'var(--status-resolved-bg)',
+                        borderColor: toast.tone === 'error' ? 'var(--error)' : 'var(--india-green)',
+                        color: toast.tone === 'error' ? 'var(--error)' : 'var(--text-green)',
+                    }}
                 >
                     {toast.tone === 'error' ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
                     <span>{toast.message}</span>
@@ -171,37 +174,35 @@ function TeamLeadDashboard() {
             <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
                 <div>
                     <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-(--text-muted)">
-                        <span>{team?.department_name || 'Field Operations'}</span>
+                        <span>{team?.department_name || t('department')}</span>
                         <span aria-hidden="true">·</span>
                         <span className="font-mono">{team?.code || 'TEAM'}</span>
                         <span aria-hidden="true">·</span>
-                        <span className="inline-flex items-center gap-1 text-[#047857]">
-                            <Lock size={11} /> Isolated Squad Queue
+                        <span className="inline-flex items-center gap-1" style={{ color: 'var(--text-green)' }}>
+                            <Lock size={11} /> {t('team_scope')}
                         </span>
                     </div>
-                    <h1 className="text-2xl font-bold tracking-tight text-(--text-primary) mt-1">
-                        {team?.name || 'Field Team Execution Desk'}
+                    <h1 className="text-2xl font-bold tracking-tight mt-1" style={{ color: 'var(--navy)' }}>
+                        {team?.name || t('team_title')}
                     </h1>
                     <p className="text-xs text-(--text-secondary) mt-1">
-                        Team Lead: <strong>{user?.name}</strong> · {team?.specialization || 'Civic Redressal'} · Crew of{' '}
-                        <span className="tabular-nums font-semibold">{team?.member_count ?? 6}</span>
-                        {team?.ward_coverage?.length > 0 ? ` · Wards: ${team.ward_coverage.join(', ')}` : ''}
+                        {t('role_team_lead')}: <strong>{user?.name}</strong> · {t('team_sub')}
                     </p>
                 </div>
 
                 <button
                     type="button"
                     onClick={loadDashboard}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-md border whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-md border whitespace-nowrap cursor-pointer"
                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)', color: 'var(--text-primary)' }}
                 >
                     <RefreshCw size={13} />
-                    <span>Refresh Orders</span>
+                    <span>{t('refresh')}</span>
                 </button>
             </div>
 
             {error && (
-                <div className="p-3.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs flex items-center gap-2">
+                <div className="gov-alert error text-xs">
                     <AlertTriangle size={15} />
                     <span>{error}</span>
                 </div>
@@ -210,16 +211,16 @@ function TeamLeadDashboard() {
             {/* KPI Strip */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: 'New Work Orders', value: metrics.assigned ?? 0, sub: 'Ready to Mobilize', accent: '#003580', tab: 'assigned' },
-                    { label: 'Work In Progress', value: metrics.in_progress ?? 0, sub: 'Step 6 · Active on Site', accent: '#C2410C', tab: 'in_progress' },
-                    { label: 'Rework Required', value: metrics.rework_required ?? 0, sub: 'Returned from Verification', accent: '#DC2626', tab: 'rework' },
-                    { label: 'Submitted / Done', value: metrics.submitted_or_resolved ?? 0, sub: 'With Inspector / Resolved', accent: '#138808', tab: 'submitted' },
+                    { label: t('tab_assigned'), value: metrics.assigned ?? 0, sub: t('wf_team'), accent: 'var(--navy)', tab: 'assigned' },
+                    { label: t('tab_in_progress'), value: metrics.in_progress ?? 0, sub: t('wf_repair'), accent: 'var(--text-saffron)', tab: 'in_progress' },
+                    { label: t('tab_rework'), value: metrics.rework_required ?? 0, sub: t('wf_verify'), accent: 'var(--error)', tab: 'rework' },
+                    { label: t('tab_submitted'), value: metrics.submitted_or_resolved ?? 0, sub: t('wf_resolved'), accent: 'var(--text-green)', tab: 'submitted' },
                 ].map((kpi) => (
                     <button
                         key={kpi.label}
                         type="button"
                         onClick={() => setActiveTab(kpi.tab)}
-                        className="text-left rounded-lg border p-3.5 transition-colors hover:bg-(--bg-card-hover)"
+                        className="text-left rounded-lg border p-3.5 transition-colors hover:bg-(--bg-card-hover) cursor-pointer"
                         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
                         <div className="text-xs font-semibold text-(--text-muted)">{kpi.label}</div>
@@ -237,31 +238,35 @@ function TeamLeadDashboard() {
                 style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
             >
                 {[
-                    { key: 'assigned', label: 'Assigned Work Orders', count: assignedOrders.length },
-                    { key: 'in_progress', label: 'Work In Progress', count: inProgressOrders.length },
-                    { key: 'rework', label: 'Rework Required', count: reworkOrders.length },
-                    { key: 'submitted', label: 'Submitted / Completed', count: submittedOrders.length },
-                ].map((t) => {
-                    const active = activeTab === t.key;
+                    { key: 'assigned', label: t('tab_assigned'), count: assignedOrders.length },
+                    { key: 'in_progress', label: t('tab_in_progress'), count: inProgressOrders.length },
+                    { key: 'rework', label: t('tab_rework'), count: reworkOrders.length },
+                    { key: 'submitted', label: t('tab_submitted'), count: submittedOrders.length },
+                ].map((tab) => {
+                    const active = activeTab === tab.key;
                     return (
                         <button
-                            key={t.key}
+                            key={tab.key}
                             type="button"
                             onClick={() => {
-                                setActiveTab(t.key);
+                                setActiveTab(tab.key);
                                 setActiveFormId(null);
                             }}
-                            className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                                active ? 'bg-[#003580] text-white' : 'text-(--text-secondary) hover:bg-(--bg-section)'
-                            }`}
+                            className="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer"
+                            style={{
+                                background: active ? 'var(--navy)' : 'transparent',
+                                color: active ? 'var(--primary-ink)' : 'var(--text-secondary)',
+                            }}
                         >
-                            <span>{t.label}</span>
+                            <span>{tab.label}</span>
                             <span
-                                className={`text-[10px] font-mono tabular-nums px-1.5 rounded ${
-                                    active ? 'bg-white/20 text-white' : 'bg-(--bg-section) text-(--text-muted)'
-                                }`}
+                                className="text-[10px] font-mono tabular-nums px-1.5 rounded"
+                                style={{
+                                    background: active ? 'rgba(0,0,0,0.18)' : 'var(--bg-section)',
+                                    color: active ? 'var(--primary-ink)' : 'var(--text-muted)',
+                                }}
                             >
-                                {t.count}
+                                {tab.count}
                             </span>
                         </button>
                     );
@@ -302,7 +307,7 @@ function TeamLeadDashboard() {
                                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-(--text-muted)">
                                             <span className="font-mono font-bold text-(--navy)">{c.complaint_number}</span>
                                             <span aria-hidden="true">·</span>
-                                            <span className="capitalize font-semibold text-(--text-secondary)">{c.priority} priority</span>
+                                            <span className="capitalize font-semibold text-(--text-secondary)">{tPriority(c.priority)}</span>
                                             <span aria-hidden="true">·</span>
                                             <span>{c.ward}</span>
                                         </div>
@@ -330,10 +335,11 @@ function TeamLeadDashboard() {
                                 </div>
 
                                 {c.status === 'redressal_rework' && c.rework_reason && (
-                                    <div className="p-3 rounded-md border border-red-200 bg-red-50 text-red-800 text-xs flex items-start gap-2">
+                                    <div className="p-3 rounded-md border text-xs flex items-start gap-2"
+                                        style={{ background: 'var(--status-critical-bg)', borderColor: 'var(--error)', color: 'var(--error)' }}>
                                         <AlertTriangle size={15} className="shrink-0 mt-0.5" />
                                         <div>
-                                            <div className="font-bold">Rework Required — Site Check / Nodal Review</div>
+                                            <div className="font-bold">{t('tab_rework')}</div>
                                             <p className="mt-0.5">{c.rework_reason}</p>
                                         </div>
                                     </div>
@@ -518,8 +524,8 @@ function TeamLeadDashboard() {
                                                     type="button"
                                                     disabled={busyId === c.id}
                                                     onClick={() => handleStartWork(c)}
-                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap disabled:opacity-60"
-                                                    style={{ background: '#003580' }}
+                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold whitespace-nowrap disabled:opacity-60 cursor-pointer"
+                                                    style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}
                                                 >
                                                     {busyId === c.id ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
                                                     <span>{c.status === 'redressal_rework' ? 'Resume Rework' : 'Start Field Work'}</span>
@@ -530,8 +536,8 @@ function TeamLeadDashboard() {
                                                     type="button"
                                                     data-testid={`open-resolution-upload-${c.complaint_number}`}
                                                     onClick={() => setActiveFormId(c.id)}
-                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-                                                    style={{ background: '#138808' }}
+                                                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                                                    style={{ background: 'var(--india-green)' }}
                                                 >
                                                     <Camera size={14} />
                                                     <span>Upload Resolution Proof & ATR</span>

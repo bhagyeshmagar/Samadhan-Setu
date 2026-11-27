@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
-    ArrowRight, FileText, Activity, CheckCircle,
+    ArrowRight, FileText, Activity,
     MapPin, Users, BarChart3, Info, ShieldCheck,
-    ChevronRight, Bell
+    ChevronRight, Bell, Lock, Zap, ClipboardCheck
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { complaintsAPI, workflowAPI, departmentAPI, adminAPI } from '@/lib/api';
 import {
     computeDashboardSummaryFromComplaints,
@@ -15,31 +16,31 @@ import {
 } from '@/lib/dashboardSummary';
 import DashboardSummarySection from '@/components/DashboardSummarySection';
 
-/* ── Announcement Ticker ── */
-const NOTICES = [
-    '📢 AI-assisted complaint routing active — grievances are classified and routed to municipal departments.',
-    '📋 Officers and citizens can inspect AI priority explanations and SLA timelines for each grievance.',
-    '⚙️ Autonomous SLA daemon tracks escalation thresholds and statutory deadlines.',
-    '📱 Responsive grievance redressal portal optimised for desktop and mobile devices.',
-    '💡 Prototype Demonstration System — Developed for civic tech research and workflow evaluation.',
-];
+function AnnouncementTicker({ t }) {
+    const notices = [
+        t('ticker_1'),
+        t('ticker_2'),
+        t('ticker_3'),
+        t('ticker_4'),
+        t('ticker_5'),
+    ];
 
-function AnnouncementTicker() {
     return (
         <div
             className="ticker-wrap flex items-center gap-3"
             role="marquee"
-            aria-label="Important announcements"
+            aria-label={t('notice')}
         >
             <span
-                className="shrink-0 flex items-center gap-1.5 font-bold text-accent px-3 border-r border-white/20 text-[11px] uppercase tracking-wider"
+                className="shrink-0 flex items-center gap-1.5 font-bold px-3 border-r text-[11px] uppercase tracking-wider"
+                style={{ color: 'var(--saffron)', borderColor: 'var(--footer-border)' }}
             >
                 <Bell size={11} />
-                Notice
+                {t('notice')}
             </span>
             <div className="overflow-hidden flex-1">
                 <span className="ticker-content">
-                    {NOTICES.join('   •   ')}
+                    {notices.join('   ·   ')}
                     &nbsp;&nbsp;&nbsp;
                 </span>
             </div>
@@ -47,90 +48,9 @@ function AnnouncementTicker() {
     );
 }
 
-/* ── Stats ── */
-const STATS = [
-    { value: '24/7',        label: 'Civic Access',        labelHi: 'नागरिक सेवा',       color: 'mc-navy' },
-    { value: 'Automated',   label: 'AI Categorization',   labelHi: 'AI वर्गीकरण',       color: 'mc-saffron' },
-    { value: '100%',        label: 'Transparent Audit',   labelHi: 'पारदर्शी निगरानी',  color: 'mc-green' },
-    { value: 'Prototype',   label: 'System Status',       labelHi: 'सिस्टम मोड',        color: 'mc-purple' },
-];
-
-/* ── Quick Action Tiles ── */
-const TILES = [
-    {
-        href: '/citizen/lodge',
-        icon: <FileText size={22} />,
-        label: 'Lodge Grievance',
-        labelHi: 'शिकायत दर्ज करें',
-        desc: 'File a new civic complaint',
-        color: 'var(--navy)',
-    },
-    {
-        href: '/citizen/track',
-        icon: <Activity size={22} />,
-        label: 'Track Status',
-        labelHi: 'स्थिति ट्रैक करें',
-        desc: 'Follow your complaint live',
-        color: 'var(--saffron)',
-    },
-    {
-        href: '/citizen/community',
-        icon: <Users size={22} />,
-        label: 'Community',
-        labelHi: 'समुदाय',
-        desc: 'View public complaints & upvote',
-        color: 'var(--india-green)',
-    },
-    {
-        href: '#',
-        icon: <BarChart3 size={22} />,
-        label: 'Statistics',
-        labelHi: 'सांख्यिकी',
-        desc: 'District-level resolution data',
-        color: '#7C3AED',
-    },
-    {
-        href: '#',
-        icon: <MapPin size={22} />,
-        label: 'District Map',
-        labelHi: 'जिला मानचित्र',
-        desc: 'Heatmap of active complaints',
-        color: '#0891B2',
-    },
-    {
-        href: '#',
-        icon: <Info size={22} />,
-        label: 'About',
-        labelHi: 'के बारे में',
-        desc: 'Platform overview & guidelines',
-        color: 'var(--text-muted)',
-    },
-];
-
-/* ── Process Steps ── */
-const STEPS = [
-    {
-        num: '01',
-        title: 'Submit',
-        titleHi: 'जमा करें',
-        desc: 'File your civic grievance with description, location & photos.',
-    },
-    {
-        num: '02',
-        title: 'AI Routes',
-        titleHi: 'AI रूट करता है',
-        desc: 'Our AI classifies, prioritises and routes to the right department instantly.',
-    },
-    {
-        num: '03',
-        title: 'Officer Acts',
-        titleHi: 'अधिकारी कार्रवाई करता है',
-        desc: 'Assigned officer resolves the issue within mandated SLA with full accountability.',
-    },
-];
-
 export default function Home() {
     const { user, loading: authLoading } = useAuth();
+    const { t } = useLanguage();
     const [userSummary, setUserSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryError, setSummaryError] = useState('');
@@ -182,118 +102,191 @@ export default function Home() {
         };
     }, [authLoading, user, fetchLoggedInSummary]);
 
+    const stats = [
+        { value: t('stat_access_val'), label: t('stat_access_lbl'), color: 'mc-navy' },
+        { value: t('stat_ai_val'), label: t('stat_ai_lbl'), color: 'mc-saffron' },
+        { value: t('stat_audit_val'), label: t('stat_audit_lbl'), color: 'mc-green' },
+        { value: t('stat_mode_val'), label: t('stat_mode_lbl'), color: 'mc-purple' },
+    ];
+
+    const tiles = [
+        {
+            href: '/citizen/lodge',
+            icon: <FileText size={22} />,
+            label: t('lodge_grievance'),
+            desc: t('tile_lodge_desc'),
+            tone: 'var(--navy)',
+        },
+        {
+            href: '/citizen/track',
+            icon: <Activity size={22} />,
+            label: t('track_status'),
+            desc: t('tile_track_desc'),
+            tone: 'var(--saffron)',
+        },
+        {
+            href: '/citizen/community',
+            icon: <Users size={22} />,
+            label: t('community'),
+            desc: t('tile_community_desc'),
+            tone: 'var(--india-green)',
+        },
+        {
+            href: '/admin/analytics',
+            icon: <BarChart3 size={22} />,
+            label: t('tile_stats'),
+            desc: t('tile_stats_desc'),
+            tone: 'var(--status-appealed)',
+        },
+        {
+            href: '/department/map',
+            icon: <MapPin size={22} />,
+            label: t('tile_map'),
+            desc: t('tile_map_desc'),
+            tone: 'var(--info)',
+        },
+        {
+            href: '/notifications',
+            icon: <Info size={22} />,
+            label: t('notifications'),
+            desc: t('preferences_delivery_logs'),
+            tone: 'var(--text-secondary)',
+        },
+    ];
+
+    const steps = [
+        { num: '01', title: t('step1_title'), desc: t('step1_desc') },
+        { num: '02', title: t('step2_title'), desc: t('step2_desc') },
+        { num: '03', title: t('step3_title'), desc: t('step3_desc') },
+    ];
+
     return (
         <div className="flex flex-col -mt-6 -mx-4 md:-mx-8">
 
-            {/* ── Announcement Ticker ── */}
-            <AnnouncementTicker />
+            {/* Announcement Ticker */}
+            <AnnouncementTicker t={t} />
 
-            {/* ── Hero Section ── */}
+            {/* Hero Section */}
             <section
                 className="py-12 md:py-16 px-4 md:px-8"
-                style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}
+                style={{ background: 'var(--bg-page)', borderBottom: '1px solid var(--border)' }}
             >
                 <div className="max-w-350 mx-auto grid md:grid-cols-2 gap-10 items-center">
 
-                    {/* Left: Text */}
+                    {/* Left: Copy */}
                     <div>
-                        {/* Prototype badge */}
-                        <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1.5 rounded-full text-xs font-semibold"
-                            style={{ background: 'var(--navy-light)', color: 'var(--navy)', border: '1px solid rgba(0,53,128,0.15)' }}
-                        >
-                            <ShieldCheck size={13} style={{ color: 'var(--india-green)' }} />
-                            Civic Grievance Redressal System · Prototype
+                        <div className="flex items-center gap-2 text-xs font-semibold mb-4" style={{ color: 'var(--text-saffron)' }}>
+                            <ShieldCheck size={14} style={{ color: 'var(--india-green)' }} />
+                            <span>{t('prototype_badge')}</span>
                         </div>
 
                         <h1
-                            className="text-4xl md:text-5xl font-bold leading-tight mb-2"
-                            style={{ color: 'var(--navy)' }}
+                            className="text-4xl md:text-5xl font-bold leading-tight mb-3"
+                            style={{ color: 'var(--navy)', textWrap: 'balance' }}
                         >
-                            File your grievance.
+                            {t('hero_title')}
                         </h1>
                         <p
-                            className="text-2xl font-medium mb-5"
-                            style={{
-                                color: 'var(--saffron)',
-                                fontFamily: "'Noto Sans Devanagari', sans-serif",
-                            }}
+                            className="text-xl md:text-2xl font-medium mb-4"
+                            style={{ color: 'var(--saffron)', textWrap: 'balance' }}
                         >
-                            अपनी शिकायत दर्ज करें।
+                            {t('hero_subtitle')}
                         </p>
                         <p
                             className="text-base leading-relaxed mb-8 max-w-lg"
                             style={{ color: 'var(--text-secondary)' }}
                         >
-                            Transparent, accountable, AI-assisted civic grievance redressal architecture —
-                            connecting citizens and local municipal administration.
+                            {t('hero_desc')}
                         </p>
 
                         {/* CTAs */}
                         <div className="flex flex-wrap gap-3">
-                            <Link href="/citizen/lodge" className="btn-primary text-sm px-6 py-3">
-                                Lodge Grievance <ArrowRight size={16} />
+                            <Link href="/citizen/lodge" className="btn-primary text-sm px-6 py-3 whitespace-nowrap">
+                                {t('lodge_grievance')} <ArrowRight size={16} />
                             </Link>
-                            <Link href="/citizen/track" className="btn-outline text-sm px-6 py-3">
-                                Track Status
+                            <Link href="/citizen/track" className="btn-outline text-sm px-6 py-3 whitespace-nowrap">
+                                {t('track_status')}
                             </Link>
                         </div>
 
                         {/* Quick trust signals */}
-                        <div className="flex flex-wrap gap-4 mt-8">
-                            {[
-                                { icon: '🔒', text: 'Role-Based Access Control' },
-                                { icon: '⚡', text: 'Automated AI Routing' },
-                                { icon: '📊', text: 'Full audit trail' },
-                            ].map(t => (
-                                <div key={t.text} className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                                    <span>{t.icon}</span>
-                                    <span>{t.text}</span>
-                                </div>
-                            ))}
+                        <div className="flex flex-wrap gap-5 mt-8 text-xs" style={{ color: 'var(--text-muted)' }}>
+                            <span className="flex items-center gap-1.5">
+                                <Lock size={13} style={{ color: 'var(--saffron)' }} />
+                                {t('trust_rbac')}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <Zap size={13} style={{ color: 'var(--saffron)' }} />
+                                {t('trust_ai')}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <ClipboardCheck size={13} style={{ color: 'var(--india-green)' }} />
+                                {t('trust_audit')}
+                            </span>
                         </div>
                     </div>
 
-                    {/* Right: Illustration placeholder with stats */}
+                    {/* Right: Civic Identity Visual */}
                     <div className="hidden md:flex flex-col gap-4">
-                        {/* Faux illustration area */}
                         <div
-                            className="rounded-xl flex items-center justify-center"
+                            className="rounded-xl flex items-center justify-center p-10 relative overflow-hidden"
                             style={{
-                                background: 'linear-gradient(135deg, var(--navy-xlight) 0%, #EEF9EF 100%)',
+                                background: 'var(--bg-card)',
                                 border: '1px solid var(--border)',
-                                minHeight: '240px',
-                                position: 'relative',
-                                overflow: 'hidden',
+                                minHeight: '260px',
                             }}
                         >
-                            {/* Decorative geometric shapes */}
-                            <div style={{
-                                position: 'absolute', top: '-20px', right: '-20px',
-                                width: '120px', height: '120px', borderRadius: '50%',
-                                background: 'rgba(0,53,128,0.06)',
-                            }} />
-                            <div style={{
-                                position: 'absolute', bottom: '-30px', left: '-15px',
-                                width: '90px', height: '90px', borderRadius: '50%',
-                                background: 'rgba(255,153,51,0.08)',
-                            }} />
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    top: '-36px',
+                                    right: '-36px',
+                                    width: '150px',
+                                    height: '150px',
+                                    borderRadius: '50%',
+                                    background: 'var(--navy-light)',
+                                    opacity: 0.7,
+                                }}
+                            />
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    bottom: '-42px',
+                                    left: '-24px',
+                                    width: '120px',
+                                    height: '120px',
+                                    borderRadius: '50%',
+                                    background: 'var(--saffron-light)',
+                                    opacity: 0.85,
+                                }}
+                            />
 
-                            <div className="text-center z-10 p-8">
-                                <div className="text-6xl mb-4">🏛️</div>
-                                <p className="text-sm font-semibold" style={{ color: 'var(--navy)' }}>
-                                    Samadhan Setu
+                            <div className="text-center z-10 space-y-3">
+                                <div className="mx-auto w-16 h-16 flex items-center justify-center">
+                                    <svg width="60" height="60" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+                                        <rect
+                                            x="0.75"
+                                            y="0.75"
+                                            width="34.5"
+                                            height="34.5"
+                                            rx="8"
+                                            style={{ fill: 'var(--emblem-bg)', stroke: 'var(--emblem-border)' }}
+                                            strokeWidth="1.5"
+                                        />
+                                        <path d="M6 25C10 16 26 16 30 25" style={{ stroke: 'var(--emblem-arch)' }} strokeWidth="2.5" strokeLinecap="round" />
+                                        <path d="M5 24H31" style={{ stroke: 'var(--emblem-stroke)' }} strokeWidth="2" strokeLinecap="round" />
+                                        <path d="M12 24V28M18 24V28M24 24V28" style={{ stroke: 'var(--emblem-stroke)' }} strokeWidth="1.5" strokeLinecap="round" />
+                                        <circle cx="18" cy="11" r="3" style={{ fill: 'var(--emblem-dot)' }} />
+                                    </svg>
+                                </div>
+                                <p className="text-lg font-bold tracking-tight" style={{ color: 'var(--brand-title)' }}>
+                                    {t('app_name')}
                                 </p>
-                                <p className="text-xs mt-1" style={{
-                                    color: 'var(--text-muted)',
-                                    fontFamily: "'Noto Sans Devanagari', sans-serif"
-                                }}>
-                                    AI Grievance Redressal Platform
+                                <p className="text-xs max-w-xs mx-auto" style={{ color: 'var(--text-secondary)' }}>
+                                    {t('tagline')}
                                 </p>
-                                <div className="mt-4 flex items-center justify-center gap-2">
-                                    <span className="inline-block w-3 h-3 rounded-full" style={{ background: 'var(--india-green)' }} />
-                                    <span className="text-xs" style={{ color: 'var(--india-green)', fontWeight: 600 }}>
-                                        System Online
-                                    </span>
+                                <div className="pt-2 text-xs font-semibold" style={{ color: 'var(--india-green)' }}>
+                                    {t('system_online')}
                                 </div>
                             </div>
                         </div>
@@ -301,7 +294,7 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* ── Personalized Dashboard Summary (logged-in) OR Public Platform Stats ── */}
+            {/* Personalized Dashboard Summary OR Public Platform Stats */}
             <section
                 className="py-8 px-4 md:px-8"
                 style={{ background: 'var(--bg-section)', borderBottom: '1px solid var(--border)' }}
@@ -315,20 +308,14 @@ export default function Home() {
                             error={summaryError}
                             onRetry={() => fetchLoggedInSummary(user)}
                             showDashboardLink
-                            heading="Dashboard Summary"
+                            heading={t('dashboard_summary')}
                         />
                     ) : (
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            {STATS.map((s) => (
+                            {stats.map((s) => (
                                 <div key={s.label} className={`metric-card ${s.color}`}>
                                     <div className="metric-number">{s.value}</div>
                                     <div className="metric-label">{s.label}</div>
-                                    <div
-                                        className="text-[10px] mt-0.5"
-                                        style={{ color: 'var(--text-muted)', fontFamily: "'Noto Sans Devanagari', sans-serif" }}
-                                    >
-                                        {s.labelHi}
-                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -336,39 +323,30 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* ── Quick Access Tiles ── */}
-            <section className="py-10 px-4 md:px-8" style={{ background: 'var(--bg-card)' }}>
+            {/* Quick Access Tiles */}
+            <section className="py-10 px-4 md:px-8" style={{ background: 'var(--bg-page)' }}>
                 <div className="max-w-[1400px] mx-auto">
                     <div className="mb-6">
-                        <div className="flex items-center gap-2 mb-1">
-                            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--saffron)' }} />
-                            <h2 className="text-lg font-bold" style={{ color: 'var(--navy)' }}>
-                                Quick Access
-                            </h2>
-                        </div>
-                        <p className="text-sm ml-3" style={{ color: 'var(--text-muted)' }}>
-                            Everything you need — शीघ्र पहुँच
+                        <h2 className="text-lg font-bold" style={{ color: 'var(--navy)' }}>
+                            {t('quick_access')}
+                        </h2>
+                        <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                            {t('quick_access_sub')}
                         </p>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                        {TILES.map((tile) => (
-                            <Link key={tile.label} href={tile.href} className="action-tile">
+                        {tiles.map((tile) => (
+                            <Link key={tile.href + tile.label} href={tile.href} className="action-tile">
                                 <div
                                     className="action-tile-icon"
-                                    style={{ background: `${tile.color}15`, color: tile.color }}
+                                    style={{ background: 'var(--navy-light)', color: tile.tone }}
                                 >
                                     {tile.icon}
                                 </div>
                                 <div>
                                     <p className="action-tile-label">{tile.label}</p>
-                                    <p
-                                        className="text-[10px] mt-0.5"
-                                        style={{
-                                            color: 'var(--text-muted)',
-                                            fontFamily: "'Noto Sans Devanagari', sans-serif",
-                                        }}
-                                    >
-                                        {tile.labelHi}
+                                    <p className="action-tile-sublabel mt-0.5 line-clamp-2">
+                                        {tile.desc}
                                     </p>
                                 </div>
                             </Link>
@@ -377,52 +355,38 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* ── How it Works ── */}
+            {/* How it Works */}
             <section
                 className="py-10 px-4 md:px-8"
                 style={{ background: 'var(--bg-section)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}
             >
                 <div className="max-w-[1400px] mx-auto">
                     <div className="mb-8">
-                        <div className="flex items-center gap-2 mb-1">
-                            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--navy)' }} />
-                            <h2 className="text-lg font-bold" style={{ color: 'var(--navy)' }}>
-                                How it works
-                            </h2>
-                        </div>
-                        <p className="text-sm ml-3" style={{ color: 'var(--text-muted)' }}>
-                            3 simple steps — यह कैसे काम करता है
+                        <h2 className="text-lg font-bold" style={{ color: 'var(--navy)' }}>
+                            {t('how_it_works')}
+                        </h2>
+                        <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                            {t('how_it_works_sub')}
                         </p>
                     </div>
 
-                    {/* Steps */}
                     <div className="grid md:grid-cols-3 gap-0 relative">
-                        {/* Connecting line (desktop only) */}
                         <div
                             className="hidden md:block absolute top-[1.1rem] left-[16%] right-[16%] h-0.5 z-0"
                             style={{ background: 'var(--border-mid)' }}
                         />
-                        {STEPS.map((step, i) => (
+                        {steps.map((step, i) => (
                             <div key={step.num} className="flex flex-col items-center text-center px-6 pb-6 relative z-10">
-                                <div className="step-circle mb-4">
+                                <div className="step-circle mb-4 tabular-nums">
                                     {step.num}
                                 </div>
-                                <h3 className="font-bold text-sm mb-0.5" style={{ color: 'var(--navy)' }}>
+                                <h3 className="font-bold text-sm mb-1.5" style={{ color: 'var(--navy)' }}>
                                     {step.title}
                                 </h3>
-                                <p
-                                    className="text-[11px] mb-2"
-                                    style={{
-                                        color: 'var(--saffron-dark)',
-                                        fontFamily: "'Noto Sans Devanagari', sans-serif",
-                                    }}
-                                >
-                                    {step.titleHi}
-                                </p>
                                 <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                                     {step.desc}
                                 </p>
-                                {i < STEPS.length - 1 && (
+                                {i < steps.length - 1 && (
                                     <ChevronRight
                                         size={18}
                                         className="md:hidden mt-4"
@@ -435,32 +399,39 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* ── CTA Banner ── */}
+            {/* Lower CTA Banner (Slightly warm orange on pitch dark in dark mode) */}
             <section
                 className="py-10 px-4 md:px-8"
-                style={{ background: 'var(--navy)' }}
+                style={{
+                    background: 'var(--bg-cta-banner)',
+                    borderTop: '1px solid var(--footer-border)',
+                }}
             >
                 <div className="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
                     <div>
-                        <h2 className="text-xl font-bold text-white mb-1">
-                            Have a civic issue to report?
+                        <h2 className="text-xl font-bold mb-1" style={{ color: 'var(--footer-heading)' }}>
+                            {t('cta_banner_title')}
                         </h2>
-                        <p className="text-sm text-white/60">
-                            It takes less than 2 minutes. AI does the rest.
+                        <p className="text-sm" style={{ color: 'var(--footer-text)' }}>
+                            {t('cta_banner_sub')}
                         </p>
                     </div>
-                    <div className="flex gap-3 flex-shrink-0">
+                    <div className="flex gap-3 shrink-0">
                         <Link
                             href="/citizen/lodge"
-                            className="btn-saffron text-sm px-6 py-3 flex items-center gap-2"
+                            className="btn-saffron text-sm px-6 py-3 flex items-center gap-2 whitespace-nowrap"
                         >
-                            Lodge Grievance <ArrowRight size={15} />
+                            {t('lodge_grievance')} <ArrowRight size={15} />
                         </Link>
                         <Link
                             href="/login"
-                            className="btn-ghost text-sm px-6 py-3 text-white border-white/30 hover:bg-white/10"
+                            className="text-sm px-6 py-3 rounded-lg font-medium border transition-colors whitespace-nowrap"
+                            style={{
+                                borderColor: 'var(--footer-border)',
+                                color: 'var(--footer-link-hover)',
+                            }}
                         >
-                            Sign In
+                            {t('login')}
                         </Link>
                     </div>
                 </div>

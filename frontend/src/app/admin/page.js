@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { adminAPI, aiAPI } from '@/lib/api';
 import { useAIServices } from '@/hooks/useAIServices';
 import DeadlineTimer from '@/components/DeadlineTimer';
@@ -42,6 +44,7 @@ function Section({ title, icon, children, action }) {
 
 export default function AdminDashboard() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tCategory, tPriority } = useLanguage();
     const router = useRouter();
 
     const [stats, setStats] = useState(null);
@@ -98,7 +101,7 @@ export default function AdminDashboard() {
     }, [getInsights]);
 
     useEffect(() => {
-        if (user?.role === 'admin') fetchData();
+        if (user?.role === 'admin' || user?.role === 'super_admin') fetchData();
     }, [fetchData, user]);
 
     if (authLoading || loading) {
@@ -106,7 +109,7 @@ export default function AdminDashboard() {
             <div className="flex justify-center items-center h-[60vh]">
                 <div className="flex flex-col items-center gap-3">
                     <Loader2 className="animate-spin" size={32} style={{ color: 'var(--navy)' }} />
-                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading dashboard…</p>
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('loading')}</p>
                 </div>
             </div>
         );
@@ -128,15 +131,15 @@ export default function AdminDashboard() {
                 <div>
                     {/* Breadcrumb */}
                     <div className="breadcrumb mb-2">
-                        <span>Home</span>
+                        <Link href="/">{t('home')}</Link>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span className="breadcrumb-current">Admin Oversight</span>
+                        <span className="breadcrumb-current">{t('admin_oversight')}</span>
                     </div>
                     <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                        Oversight Dashboard
+                        {t('oversight_dashboard')}
                     </h1>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        System-wide grievance metrics and AI model health — निगरानी डैशबोर्ड
+                        {t('oversight_sub')}
                     </p>
                 </div>
 
@@ -144,33 +147,33 @@ export default function AdminDashboard() {
                     <button
                         onClick={handleRunSlaSweep}
                         disabled={runningSweep}
-                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold tracking-wide shadow-lg shadow-indigo-600/20 transition flex items-center gap-1.5 cursor-pointer"
+                        className="btn-primary text-xs px-4 py-2 rounded-xl disabled:opacity-50"
                     >
                         {runningSweep ? (
                             <>
-                                <Loader2 size={13} className="animate-spin" /> Running SLA Sweep...
+                                <Loader2 size={13} className="animate-spin" /> {t('running_sla_sweep')}
                             </>
                         ) : (
-                            '⚡ Trigger Autonomous SLA Sweep'
+                            t('trigger_sla_sweep')
                         )}
                     </button>
                     {slaSweepResult && (
-                        <span className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-medium">
-                            Sweep Complete: {slaSweepResult.warned_75_pct ?? 0} Warned (75%) · {slaSweepResult.breached_escalated ?? 0} Escalated · {slaSweepResult.auto_closed_7d ?? 0} Auto-Closed
+                        <span className="text-xs px-3 py-1.5 rounded-lg border font-medium"
+                            style={{ background: 'var(--status-resolved-bg)', borderColor: 'var(--india-green)', color: 'var(--text-green)' }}>
+                            {slaSweepResult.warned_75_pct ?? 0} Warned (75%) · {slaSweepResult.breached_escalated ?? 0} Escalated · {slaSweepResult.auto_closed_7d ?? 0} Auto-Closed
                         </span>
                     )}
-                    {/* Prototype status */}
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
-                        style={{ background: 'var(--india-green-light)', color: 'var(--india-green)', border: '1px solid var(--india-green)' }}>
+                        style={{ background: 'var(--india-green-light)', color: 'var(--text-green)', border: '1px solid var(--india-green)' }}>
                         <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                        Operational (Prototype Mode)
+                        {t('system_online')}
                     </div>
                     <button
                         onClick={fetchData}
                         className="btn-ghost flex items-center gap-1.5 text-xs"
-                        title="Refresh data"
+                        title={t('refresh')}
                     >
-                        <RefreshCw size={13} /> Refresh
+                        <RefreshCw size={13} /> {t('refresh')}
                     </button>
                 </div>
             </div>
@@ -181,7 +184,7 @@ export default function AdminDashboard() {
                     <AlertTriangle size={16} />
                     <div className="flex-1">
                         <span>{error}</span>
-                        <button onClick={fetchData} className="ml-3 underline text-xs font-bold">Retry</button>
+                        <button onClick={fetchData} className="ml-3 underline text-xs font-bold cursor-pointer">{t('retry')}</button>
                     </div>
                 </div>
             )}
@@ -189,33 +192,29 @@ export default function AdminDashboard() {
             {/* ── Top Metrics ── */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                 <div className="metric-card mc-navy">
-                    <div className="metric-number">{summary?.total_complaints ?? '—'}</div>
-                    <div className="metric-label">Total Complaints</div>
-                    <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)', fontFamily: 'Noto Sans Devanagari' }}>कुल शिकायतें</div>
+                    <div className="metric-number tabular-nums">{summary?.total_complaints ?? '—'}</div>
+                    <div className="metric-label">{t('dashboard_summary')}</div>
                 </div>
                 <div className="metric-card mc-critical">
-                    <div className="metric-number" style={{ color: 'var(--status-critical)' }}>{summary?.active_complaints ?? '—'}</div>
-                    <div className="metric-label">Active</div>
-                    <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)', fontFamily: 'Noto Sans Devanagari' }}>सक्रिय</div>
+                    <div className="metric-number tabular-nums" style={{ color: 'var(--status-critical)' }}>{summary?.active_complaints ?? '—'}</div>
+                    <div className="metric-label">{t('active_complaints')}</div>
                 </div>
                 <div className="metric-card mc-green">
-                    <div className="metric-number" style={{ color: 'var(--india-green)' }}>{summary?.resolved_complaints ?? '—'}</div>
-                    <div className="metric-label">Resolved</div>
-                    <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)', fontFamily: 'Noto Sans Devanagari' }}>समाधानित</div>
+                    <div className="metric-number tabular-nums" style={{ color: 'var(--text-green)' }}>{summary?.resolved_complaints ?? '—'}</div>
+                    <div className="metric-label">{t('total_resolved')}</div>
                 </div>
                 <div className="metric-card mc-saffron">
-                    <div className="metric-number">
+                    <div className="metric-number tabular-nums">
                         {summary?.tasks_completed ?? '—'}
                         <span className="text-base font-medium" style={{ color: 'var(--text-muted)' }}>
                             /{summary?.total_tasks ?? '?'}
                         </span>
                     </div>
-                    <div className="metric-label">Tasks Done</div>
+                    <div className="metric-label">{t('assigned_actions')}</div>
                 </div>
                 <div className="metric-card mc-navy">
-                    <div className="metric-number">{resRate}<span className="text-xl">%</span></div>
-                    <div className="metric-label">Resolution Rate</div>
-                    {/* Mini progress bar */}
+                    <div className="metric-number tabular-nums">{resRate}<span className="text-xl">%</span></div>
+                    <div className="metric-label">{t('community_resolution_rate')}</div>
                     <div className="priority-bar mt-2">
                         <div className="priority-bar-fill" style={{
                             width: `${resRate}%`,
@@ -301,24 +300,21 @@ export default function AdminDashboard() {
             <div className="grid md:grid-cols-2 gap-6 mb-6">
 
                 {/* Urgency / Priority */}
-                <Section title="Urgency Distribution" icon={<TrendingUp size={12} />}>
+                <Section title={t('priority')} icon={<TrendingUp size={12} />}>
                     <div className="grid grid-cols-4 gap-3">
                         {[
-                            { label: 'Critical', labelHi: 'अति गंभीर', count: (stats?.by_priority?.critical ?? stats?.by_priority?.Critical ?? 0), color: 'var(--status-critical)', bg: 'var(--status-critical-bg)' },
-                            { label: 'High', labelHi: 'उच्च', count: (stats?.by_priority?.high ?? stats?.by_priority?.High ?? 0), color: 'var(--saffron-dark)', bg: 'var(--saffron-light)' },
-                            { label: 'Medium', labelHi: 'मध्यम', count: (stats?.by_priority?.medium ?? stats?.by_priority?.Medium ?? 0), color: 'var(--navy)', bg: 'var(--navy-light)' },
-                            { label: 'Low', labelHi: 'सामान्य', count: (stats?.by_priority?.low ?? stats?.by_priority?.Low ?? 0), color: 'var(--india-green)', bg: 'var(--india-green-light)' },
+                            { label: t('priority_critical'), count: (stats?.by_priority?.critical ?? stats?.by_priority?.Critical ?? 0), color: 'var(--status-critical)' },
+                            { label: t('priority_high'), count: (stats?.by_priority?.high ?? stats?.by_priority?.High ?? 0), color: 'var(--text-saffron)' },
+                            { label: t('priority_medium'), count: (stats?.by_priority?.medium ?? stats?.by_priority?.Medium ?? 0), color: 'var(--navy)' },
+                            { label: t('priority_low'), count: (stats?.by_priority?.low ?? stats?.by_priority?.Low ?? 0), color: 'var(--text-green)' },
                         ].map(p => (
                             <div key={p.label} className="gov-card p-3 text-center"
                                 style={{ borderTop: `3px solid ${p.color}` }}>
-                                <div className="text-xl font-bold mb-1" style={{ color: p.color }}>
+                                <div className="text-xl font-bold tabular-nums mb-1" style={{ color: p.color }}>
                                     {p.count ?? '—'}
                                 </div>
                                 <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
                                     {p.label}
-                                </div>
-                                <div className="text-[9px]" style={{ color: 'var(--text-muted)', fontFamily: 'Noto Sans Devanagari' }}>
-                                    {p.labelHi}
                                 </div>
                             </div>
                         ))}
@@ -326,7 +322,7 @@ export default function AdminDashboard() {
                 </Section>
 
                 {/* Sample Distribution Watchlist */}
-                <Section title="Priority Sectors (Sample Simulation)" icon={<AlertTriangle size={12} />}>
+                <Section title={t('high_activity_sector')} icon={<AlertTriangle size={12} />}>
                     <div className="space-y-2">
                         {highPriorityZones.map((zone, i) => (
                             <div key={i}
@@ -334,7 +330,7 @@ export default function AdminDashboard() {
                                 style={{ background: i === 0 ? 'var(--status-critical-bg)' : 'var(--bg-section)', border: '1px solid var(--border)' }}>
                                 <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{zone}</span>
                                 <span className="badge badge-critical">
-                                    <span className="badge-dot" /> Sample Active
+                                    <span className="badge-dot" /> {t('priority_high')}
                                 </span>
                             </div>
                         ))}
@@ -345,11 +341,11 @@ export default function AdminDashboard() {
             {/* ── Collector Statutory SLA Countdown Monitoring ── */}
             <div className="mb-6">
                 <Section
-                    title="Collector Statutory SLA Monitoring & Active Grievances"
+                    title={t('sla_target')}
                     icon={<Clock size={12} />}
                     action={
-                        <span className="text-[11px] font-bold text-gray-500">
-                            Statutory Windows: Critical 3d | Medium 7d | Low 21d
+                        <span className="text-[11px] font-bold" style={{ color: 'var(--text-muted)' }}>
+                            3d | 7d | 21d
                         </span>
                     }
                 >
@@ -357,26 +353,28 @@ export default function AdminDashboard() {
                         <div className="space-y-3">
                             {recentComplaints.slice(0, 5).map(c => {
                                 const priorityLower = (c.priority || 'medium').toLowerCase();
+                                const pBadge = ['critical', 'high'].includes(priorityLower)
+                                    ? 'badge-critical'
+                                    : priorityLower === 'medium'
+                                        ? 'badge-progress'
+                                        : 'badge-closed';
                                 return (
-                                    <div key={c.id} className="p-3.5 rounded-lg border border-gray-200 bg-white hover:border-gray-300 transition-colors">
+                                    <div key={c.id} className="p-3.5 rounded-lg border transition-colors"
+                                        style={{ background: 'var(--bg-section)', borderColor: 'var(--border)' }}>
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                                             <div className="flex items-center gap-2 flex-wrap">
-                                                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-900">
+                                                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded"
+                                                    style={{ background: 'var(--navy-light)', color: 'var(--navy)' }}>
                                                     #{c.id?.substring(0, 8)}
                                                 </span>
-                                                <span className="text-xs font-bold text-gray-900">
-                                                    {c.title || c.category}
+                                                <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                                                    {c.title || tCategory(c.category)}
                                                 </span>
-                                                <span className="text-[11px] text-gray-500">
-                                                    Ward: {c.ward || 'General'}
+                                                <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                                    {c.ward || t('cat_general')}
                                                 </span>
-                                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                                                    priorityLower === 'critical' ? 'bg-red-100 text-red-800' :
-                                                    priorityLower === 'high' ? 'bg-rose-100 text-rose-800' :
-                                                    priorityLower === 'medium' ? 'bg-amber-100 text-amber-800' :
-                                                    'bg-gray-100 text-gray-700'
-                                                }`}>
-                                                    Priority: {c.priority}
+                                                <span className={`badge ${pBadge} text-[10px]`}>
+                                                    {tPriority(c.priority)}
                                                 </span>
                                             </div>
                                             <DeadlineTimer
@@ -401,7 +399,9 @@ export default function AdminDashboard() {
                             })}
                         </div>
                     ) : (
-                        <p className="text-xs text-gray-500 py-3">No active grievances pending statutory SLA tracking.</p>
+                        <p className="text-xs py-3" style={{ color: 'var(--text-muted)' }}>
+                            {t('no_active_grievances')}
+                        </p>
                     )}
                 </Section>
             </div>
@@ -449,33 +449,33 @@ export default function AdminDashboard() {
                 )}
             </Section>
             {/* ── Management Shortcuts ── */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 {[
                     {
                         href: '/admin/officers',
-                        title: 'Officer Management',
-                        desc: 'Add, edit, and deactivate field officers',
+                        title: t('officers_mgmt_title'),
+                        desc: t('officers_mgmt_sub'),
                         icon: <Users size={20} />,
                         color: 'var(--navy)',
                         bg: 'var(--navy-light)',
                     },
                     {
                         href: '/admin/departments',
-                        title: 'Department Management',
-                        desc: 'Create and manage government departments',
+                        title: t('departments_mgmt_title'),
+                        desc: t('departments_mgmt_sub'),
                         icon: <TrendingUp size={20} />,
-                        color: 'var(--india-green)',
+                        color: 'var(--text-green)',
                         bg: 'var(--india-green-light)',
                     },
                 ].map(card => (
-                    <a key={card.href} href={card.href}
+                    <Link key={card.href} href={card.href}
                         className="gov-card p-5 flex items-center gap-4 hover:shadow-lg transition-shadow group">
                         <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
                             style={{ background: card.bg, color: card.color }}>
                             {card.icon}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <div className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>
+                            <div className="font-bold text-sm" style={{ color: 'var(--navy)' }}>
                                 {card.title}
                             </div>
                             <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
@@ -484,7 +484,7 @@ export default function AdminDashboard() {
                         </div>
                         <ChevronRight size={16} style={{ color: 'var(--text-muted)' }}
                             className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
-                    </a>
+                    </Link>
                 ))}
             </div>
 

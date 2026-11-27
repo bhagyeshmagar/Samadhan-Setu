@@ -50,22 +50,26 @@ export default function AppellateAdjudicationModal({
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div
-                className="w-full max-w-xl rounded-2xl border shadow-2xl overflow-hidden bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800"
+                className="w-full max-w-xl rounded-2xl border shadow-2xl overflow-hidden"
+                style={{ background: 'var(--bg-card)', borderColor: 'var(--border-mid)' }}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="appellate-modal-title"
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-navy to-navy-dark text-white border-b border-navy-light/20">
+                <div
+                    className="flex items-center justify-between px-6 py-4 border-b"
+                    style={{ background: 'var(--bg-cta-banner)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
                     <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-lg bg-white/10">
-                            <Scale size={20} className="text-saffron" />
+                        <div className="p-2 rounded-lg" style={{ background: 'var(--navy-light)', color: 'var(--navy)' }}>
+                            <Scale size={20} />
                         </div>
                         <div>
-                            <h2 id="appellate-modal-title" className="text-base font-bold tracking-tight">
+                            <h2 id="appellate-modal-title" className="text-base font-bold tracking-tight" style={{ color: 'var(--navy)' }}>
                                 Appellate Authority Adjudication Desk
                             </h2>
-                            <p className="text-[11px] text-white/80 font-medium">
+                            <p className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
                                 {authorityTitle} · Grievance #{complaint.complaint_number || complaint.id?.slice(0, 8)}
                             </p>
                         </div>
@@ -73,7 +77,7 @@ export default function AppellateAdjudicationModal({
                     <button
                         onClick={onClose}
                         disabled={submitting}
-                        className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition"
+                        className="p-1.5 rounded-lg transition btn-ghost"
                         aria-label="Close modal"
                     >
                         <X size={18} />
@@ -83,12 +87,15 @@ export default function AppellateAdjudicationModal({
                 <form onSubmit={handleSubmit} className="p-6 space-y-5">
                     {/* Citizen Appeal Reason Box */}
                     {complaint.appeal_remarks && (
-                        <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50">
-                            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 dark:text-amber-200 mb-1">
+                        <div
+                            className="p-3.5 rounded-xl border"
+                            style={{ background: 'var(--status-progress-bg)', borderColor: 'var(--status-progress)' }}
+                        >
+                            <div className="flex items-center gap-1.5 text-xs font-bold mb-1" style={{ color: 'var(--status-progress)' }}>
                                 <AlertTriangle size={13} />
                                 <span>Citizen Appeal Grounds</span>
                             </div>
-                            <p className="text-xs text-amber-950 dark:text-amber-300 leading-relaxed italic">
+                            <p className="text-xs leading-relaxed italic" style={{ color: 'var(--text-primary)' }}>
                                 &ldquo;{complaint.appeal_remarks}&rdquo;
                             </p>
                         </div>
@@ -96,19 +103,20 @@ export default function AppellateAdjudicationModal({
 
                     {/* Decision Selector */}
                     <div className="space-y-2">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                        <label className="block text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
                             Adjudication Determination
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <label
-                                className={`flex flex-col p-3 rounded-xl border-2 cursor-pointer transition ${
+                                className="flex flex-col p-3 rounded-xl border-2 cursor-pointer transition"
+                                style={
                                     decision === 'reopen_rework'
-                                        ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/20'
-                                        : 'border-gray-200 dark:border-gray-800 hover:border-gray-300'
-                                }`}
+                                        ? { borderColor: 'var(--status-progress)', background: 'var(--status-progress-bg)' }
+                                        : { borderColor: 'var(--border)', background: 'var(--bg-section)' }
+                                }
                             >
                                 <div className="flex items-center justify-between mb-1">
-                                    <div className="flex items-center gap-1.5 font-bold text-xs text-amber-700 dark:text-amber-400">
+                                    <div className="flex items-center gap-1.5 font-bold text-xs" style={{ color: 'var(--status-progress)' }}>
                                         <RotateCcw size={14} />
                                         <span>Order Field Rework</span>
                                     </div>
@@ -118,23 +126,23 @@ export default function AppellateAdjudicationModal({
                                         value="reopen_rework"
                                         checked={decision === 'reopen_rework'}
                                         onChange={() => setDecision('reopen_rework')}
-                                        className="text-amber-600 focus:ring-amber-500"
                                     />
                                 </div>
-                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                                     Uphold appeal. Reopens complaint to In Progress with immediate 24h SLA.
                                 </span>
                             </label>
 
                             <label
-                                className={`flex flex-col p-3 rounded-xl border-2 cursor-pointer transition ${
+                                className="flex flex-col p-3 rounded-xl border-2 cursor-pointer transition"
+                                style={
                                     decision === 'final_close'
-                                        ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20'
-                                        : 'border-gray-200 dark:border-gray-800 hover:border-gray-300'
-                                }`}
+                                        ? { borderColor: 'var(--status-resolved)', background: 'var(--status-resolved-bg)' }
+                                        : { borderColor: 'var(--border)', background: 'var(--bg-section)' }
+                                }
                             >
                                 <div className="flex items-center justify-between mb-1">
-                                    <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-700 dark:text-emerald-400">
+                                    <div className="flex items-center gap-1.5 font-bold text-xs" style={{ color: 'var(--status-resolved)' }}>
                                         <CheckCircle size={14} />
                                         <span>Final Closure</span>
                                     </div>
@@ -144,10 +152,9 @@ export default function AppellateAdjudicationModal({
                                         value="final_close"
                                         checked={decision === 'final_close'}
                                         onChange={() => setDecision('final_close')}
-                                        className="text-emerald-600 focus:ring-emerald-500"
                                     />
                                 </div>
-                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                                     Dispose appeal. Upholds resolution with binding finality (marks Closed).
                                 </span>
                             </label>
@@ -157,10 +164,13 @@ export default function AppellateAdjudicationModal({
                     {/* Order Directive Notes */}
                     <div className="space-y-1.5">
                         <div className="flex justify-between items-center text-xs">
-                            <label className="font-bold text-gray-700 dark:text-gray-300">
-                                Appellate Order Directives & Remarks <span className="text-red-500">*</span>
+                            <label className="font-bold" style={{ color: 'var(--text-secondary)' }}>
+                                Appellate Order Directives & Remarks <span style={{ color: 'var(--status-critical)' }}>*</span>
                             </label>
-                            <span className={`text-[11px] font-mono ${notes.trim().length >= 10 ? 'text-green-600' : 'text-gray-400'}`}>
+                            <span
+                                className="text-[11px] font-mono"
+                                style={{ color: notes.trim().length >= 10 ? 'var(--status-resolved)' : 'var(--text-muted)' }}
+                            >
                                 {notes.trim().length} / 10 chars
                             </span>
                         </div>
@@ -173,14 +183,14 @@ export default function AppellateAdjudicationModal({
                                     ? 'Specify site deficiencies and instructions for field team re-inspection...'
                                     : 'Specify factual basis and verification evidence for final appellate closure...'
                             }
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-navy focus:border-navy transition"
+                            className="gov-input w-full px-3.5 py-2.5 rounded-xl text-xs transition"
                             required
                         />
                     </div>
 
                     {/* Error Notice */}
                     {error && (
-                        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs">
+                        <div className="gov-alert error text-xs">
                             {error}
                         </div>
                     )}
@@ -191,7 +201,7 @@ export default function AppellateAdjudicationModal({
                             type="button"
                             onClick={onClose}
                             disabled={submitting}
-                            className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                            className="btn-ghost px-4 py-2 rounded-xl text-xs font-semibold transition"
                         >
                             Cancel
                         </button>

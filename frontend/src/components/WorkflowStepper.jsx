@@ -1,16 +1,17 @@
 'use client';
 
 import { Check, AlertTriangle } from 'lucide-react';
+import { useLanguage } from '@/lib/i18n';
 
 const STEPS = [
-    { key: 'submitted', label: '1. Filed & AI Routed', short: 'Intake' },
-    { key: 'inspection_assigned', label: '2. Inspector Assigned', short: 'Inspect' },
-    { key: 'inspection_submitted', label: '3. Inspection Review', short: 'Nodal Check' },
-    { key: 'inspection_verified', label: '4. Ready for Team', short: 'Verified' },
-    { key: 'team_assigned', label: '5. Team Dispatched', short: 'Team' },
-    { key: 'work_in_progress', label: '6. Field Redressal', short: 'Repair' },
-    { key: 'verification_assigned', label: '7. Post-Repair Check', short: 'Verify' },
-    { key: 'resolved', label: '8. Approved & Notified', short: 'Resolved' },
+    { key: 'submitted', shortKey: 'wf_intake' },
+    { key: 'inspection_assigned', shortKey: 'wf_inspect' },
+    { key: 'inspection_submitted', shortKey: 'wf_nodal_check' },
+    { key: 'inspection_verified', shortKey: 'wf_verified' },
+    { key: 'team_assigned', shortKey: 'wf_team' },
+    { key: 'work_in_progress', shortKey: 'wf_repair' },
+    { key: 'verification_assigned', shortKey: 'wf_verify' },
+    { key: 'resolved', shortKey: 'wf_resolved' },
 ];
 
 function getStepIndex(status) {
@@ -44,7 +45,8 @@ function getStepIndex(status) {
     }
 }
 
-export default function WorkflowStepper({ status, compact = false }) {
+export default function WorkflowStepper({ status }) {
+    const { t } = useLanguage();
     const currentIdx = getStepIndex(status);
     const isRework = status === 'inspection_rework' || status === 'redressal_rework';
     const isVerificationSubmitted = status === 'verification_submitted';
@@ -53,23 +55,42 @@ export default function WorkflowStepper({ status, compact = false }) {
         <div className="w-full">
             <div className="flex items-center justify-between gap-1 overflow-x-auto pb-1">
                 {STEPS.map((step, idx) => {
-                    const done = idx < currentIdx || (status === 'resolved' || status === 'closed');
+                    const done = idx < currentIdx || status === 'resolved' || status === 'closed';
                     const active = idx === currentIdx && !(status === 'resolved' || status === 'closed');
                     const awaitingFinal = idx === 7 && isVerificationSubmitted;
+                    const label = t(step.shortKey);
+
+                    let circleStyle = {
+                        background: 'var(--bg-card)',
+                        borderColor: 'var(--border-mid)',
+                        color: 'var(--text-muted)',
+                    };
+                    if (done) {
+                        circleStyle = {
+                            background: 'var(--india-green)',
+                            borderColor: 'var(--india-green)',
+                            color: 'var(--primary-ink)',
+                        };
+                    } else if (active && isRework) {
+                        circleStyle = {
+                            background: 'var(--error)',
+                            borderColor: 'var(--error)',
+                            color: '#FFFFFF',
+                        };
+                    } else if (active || awaitingFinal) {
+                        circleStyle = {
+                            background: 'var(--navy)',
+                            borderColor: 'var(--navy)',
+                            color: 'var(--primary-ink)',
+                        };
+                    }
 
                     return (
                         <div key={step.key} className="flex items-center flex-1 min-w-0">
                             <div className="flex flex-col items-center min-w-[54px] flex-1">
                                 <div
-                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums border transition-colors ${
-                                        done
-                                            ? 'bg-[#138808] border-[#138808] text-white'
-                                            : active && isRework
-                                            ? 'bg-red-600 border-red-600 text-white'
-                                            : active || awaitingFinal
-                                            ? 'bg-[#003580] border-[#003580] text-white'
-                                            : 'bg-(--bg-card) border-(--border-mid) text-(--text-muted)'
-                                    }`}
+                                    className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums border transition-colors"
+                                    style={circleStyle}
                                 >
                                     {done ? (
                                         <Check size={12} strokeWidth={2.5} />
@@ -80,23 +101,25 @@ export default function WorkflowStepper({ status, compact = false }) {
                                     )}
                                 </div>
                                 <span
-                                    className={`mt-1 text-[10px] text-center leading-tight truncate max-w-[78px] ${
-                                        active || awaitingFinal
-                                            ? 'font-semibold text-(--text-primary)'
+                                    className="mt-1 text-[10px] text-center leading-tight truncate max-w-[78px]"
+                                    style={{
+                                        color: active || awaitingFinal
+                                            ? 'var(--text-primary)'
                                             : done
-                                            ? 'font-medium text-(--text-secondary)'
-                                            : 'text-(--text-muted)'
-                                    }`}
-                                    title={step.label}
+                                                ? 'var(--text-secondary)'
+                                                : 'var(--text-muted)',
+                                        fontWeight: active || awaitingFinal ? 600 : 500,
+                                    }}
+                                    title={label}
                                 >
-                                    {compact ? step.short : step.short}
+                                    {label}
                                 </span>
                             </div>
                             {idx < STEPS.length - 1 && (
                                 <div
                                     className="h-px flex-1 mx-0.5 -mt-4"
                                     style={{
-                                        background: idx < currentIdx ? '#138808' : 'var(--border)',
+                                        background: idx < currentIdx ? 'var(--india-green)' : 'var(--border)',
                                     }}
                                 />
                             )}

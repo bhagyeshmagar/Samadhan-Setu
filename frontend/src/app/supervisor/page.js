@@ -4,18 +4,19 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { departmentAPI } from '@/lib/api';
 import Badge from '@/components/Badge';
 import DeadlineTimer from '@/components/DeadlineTimer';
 import AppellateAdjudicationModal from '@/components/AppellateAdjudicationModal';
 import {
-    Scale, ShieldAlert, CheckCircle2, Clock,
-    AlertTriangle, RefreshCw, Loader2, ChevronRight,
-    ArrowUpRight, FileText, User
+    Scale, CheckCircle2, AlertTriangle, RefreshCw, Loader2,
+    ChevronRight, FileText, User
 } from 'lucide-react';
 
 export default function SupervisorAppellateConsole() {
     const { user, loading: authLoading } = useAuth();
+    const { t, tCategory, locale } = useLanguage();
     const router = useRouter();
 
     const [appeals, setAppeals] = useState([]);
@@ -35,7 +36,6 @@ export default function SupervisorAppellateConsole() {
         setLoading(true);
         setError('');
         try {
-            // Fetch appeals queue from department tasks
             const tasks = await departmentAPI.getTasks('appeals');
             setAppeals(tasks || []);
         } catch (err) {
@@ -47,7 +47,13 @@ export default function SupervisorAppellateConsole() {
 
     useEffect(() => {
         if (user && ['supervisor', 'admin', 'super_admin'].includes(user.role)) {
-            fetchAppeals();
+            let cancelled = false;
+            Promise.resolve().then(() => {
+                if (!cancelled) fetchAppeals();
+            });
+            return () => {
+                cancelled = true;
+            };
         }
     }, [user, fetchAppeals]);
 
@@ -64,9 +70,9 @@ export default function SupervisorAppellateConsole() {
     if (authLoading || (loading && appeals.length === 0)) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
-                <Loader2 className="animate-spin text-navy" size={36} />
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Loading Appellate Authority Console…
+                <Loader2 className="animate-spin" size={36} style={{ color: 'var(--navy)' }} />
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                    {t('loading')}
                 </p>
             </div>
         );
@@ -75,23 +81,25 @@ export default function SupervisorAppellateConsole() {
     return (
         <div className="max-w-7xl mx-auto py-6 space-y-6">
             {/* Header */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-5">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-5"
+                style={{ borderColor: 'var(--border)' }}>
                 <div>
                     <div className="breadcrumb mb-1">
-                        <span>Home</span>
+                        <Link href="/">{t('home')}</Link>
                         <ChevronRight size={10} className="breadcrumb-sep" />
-                        <span className="breadcrumb-current">Appellate Authority Desk</span>
+                        <span className="breadcrumb-current">{t('appellate_desk')}</span>
                     </div>
                     <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-xl bg-navy text-white">
+                        <div className="p-2 rounded-xl"
+                            style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}>
                             <Scale size={22} />
                         </div>
                         <div>
                             <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                                Appellate Adjudication & Oversight Desk
+                                {t('supervisor_title')}
                             </h1>
-                            <p className="text-xs text-gray-500">
-                                द्वितीयक अपीलीय एवं पर्यवेक्षी पीठ — Official adjudication console for contested civic grievance resolutions
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                {t('supervisor_sub')}
                             </p>
                         </div>
                     </div>
@@ -102,85 +110,93 @@ export default function SupervisorAppellateConsole() {
                     className="btn-outline text-xs px-3.5 py-2 flex items-center gap-1.5"
                 >
                     <RefreshCw size={13} />
-                    <span>Refresh Dossiers</span>
+                    <span>{t('refresh_dossiers')}</span>
                 </button>
             </div>
 
             {/* Metrics */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div className="metric-card mc-navy">
-                    <div className="metric-number">{appeals.length}</div>
-                    <div className="metric-label">Total Active Appeals</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">कुल लंबित अपीलें</div>
+                    <div className="metric-number tabular-nums">{appeals.length}</div>
+                    <div className="metric-label">{t('total_active_appeals')}</div>
                 </div>
                 <div className="metric-card mc-saffron">
-                    <div className="metric-number">{l1Count}</div>
-                    <div className="metric-label">Level 1 Nodal Review</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">प्रथम अपीलीय समीक्षा</div>
+                    <div className="metric-number tabular-nums" style={{ color: 'var(--text-saffron)' }}>{l1Count}</div>
+                    <div className="metric-label">{t('level1_nodal_review')}</div>
                 </div>
-                <div className="metric-card mc-purple">
-                    <div className="metric-number">{l2Count}</div>
-                    <div className="metric-label">Level 2 Appellate Review</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">द्वितीय अपीलीय पीठ</div>
+                <div className="metric-card mc-navy">
+                    <div className="metric-number tabular-nums" style={{ color: 'var(--status-appealed)' }}>{l2Count}</div>
+                    <div className="metric-label">{t('level2_appellate_review')}</div>
                 </div>
-                <div className="metric-card mc-red">
-                    <div className="metric-number">{breachedCount}</div>
-                    <div className="metric-label">SLA Breached Appeals</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">समयसीमा उल्लंघित</div>
+                <div className="metric-card mc-critical">
+                    <div className="metric-number tabular-nums" style={{ color: 'var(--status-critical)' }}>{breachedCount}</div>
+                    <div className="metric-label">{t('sla_breached_appeals')}</div>
                 </div>
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-3">
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mr-2">Queue Filter:</span>
+            <div className="flex flex-wrap items-center gap-2 border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+                <span className="text-xs font-bold uppercase tracking-wider mr-2" style={{ color: 'var(--text-muted)' }}>
+                    {t('queue_filter')}:
+                </span>
                 {[
-                    { id: 'all', label: `All Active Appeals (${appeals.length})` },
-                    { id: 'l1', label: `Level 1 Nodal (${l1Count})` },
-                    { id: 'l2', label: `Level 2 Appellate (${l2Count})` },
-                ].map(tab => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setFilterLevel(tab.id)}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition ${
-                            filterLevel === tab.id
-                                ? 'bg-navy text-white shadow-xs'
-                                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
-                        }`}
-                    >
-                        {tab.label}
-                    </button>
-                ))}
+                    { id: 'all', label: `${t('all_active_appeals')} (${appeals.length})` },
+                    { id: 'l1', label: `${t('level1_nodal')} (${l1Count})` },
+                    { id: 'l2', label: `${t('level2_appellate')} (${l2Count})` },
+                ].map(tab => {
+                    const isActive = filterLevel === tab.id;
+                    return (
+                        <button
+                            key={tab.id}
+                            onClick={() => setFilterLevel(tab.id)}
+                            className="text-xs px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+                            style={{
+                                background: isActive ? 'var(--navy)' : 'var(--bg-section)',
+                                color: isActive ? 'var(--primary-ink)' : 'var(--text-secondary)',
+                                border: `1px solid ${isActive ? 'var(--navy)' : 'var(--border)'}`,
+                            }}
+                        >
+                            {tab.label}
+                        </button>
+                    );
+                })}
             </div>
 
             {error && (
-                <div className="p-4 rounded-xl bg-red-50 text-red-700 text-xs flex items-center gap-2">
+                <div className="gov-alert error text-xs">
                     <AlertTriangle size={15} />
                     <span>{error}</span>
                 </div>
             )}
 
-            {/* Appeals Queue Table / Cards */}
+            {/* Appeals Queue Cards */}
             {filteredAppeals.length === 0 ? (
-                <div className="text-center py-16 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
-                    <CheckCircle2 size={40} className="mx-auto text-green-600 mb-2" />
-                    <h3 className="text-sm font-bold text-gray-900 dark:text-white">Appellate Queue Clean</h3>
-                    <p className="text-xs text-gray-500 mt-1">There are no contested grievances awaiting appellate adjudication in this category.</p>
+                <div className="gov-card text-center py-16 px-4">
+                    <CheckCircle2 size={40} className="mx-auto mb-2" style={{ color: 'var(--text-green)' }} />
+                    <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {t('no_grievances_found')}
+                    </h3>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                        {t('no_grievances_found_desc')}
+                    </p>
                 </div>
             ) : (
                 <div className="space-y-4">
                     {filteredAppeals.map(complaint => (
                         <div
                             key={complaint.id}
-                            className="p-5 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-xs hover:border-navy/40 transition space-y-4"
+                            className="gov-card p-5 space-y-4"
                         >
-                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b border-gray-100 dark:border-gray-800 pb-3">
-                                <div className="flex items-center gap-3">
-                                    <span className="font-mono text-xs font-bold text-navy px-2 py-1 rounded bg-navy-light/60">
+                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b pb-3"
+                                style={{ borderColor: 'var(--border)' }}>
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <span className="font-mono text-xs font-bold px-2 py-1 rounded"
+                                        style={{ color: 'var(--navy)', background: 'var(--navy-light)' }}>
                                         #{complaint.complaint_number || complaint.id?.slice(0, 8)}
                                     </span>
                                     <Badge status={complaint.status} size="small" />
-                                    <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">
-                                        {complaint.category || 'General'}
+                                    <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                                        {tCategory(complaint.category || 'General')}
                                     </span>
                                 </div>
                                 <DeadlineTimer
@@ -195,25 +211,33 @@ export default function SupervisorAppellateConsole() {
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="md:col-span-2 space-y-2">
-                                    <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                                    <h3 className="text-sm font-bold" style={{ color: 'var(--navy)' }}>
                                         {complaint.title}
                                     </h3>
-                                    <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed">
+                                    <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                                         {complaint.description}
                                     </p>
 
                                     {/* Appeal Remarks */}
                                     {complaint.appeal_remarks && (
-                                        <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40 text-xs">
-                                            <span className="font-bold text-rose-800 dark:text-rose-300">Citizen Appeal Grounds: </span>
-                                            <span className="text-rose-950 dark:text-rose-200 italic">&ldquo;{complaint.appeal_remarks}&rdquo;</span>
+                                        <div className="p-3 rounded-xl border text-xs"
+                                            style={{
+                                                background: 'var(--status-appealed-bg)',
+                                                borderColor: 'var(--status-appealed)',
+                                                color: 'var(--text-primary)',
+                                            }}>
+                                            <span className="font-bold" style={{ color: 'var(--status-appealed)' }}>
+                                                {t('appeals')}:{' '}
+                                            </span>
+                                            <span className="italic">&ldquo;{complaint.appeal_remarks}&rdquo;</span>
                                         </div>
                                     )}
                                 </div>
 
-                                <div className="flex flex-col justify-between items-end gap-3 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100 dark:border-gray-800">
-                                    <div className="text-right text-[11px] text-gray-400 space-y-0.5">
-                                        <p>Filed: {new Date(complaint.created_at).toLocaleDateString('en-IN')}</p>
+                                <div className="flex flex-col justify-between items-end gap-3 pt-2 md:pt-0 border-t md:border-t-0"
+                                    style={{ borderColor: 'var(--border)' }}>
+                                    <div className="text-right text-[11px] space-y-0.5" style={{ color: 'var(--text-muted)' }}>
+                                        <p>{new Date(complaint.created_at).toLocaleDateString(locale)}</p>
                                         {complaint.citizen?.full_name && (
                                             <p className="flex items-center gap-1 justify-end">
                                                 <User size={11} />
@@ -228,14 +252,14 @@ export default function SupervisorAppellateConsole() {
                                             className="btn-outline text-xs px-3 py-2 flex items-center gap-1"
                                         >
                                             <FileText size={12} />
-                                            <span>Full Dossier</span>
+                                            <span>{t('view')}</span>
                                         </Link>
                                         <button
                                             onClick={() => setSelectedComplaint(complaint)}
                                             className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5 shadow-sm"
                                         >
                                             <Scale size={13} />
-                                            <span>Adjudicate</span>
+                                            <span>{t('appeals')}</span>
                                         </button>
                                     </div>
                                 </div>

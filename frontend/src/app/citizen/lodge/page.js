@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
+import { useLanguage } from '@/lib/i18n';
 import { complaintsAPI } from '@/lib/api';
 import { useAIServices } from '@/hooks/useAIServices';
 import {
@@ -14,6 +15,7 @@ import {
 
 export default function LodgeGrievance() {
     const { user, loading: authLoading, logout } = useAuth();
+    const { t, tCategory, tPriority } = useLanguage();
     const router = useRouter();
 
     const [title, setTitle]           = useState('');
@@ -85,17 +87,17 @@ export default function LodgeGrievance() {
                 setLocation(`GPS: ${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`);
             }
         } catch {
-            setError('Location access denied. Please enter your address manually.');
+            setError(t('err_location_denied'));
         } finally {
             setLocationLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const handleImageUpload = e => {
         const files = Array.from(e.target.files);
-        if (files.length + images.length > 3) { setError('Maximum 3 files allowed'); return; }
+        if (files.length + images.length > 3) { setError(t('err_max_files')); return; }
         files.forEach(file => {
-            if (file.size > 5 * 1024 * 1024) { setError('Each file must be under 5MB'); return; }
+            if (file.size > 5 * 1024 * 1024) { setError(t('err_file_size')); return; }
             const reader = new FileReader();
             reader.onload = ev => setImages(prev => [...prev, { url: ev.target.result, file }]);
             reader.readAsDataURL(file);
@@ -107,7 +109,7 @@ export default function LodgeGrievance() {
     const handleSubmit = async e => {
         e.preventDefault();
         if (!title || !description || !location) {
-            setError('Title, description, and location are required');
+            setError(t('err_required_fields'));
             return;
         }
         setLoading(true);
@@ -115,13 +117,15 @@ export default function LodgeGrievance() {
         try {
             const result = await complaintsAPI.submit({
                 title, description, location,
-                latitude: coordinates.lat, longitude: coordinates.lng, ward, is_public: isPublic,
+                latitude: coordinates?.lat ?? null,
+                longitude: coordinates?.lng ?? null,
+                ward, is_public: isPublic,
             });
             if (images.length > 0 && result.id) {
                 try {
                     await complaintsAPI.uploadImages(result.id, images.map(i => i.file));
                 } catch (imgErr) {
-                    setError(`Grievance recorded, but photo upload failed: ${imgErr.message}`);
+                    setError(`${t('grievance_registered')} (${imgErr.message})`);
                     setLoading(false);
                     return;
                 }
@@ -157,17 +161,14 @@ export default function LodgeGrievance() {
                         <CheckCircle size={36} style={{ color: 'var(--india-green)' }} />
                     </div>
                     <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--navy)' }}>
-                        Grievance Registered!
+                        {t('grievance_registered')}
                     </h2>
-                    <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-                        Your complaint has been classified and routed to the correct department.
-                    </p>
-                    <p className="text-[11px] mb-6" style={{ color: 'var(--text-muted)', fontFamily: 'Noto Sans Devanagari' }}>
-                        आपकी शिकायत दर्ज की गई है।
+                    <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
+                        {t('grievance_registered_desc')}
                     </p>
                     <div className="flex items-center justify-center gap-2 text-sm font-semibold"
                         style={{ color: 'var(--navy)' }}>
-                        <Loader2 className="animate-spin" size={16} /> Redirecting to tracking…
+                        <Loader2 className="animate-spin" size={16} /> {t('redirecting_tracking')}
                     </div>
                 </div>
             </div>
@@ -185,18 +186,18 @@ export default function LodgeGrievance() {
             {/* ── Page Header ── */}
             <div className="mb-6">
                 <div className="breadcrumb mb-2">
-                    <Link href="/">Home</Link>
+                    <Link href="/">{t('home')}</Link>
                     <ChevronRight size={10} className="breadcrumb-sep" />
-                    <span className="breadcrumb-current">Lodge Grievance</span>
+                    <span className="breadcrumb-current">{t('lodge_grievance')}</span>
                 </div>
                 <div className="flex items-center gap-2 mb-1">
                     <ShieldCheck size={18} style={{ color: 'var(--india-green)' }} />
                     <h1 className="text-2xl font-bold" style={{ color: 'var(--navy)' }}>
-                        Report a Civic Issue
+                        {t('report_civic_issue')}
                     </h1>
                 </div>
                 <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                    नागरिक समस्या रिपोर्ट करें &nbsp;|&nbsp; Fields marked <span style={{ color: 'var(--error)' }}>*</span> are mandatory.
+                    {t('mandatory_note')}
                 </p>
             </div>
 
@@ -209,47 +210,45 @@ export default function LodgeGrievance() {
                         {/* Section 1: Basic Info */}
                         <div className="gov-section mb-5">
                             <div className="gov-section-header">
-                                <span className="gov-section-title">1. Complaint Details</span>
+                                <span className="gov-section-title">{t('lodge_sec1')}</span>
                             </div>
                             <div className="p-5 space-y-5">
 
                                 {/* Title */}
                                 <div>
                                     <label className="gov-label">
-                                        Subject / Title <span style={{ color: 'var(--error)' }}>*</span>
-                                        <span className="gov-label-hindi">विषय</span>
+                                        {t('subject_title')} <span style={{ color: 'var(--error)' }}>*</span>
                                     </label>
                                     <input
                                         type="text"
                                         value={title}
                                         onChange={e => setTitle(e.target.value)}
                                         className="gov-input"
-                                        placeholder="E.g. Water pipe burst on 5th Avenue"
+                                        placeholder={t('subject_placeholder')}
                                         maxLength={200}
                                     />
                                     <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-                                        {title.length}/200 characters
+                                        {t('characters_count', { count: title.length })}
                                     </p>
                                 </div>
 
                                 {/* Description */}
                                 <div>
                                     <label className="gov-label">
-                                        Description <span style={{ color: 'var(--error)' }}>*</span>
-                                        <span className="gov-label-hindi">विवरण</span>
+                                        {t('description')} <span style={{ color: 'var(--error)' }}>*</span>
                                     </label>
                                     <textarea
                                         value={description}
                                         onChange={e => setDescription(e.target.value)}
                                         className="gov-input resize-none"
                                         rows={5}
-                                        placeholder="Describe the civic issue in detail — what you see, how long it has been, and impact on residents."
+                                        placeholder={t('describe_issue')}
                                     />
                                     {description.length >= 15 && (
                                         <div className="flex items-center gap-1.5 mt-1.5 text-[11px]"
                                             style={{ color: 'var(--india-green)' }}>
                                             <Activity size={11} />
-                                            AI is analysing your description…
+                                            {t('ai_analysing')}
                                         </div>
                                     )}
                                 </div>
@@ -259,14 +258,13 @@ export default function LodgeGrievance() {
                         {/* Section 2: Location */}
                         <div className="gov-section mb-5">
                             <div className="gov-section-header">
-                                <span className="gov-section-title">2. Location Details</span>
+                                <span className="gov-section-title">{t('lodge_sec2')}</span>
                             </div>
                             <div className="p-5 space-y-5">
 
                                 <div>
                                     <label className="gov-label">
-                                        Address / Location <span style={{ color: 'var(--error)' }}>*</span>
-                                        <span className="gov-label-hindi">स्थान</span>
+                                        {t('address_location')} <span style={{ color: 'var(--error)' }}>*</span>
                                     </label>
                                     <div className="flex gap-2">
                                         <div className="relative flex-1">
@@ -280,10 +278,10 @@ export default function LodgeGrievance() {
                                                 value={location}
                                                 onChange={e => {
                                                     setLocation(e.target.value);
-                                                    setCoordinates(null);
+                                                    setCoordinates({ lat: null, lng: null });
                                                 }}
                                                 className="gov-input pl-9"
-                                                placeholder="Enter exact address or landmark"
+                                                placeholder={t('address_placeholder')}
                                             />
                                         </div>
                                         <button
@@ -295,27 +293,26 @@ export default function LodgeGrievance() {
                                             {locationLoading
                                                 ? <Loader2 size={14} className="animate-spin" />
                                                 : <Navigation size={14} />}
-                                            Locate
+                                            {t('locate')}
                                         </button>
                                     </div>
-                                    {coordinates.lat && (
+                                    {coordinates?.lat != null && coordinates?.lng != null && (
                                         <p className="text-[11px] mt-1" style={{ color: 'var(--india-green)' }}>
-                                            ✓ GPS coordinates captured: {coordinates.lat.toFixed(5)}, {coordinates.lng.toFixed(5)}
+                                            ✓ {t('gps_captured')}: {coordinates.lat.toFixed(5)}, {coordinates.lng.toFixed(5)}
                                         </p>
                                     )}
                                 </div>
 
                                 <div>
                                     <label className="gov-label">
-                                        Zone / Ward
-                                        <span className="gov-label-hindi">वार्ड (वैकल्पिक)</span>
+                                        {t('zone_ward')}
                                     </label>
                                     <input
                                         type="text"
                                         value={ward}
                                         onChange={e => setWard(e.target.value)}
                                         className="gov-input"
-                                        placeholder="E.g. Sector 4, Ward 12"
+                                        placeholder={t('ward_placeholder')}
                                     />
                                 </div>
                             </div>
@@ -324,9 +321,9 @@ export default function LodgeGrievance() {
                         {/* Section 3: Evidence */}
                         <div className="gov-section mb-5">
                             <div className="gov-section-header">
-                                <span className="gov-section-title">3. Evidence (Photos)</span>
+                                <span className="gov-section-title">{t('lodge_sec3')}</span>
                                 <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                                    {images.length}/3 uploaded
+                                    {t('uploaded_count', { count: images.length })}
                                 </span>
                             </div>
                             <div className="p-5">
@@ -347,7 +344,7 @@ export default function LodgeGrievance() {
                                         onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-mid)'}
                                     >
                                         <ImagePlus size={18} style={{ color: 'var(--navy)' }} />
-                                        Click to upload photos (max 5MB each)
+                                        {t('upload_photos_hint')}
                                     </label>
                                 )}
                                 {images.length > 0 && (
@@ -381,16 +378,14 @@ export default function LodgeGrievance() {
                         )}
 
                         {/* Privacy toggle */}
-                        <div className="gov-card p-4">
+                        <div className="gov-card p-4 mb-5">
                             <label className="flex items-center justify-between cursor-pointer">
                                 <div>
                                     <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                                        Public Grievance
+                                        {t('public_grievance')}
                                     </span>
                                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                                        {isPublic 
-                                            ? 'Visible in community feed (personal details hidden)' 
-                                            : 'Only visible to you and assigned officers'}
+                                        {isPublic ? t('public_visible_hint') : t('private_visible_hint')}
                                     </p>
                                 </div>
                                 <input
@@ -409,8 +404,8 @@ export default function LodgeGrievance() {
                             className="btn-primary w-full py-3.5 text-base justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {loading
-                                ? <><Loader2 size={18} className="animate-spin" /> Submitting…</>
-                                : 'Submit Grievance — शिकायत दर्ज करें'
+                                ? <><Loader2 size={18} className="animate-spin" /> {t('submitting')}</>
+                                : t('submit_grievance')
                             }
                         </button>
                     </form>
@@ -423,31 +418,33 @@ export default function LodgeGrievance() {
                     <div className="gov-section">
                         <div className="gov-section-header">
                             <span className="gov-section-title flex items-center gap-1.5">
-                                <Activity size={11} /> AI Classifier
+                                <Activity size={11} /> {t('ai_classifier')}
                             </span>
-                            {aiLoading && (
+                            {(aiLoading || similarityLoading) && (
                                 <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--navy)' }} />
                             )}
                         </div>
                         <div className="p-4 space-y-3">
                             <div className="flex justify-between items-center">
-                                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Category</span>
+                                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('category')}</span>
                                 <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
-                                    {classification?.category ?? <span style={{ opacity: 0.4 }}>Waiting…</span>}
+                                    {classification?.category
+                                        ? tCategory(classification.category)
+                                        : <span style={{ opacity: 0.5 }}>{t('waiting')}</span>}
                                 </span>
                             </div>
                             <div className="gov-divider my-0" />
                             <div className="flex justify-between items-center">
-                                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Priority</span>
+                                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('priority')}</span>
                                 {classification?.priority ? (
                                     <span className={`badge ${
-                                        classification.priority === 'High'   ? 'badge-critical' :
+                                        ['High', 'Critical'].includes(classification.priority) ? 'badge-critical' :
                                         classification.priority === 'Medium' ? 'badge-progress' : 'badge-resolved'
                                     }`}>
-                                        {classification.priority}
+                                        {tPriority(classification.priority)}
                                     </span>
                                 ) : (
-                                    <span className="text-xs" style={{ opacity: 0.4, color: 'var(--text-muted)' }}>—</span>
+                                    <span className="text-xs" style={{ opacity: 0.5, color: 'var(--text-muted)' }}>—</span>
                                 )}
                             </div>
                             {aiConfidence && (
@@ -456,7 +453,7 @@ export default function LodgeGrievance() {
                                     <div>
                                         <div className="flex justify-between text-xs mb-1"
                                             style={{ color: 'var(--text-muted)' }}>
-                                            <span>Confidence</span>
+                                            <span>{t('confidence')}</span>
                                             <span className="font-semibold" style={{ color: 'var(--navy)' }}>{aiConfidence}%</span>
                                         </div>
                                         <div className="priority-bar">
@@ -468,7 +465,7 @@ export default function LodgeGrievance() {
                             )}
                             {!classification && !aiLoading && (
                                 <p className="text-[11px] text-center py-2" style={{ color: 'var(--text-muted)' }}>
-                                    Type 15+ characters to activate AI classification
+                                    {t('ai_min_chars')}
                                 </p>
                             )}
                         </div>
@@ -479,13 +476,13 @@ export default function LodgeGrievance() {
                         <div className="gov-section" style={{ borderTop: '3px solid var(--saffron)' }}>
                             <div className="gov-section-header">
                                 <span className="gov-section-title flex items-center gap-1.5">
-                                    <AlertTriangle size={11} /> Duplicate Check
+                                    <AlertTriangle size={11} /> {t('duplicate_check')}
                                 </span>
                             </div>
                             <div className="p-4">
                                 <div className="gov-alert warning mb-3 text-xs">
                                     <AlertTriangle size={13} />
-                                    {similarComplaints.length} similar complaint(s) already exist
+                                    {t('similar_exist', { count: similarComplaints.length })}
                                 </div>
                                 <div className="space-y-2">
                                     {similarComplaints.slice(0, 2).map((comp, idx) => (
@@ -497,15 +494,15 @@ export default function LodgeGrievance() {
                                             </p>
                                             <div className="flex justify-between items-center">
                                                 <span className="badge badge-progress text-[10px]">
-                                                    {Math.round(comp.similarity_score * 100)}% match
+                                                    {t('match_pct', { pct: Math.round(comp.similarity_score * 100) })}
                                                 </span>
                                                 <button
                                                     type="button"
                                                     onClick={() => router.push(`/citizen/community?highlight=${comp.complaint_id}`)}
-                                                    className="text-[11px] font-semibold flex items-center gap-1"
+                                                    className="text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
                                                     style={{ color: 'var(--navy)' }}
                                                 >
-                                                    View <ExternalLink size={10} />
+                                                    {t('view')} <ExternalLink size={10} />
                                                 </button>
                                             </div>
                                         </div>
@@ -519,14 +516,14 @@ export default function LodgeGrievance() {
                     <div className="gov-card p-4">
                         <h4 className="text-xs font-bold uppercase tracking-wider mb-3"
                             style={{ color: 'var(--navy)' }}>
-                            Submission Guidelines
+                            {t('submission_guidelines')}
                         </h4>
                         <ul className="text-xs space-y-2" style={{ color: 'var(--text-secondary)' }}>
                             {[
-                                'Be specific about location and issue',
-                                'Include photos for faster processing',
-                                'AI auto-routes to correct department',
-                                'Track status via the Track page',
+                                t('guideline_1'),
+                                t('guideline_2'),
+                                t('guideline_3'),
+                                t('guideline_4'),
                             ].map((tip, i) => (
                                 <li key={i} className="flex items-start gap-2">
                                     <span className="text-[10px] font-bold mt-0.5 flex-shrink-0"

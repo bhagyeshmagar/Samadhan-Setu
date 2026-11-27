@@ -637,8 +637,8 @@ export default function TaskAssignment({
                 <button
                     type="submit"
                     disabled={isBusy || !assigneeId || !activeComplaint}
-                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md text-white transition-opacity hover:opacity-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--navy) disabled:opacity-50 whitespace-nowrap"
-                    style={{ background: '#003580' }}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md transition-opacity hover:opacity-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--navy) disabled:opacity-50 whitespace-nowrap"
+                    style={{ background: 'var(--navy)', color: 'var(--primary-ink)' }}
                 >
                     {isBusy ? <Loader2 size={13} className="animate-spin" /> : <ClipboardCheck size={13} />}
                     <span>{isReassign ? copy.reassignLabel : copy.submitLabel}</span>
